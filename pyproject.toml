@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sample-key-indexer"
+version = "0.1.0"
+description = "Local audio sample library key indexing and organisation tool."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "librosa>=0.10.0",
+  "numpy>=1.23",
+  "soundfile>=0.12",
+  "tqdm>=4.66",
+]
+
+[project.scripts]
+sample-key-indexer = "sample_key_indexer.cli:main"
+sample-key-indexer-web = "sample_key_indexer.web_app:main"
+
+[tool.setuptools.package-data]
+sample_key_indexer = ["web_static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

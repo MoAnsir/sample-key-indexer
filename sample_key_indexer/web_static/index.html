@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Browser</title>
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="toolbar" aria-label="Filters">
+        <div>
+          <p class="eyebrow">Sample Library</p>
+          <h1>Key Index Browser</h1>
+        </div>
+        <div class="summary">
+          <strong id="visibleCount">0</strong>
+          <span id="totalCount">samples</span>
+        </div>
+      </section>
+
+      <section class="analytics" aria-label="Sample type distribution">
+        <div class="chart-wrap">
+          <canvas id="typeChart" width="920" height="320" aria-label="Sample type chart"></canvas>
+        </div>
+        <div class="pie-panel">
+          <canvas id="pieChart" width="320" height="240" aria-label="Sample type pie chart"></canvas>
+          <div id="pieLegend" class="pie-legend"></div>
+        </div>
+      </section>
+
+      <section class="filters" aria-label="Sample filters">
+        <label>
+          Search
+          <input id="searchInput" type="search" placeholder="Name, key, path, type">
+        </label>
+        <label>
+          Category
+          <select id="categoryFilter"></select>
+        </label>
+        <label>
+          Type
+          <select id="typeFilter"></select>
+        </label>
+        <label>
+          Key / Root
+          <select id="keyFilter"></select>
+        </label>
+        <label>
+          Source
+          <select id="sourceFilter"></select>
+        </label>
+        <label>
+          Brightness
+          <select id="brightnessFilter"></select>
+        </label>
+        <label>
+          Warmth
+          <select id="warmthFilter"></select>
+        </label>
+        <label>
+          BPM
+          <div class="range-pair">
+            <input id="bpmMinFilter" type="number" min="0" placeholder="Min">
+            <input id="bpmMaxFilter" type="number" min="0" placeholder="Max">
+          </div>
+        </label>
+        <label>
+          Minimum confidence
+          <input id="confidenceFilter" type="range" min="0" max="1" step="0.05" value="0">
+          <span id="confidenceValue">0.00</span>
+        </label>
+        <label class="checkbox">
+          <input id="unsortedOnly" type="checkbox">
+          Unsorted only
+        </label>
+      </section>
+
+      <section class="player-bar" aria-label="Audio player">
+        <div class="player-info">
+          <p class="eyebrow">Now Playing</p>
+          <strong id="nowPlaying">Select a sample</strong>
+          <div id="nowPlayingDetails" class="now-playing-details"></div>
+          <div class="music-panel">
+            <div>
+              <p class="panel-title">Piano / Notes</p>
+              <div id="pianoView" class="piano-view"></div>
+            </div>
+            <div>
+              <p class="panel-title">Suggestions</p>
+              <div id="suggestionView" class="suggestion-view"></div>
+            </div>
+          </div>
+        </div>
+        <div class="player-stack">
+          <canvas id="waveformCanvas" width="900" height="96" aria-label="Audio waveform"></canvas>
+          <canvas id="frequencyCanvas" width="900" height="170" aria-label="Frequency feature chart"></canvas>
+          <canvas id="mfccCanvas" width="900" height="150" aria-label="MFCC timbre chart"></canvas>
+          <audio id="audioPlayer" controls preload="none"></audio>
+        </div>
+      </section>
+
+      <section class="sample-table" aria-label="Samples">
+        <div class="sample-header">
+          <span>Play</span>
+          <button type="button" data-sort="name">Name</button>
+          <button type="button" data-sort="path">Path</button>
+          <button type="button" data-sort="key">Key</button>
+          <button type="button" data-sort="category">Category</button>
+          <button type="button" data-sort="type">Type</button>
+          <button type="button" data-sort="source">Source</button>
+          <button type="button" data-sort="brightness">Brightness</button>
+          <button type="button" data-sort="bpm">BPM</button>
+          <button type="button" data-sort="confidence">Confidence</button>
+        </div>
+        <div id="sampleList" class="sample-list"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
