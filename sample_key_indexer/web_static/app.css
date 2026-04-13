@@ -213,6 +213,18 @@ canvas {
   padding: 14px;
 }
 
+.player-bar.is-empty {
+  grid-template-columns: minmax(180px, 0.7fr) minmax(280px, 1.3fr);
+}
+
+.player-bar.is-empty .now-playing-details,
+.player-bar.is-empty .music-panel,
+.player-bar.is-empty #waveformCanvas,
+.player-bar.is-empty #frequencyCanvas,
+.player-bar.is-empty #mfccCanvas {
+  display: none;
+}
+
 audio {
   width: 100%;
 }

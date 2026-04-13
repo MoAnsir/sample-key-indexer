@@ -23,6 +23,7 @@ const els = {
   visibleCount: document.querySelector("#visibleCount"),
   totalCount: document.querySelector("#totalCount"),
   list: document.querySelector("#sampleList"),
+  playerBar: document.querySelector("#playerBar"),
   chart: document.querySelector("#typeChart"),
   pieChart: document.querySelector("#pieChart"),
   pieLegend: document.querySelector("#pieLegend"),
@@ -300,6 +301,7 @@ function renderList() {
 }
 
 function playSample(sample) {
+  els.playerBar.classList.remove("is-empty");
   els.nowPlaying.textContent = fileName(sample);
   els.nowPlaying.title = fileName(sample);
   renderNowPlayingDetails(sample);
