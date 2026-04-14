@@ -208,7 +208,7 @@ function renderSortHeaders() {
 function renderChart() {
   const canvas = els.chart;
   const ctx = canvas.getContext("2d");
-  const stats = statsFor(state.samples, state.samples.length);
+  const stats = statsFor(state.filtered, state.samples.length);
   const rowHeight = 22;
   canvas.height = Math.max(320, 60 + stats.length * rowHeight);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -218,7 +218,7 @@ function renderChart() {
 
   if (!stats.length) {
     ctx.font = "600 16px system-ui";
-    ctx.fillText("No samples available yet.", 20, 72);
+    ctx.fillText("No samples match the current filters.", 20, 72);
     return;
   }
 
@@ -247,9 +247,9 @@ function renderChart() {
 function renderPieChart() {
   const canvas = els.pieChart;
   const ctx = canvas.getContext("2d");
-  const stats = statsFor(state.samples, state.samples.length);
+  const stats = statsFor(state.filtered, state.samples.length);
   canvas.height = 240;
-  const sampleTotal = Math.max(1, state.samples.length);
+  const visibleTotal = Math.max(1, state.filtered.length);
   let angle = -Math.PI / 2;
   const centerX = canvas.width / 2;
   const centerY = 104;
@@ -263,13 +263,13 @@ function renderPieChart() {
 
   if (!stats.length) {
     ctx.font = "600 14px system-ui";
-    ctx.fillText("No samples available.", 12, 62);
+    ctx.fillText("No matching samples.", 12, 62);
     els.pieLegend.innerHTML = "";
     return;
   }
 
   stats.forEach((item, index) => {
-    const slice = (item.count / sampleTotal) * Math.PI * 2;
+    const slice = (item.count / visibleTotal) * Math.PI * 2;
     ctx.beginPath();
     ctx.moveTo(centerX, centerY);
     ctx.arc(centerX, centerY, radius, angle, angle + slice);
@@ -286,9 +286,9 @@ function renderPieChart() {
   ctx.fillStyle = "#17211f";
   ctx.textAlign = "center";
   ctx.font = "800 18px system-ui";
-  ctx.fillText(state.samples.length.toLocaleString(), centerX, centerY);
+  ctx.fillText(state.filtered.length.toLocaleString(), centerX, centerY);
   ctx.font = "700 11px system-ui";
-  ctx.fillText("total", centerX, centerY + 16);
+  ctx.fillText("visible", centerX, centerY + 16);
 
   els.pieLegend.innerHTML = stats.map((item, index) => `
     <div class="legend-item" title="${escapeHtml(item.type)}: ${item.count.toLocaleString()} samples, ${item.percentage.toFixed(1)}% of total pool">
