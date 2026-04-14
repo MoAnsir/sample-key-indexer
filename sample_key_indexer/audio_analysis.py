@@ -90,19 +90,35 @@ def audio_file_info(path: Path, fallback_duration: float, fallback_sr: int) -> t
         return round(float(fallback_duration), 3), int(fallback_sr)
 
 
+def quick_audio_duration(path: Path) -> float | None:
+    try:
+        import soundfile as sf
+
+        info = sf.info(path)
+        return round(float(info.frames / info.samplerate), 3)
+    except Exception:
+        try:
+            import librosa
+
+            return round(float(librosa.get_duration(path=str(path))), 3)
+        except Exception:
+            return None
+
+
 def extract_audio_features(y: np.ndarray, sr: int, fundamental_freq: float | None) -> dict:
     import librosa
     import numpy as np
 
-    rms = librosa.feature.rms(y=y)
+    n_fft = _adaptive_n_fft(y)
+    rms = librosa.feature.rms(y=y, frame_length=n_fft)
     rms_amp = float(np.nanmean(rms))
     peak_amp = float(np.nanmax(np.abs(y)))
     rms_db = _amp_to_db(rms_amp)
     peak_db = _amp_to_db(peak_amp)
-    centroid = float(np.nanmean(librosa.feature.spectral_centroid(y=y, sr=sr)))
-    bandwidth = float(np.nanmean(librosa.feature.spectral_bandwidth(y=y, sr=sr)))
-    rolloff = float(np.nanmean(librosa.feature.spectral_rolloff(y=y, sr=sr)))
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+    centroid = float(np.nanmean(librosa.feature.spectral_centroid(y=y, sr=sr, n_fft=n_fft)))
+    bandwidth = float(np.nanmean(librosa.feature.spectral_bandwidth(y=y, sr=sr, n_fft=n_fft)))
+    rolloff = float(np.nanmean(librosa.feature.spectral_rolloff(y=y, sr=sr, n_fft=n_fft)))
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, n_fft=n_fft)
     mfcc_mean = [round(float(value), 4) for value in np.nanmean(mfcc, axis=1)]
     roughness_value = float(np.nanvar(librosa.feature.zero_crossing_rate(y)))
     low_energy, total_energy = _low_frequency_energy(y, sr)
@@ -287,6 +303,17 @@ def _low_frequency_energy(y: np.ndarray, sr: int) -> tuple[float, float]:
     total = float(np.sum(spectrum))
     low = float(np.sum(spectrum[freqs <= 250]))
     return low, total
+
+
+def _adaptive_n_fft(y: np.ndarray) -> int:
+    import numpy as np
+
+    length = int(y.size)
+    if length <= 0:
+        return 16
+    if length >= 2048:
+        return 2048
+    return max(16, 2 ** int(np.floor(np.log2(length))))
 
 
 def _error_result(path: Path, error: str) -> AnalysisResult:

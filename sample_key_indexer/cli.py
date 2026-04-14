@@ -22,6 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--move", action="store_true", help="Move files instead of copying them.")
     parser.add_argument("--dry-run", action="store_true", help="Analyze and update destinations in metadata without copying/moving files.")
     parser.add_argument("--write-every", type=int, default=100, help="Write metadata after this many processed files.")
+    parser.add_argument("--max-duration", type=float, default=60.0, help="Skip files longer than this many seconds. Use 0 with --include-long-files to disable.")
+    parser.add_argument("--include-long-files", action="store_true", help="Do not skip long files by duration.")
     parser.add_argument("--doctor", action="store_true", help="Check the local audio-analysis environment and exit.")
     return parser
 
@@ -57,14 +59,19 @@ def main(argv: list[str] | None = None) -> int:
 
     files = discover_audio_files(input_root)
     pending = [path for path in files if not index.should_skip(path, force=args.force)]
-    print(f"Discovered {len(files)} audio files; {len(pending)} pending.")
+    if args.include_long_files:
+        processable = pending
+        skipped_long = []
+    else:
+        processable, skipped_long = split_long_files(pending, args.max_duration)
+    print(f"Discovered {len(files)} audio files; {len(pending)} pending; {len(skipped_long)} skipped as long files.")
 
     processed = 0
-    if pending:
+    if processable:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = {
                 pool.submit(analyze_file, path, args.analysis_duration, args.sample_rate): path
-                for path in pending
+                for path in processable
             }
             for future in tqdm(as_completed(futures), total=len(futures), unit="file"):
                 result = future.result()
@@ -77,6 +84,23 @@ def main(argv: list[str] | None = None) -> int:
     index.write()
     print(f"Indexed {processed} files. Metadata: {index_path}")
     return 0
+
+
+def split_long_files(files: list[Path], max_duration: float) -> tuple[list[Path], list[Path]]:
+    if max_duration <= 0:
+        return files, []
+
+    from sample_key_indexer.audio_analysis import quick_audio_duration
+
+    processable: list[Path] = []
+    skipped: list[Path] = []
+    for path in files:
+        duration = quick_audio_duration(path)
+        if duration is not None and duration > max_duration:
+            skipped.append(path)
+        else:
+            processable.append(path)
+    return processable, skipped
 
 
 if __name__ == "__main__":

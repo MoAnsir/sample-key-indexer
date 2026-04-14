@@ -33,6 +33,18 @@ Copy files into the organised library:
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised
 ```
 
+By default, files longer than 60 seconds are treated as full songs and skipped. This keeps the library focused on samples and avoids filling the output folder with long tracks. To change the threshold:
+
+```bash
+sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --max-duration 90
+```
+
+To include long files anyway:
+
+```bash
+sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --include-long-files
+```
+
 Move files instead of copying:
 
 ```bash
