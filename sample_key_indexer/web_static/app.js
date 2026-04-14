@@ -4,10 +4,14 @@ const state = {
   stats: [],
   sortKey: "name",
   sortDirection: "asc",
+  activeTab: "browse",
   audioContext: null,
 };
 
 const els = {
+  tabButtons: document.querySelectorAll("[data-tab]"),
+  browseTab: document.querySelector("#browseTab"),
+  reviewTab: document.querySelector("#reviewTab"),
   search: document.querySelector("#searchInput"),
   category: document.querySelector("#categoryFilter"),
   type: document.querySelector("#typeFilter"),
@@ -35,6 +39,14 @@ const els = {
   suggestions: document.querySelector("#suggestionView"),
   nowPlaying: document.querySelector("#nowPlaying"),
   nowPlayingDetails: document.querySelector("#nowPlayingDetails"),
+  reviewTotal: document.querySelector("#reviewTotal"),
+  reviewPercent: document.querySelector("#reviewPercent"),
+  reviewReasonCount: document.querySelector("#reviewReasonCount"),
+  reviewLowestConfidence: document.querySelector("#reviewLowestConfidence"),
+  reviewKeyDisagreements: document.querySelector("#reviewKeyDisagreements"),
+  reviewReasonList: document.querySelector("#reviewReasonList"),
+  reviewTypeList: document.querySelector("#reviewTypeList"),
+  reviewExampleList: document.querySelector("#reviewExampleList"),
 };
 
 const NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -56,6 +68,9 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-sort]").forEach((button) => {
     button.addEventListener("click", () => setSort(button.dataset.sort));
+  });
+  els.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => setActiveTab(button.dataset.tab));
   });
 }
 
@@ -166,6 +181,21 @@ function render() {
   renderPieChart();
   renderSortHeaders();
   renderList();
+  renderReview();
+}
+
+function setActiveTab(tab) {
+  state.activeTab = tab === "review" ? "review" : "browse";
+  const isReview = state.activeTab === "review";
+  els.browseTab.hidden = isReview;
+  els.reviewTab.hidden = !isReview;
+  els.browseTab.classList.toggle("is-active", !isReview);
+  els.reviewTab.classList.toggle("is-active", isReview);
+  els.tabButtons.forEach((button) => {
+    const selected = button.dataset.tab === state.activeTab;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-selected", String(selected));
+  });
 }
 
 function renderSortHeaders() {
@@ -298,6 +328,71 @@ function renderList() {
     note.textContent = `Showing first 500 of ${state.filtered.length.toLocaleString()} matching samples. Use filters to narrow the list.`;
     els.list.appendChild(note);
   }
+}
+
+function renderReview() {
+  const reviewSamples = state.samples
+    .filter((sample) => sample.needs_review)
+    .sort((a, b) => Number(a.confidence || 0) - Number(b.confidence || 0) || fileName(a).localeCompare(fileName(b)));
+  const reasonCounts = countsFor(reviewSamples.flatMap((sample) => sample.review_reasons || []));
+  const typeCounts = countsFor(reviewSamples.map((sample) => sample.type || "Unknown"));
+  const keyDisagreements = reviewSamples.filter((sample) => (sample.review_reasons || []).some((reason) => reason.includes("key_disagreement"))).length;
+  const lowestConfidence = reviewSamples.length ? Number(reviewSamples[0].confidence || 0).toFixed(3) : "-";
+  const percentage = state.samples.length ? (reviewSamples.length / state.samples.length) * 100 : 0;
+
+  els.reviewTotal.textContent = reviewSamples.length.toLocaleString();
+  els.reviewPercent.textContent = `${percentage.toFixed(1)}%`;
+  els.reviewReasonCount.textContent = reasonCounts.length.toLocaleString();
+  els.reviewLowestConfidence.textContent = lowestConfidence;
+  els.reviewKeyDisagreements.textContent = keyDisagreements.toLocaleString();
+  renderCountList(els.reviewReasonList, reasonCounts, "No review reasons yet");
+  renderCountList(els.reviewTypeList, typeCounts, "No flagged types yet");
+  renderReviewExamples(reviewSamples.slice(0, 25));
+}
+
+function renderCountList(container, rows, emptyText) {
+  if (!rows.length) {
+    container.innerHTML = `<p class="empty-state">${escapeHtml(emptyText)}</p>`;
+    return;
+  }
+
+  container.innerHTML = rows.map(([label, count]) => `
+    <div class="review-row" title="${escapeHtml(label)}: ${count.toLocaleString()} samples">
+      <span>${escapeHtml(label)}</span>
+      <strong>${count.toLocaleString()}</strong>
+    </div>
+  `).join("");
+}
+
+function renderReviewExamples(samples) {
+  els.reviewExampleList.innerHTML = "";
+  if (!samples.length) {
+    els.reviewExampleList.innerHTML = `<p class="empty-state">No samples need review.</p>`;
+    return;
+  }
+
+  samples.forEach((sample) => {
+    const row = document.createElement("article");
+    row.className = "review-example";
+    const reasons = (sample.review_reasons || []).join(", ") || "needs_review";
+    row.innerHTML = `
+      <button class="play-button" type="button">Play</button>
+      <span class="sample-name" title="${escapeHtml(fileName(sample))}">${escapeHtml(fileName(sample))}</span>
+      <span class="sample-cell" title="${escapeHtml(sample.key || sample.root_note || "Unsorted")}">${escapeHtml(sample.key || sample.root_note || "Unsorted")}</span>
+      <span class="sample-cell ${Number(sample.confidence || 0) < 0.55 ? "low" : ""}" title="${Number(sample.confidence || 0).toFixed(3)}">${Number(sample.confidence || 0).toFixed(3)}</span>
+      <span class="review-reasons" title="${escapeHtml(reasons)}">${escapeHtml(reasons)}</span>
+    `;
+    row.querySelector("button").addEventListener("click", () => playSample(sample));
+    els.reviewExampleList.appendChild(row);
+  });
+}
+
+function countsFor(values) {
+  const counts = new Map();
+  values.filter(Boolean).forEach((value) => {
+    counts.set(value, (counts.get(value) || 0) + 1);
+  });
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
 }
 
 function playSample(sample) {
