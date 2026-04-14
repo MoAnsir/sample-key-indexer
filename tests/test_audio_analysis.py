@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from sample_key_indexer.audio_analysis import choose_consensus_key, detect_filename_key
+from sample_key_indexer.audio_analysis import _normalise_bpm, choose_consensus_key, detect_filename_bpm, detect_filename_key
 
 
 class AudioAnalysisV2Tests(unittest.TestCase):
@@ -12,6 +12,15 @@ class AudioAnalysisV2Tests(unittest.TestCase):
         self.assertEqual(detect_filename_key(Path("KSHMR Trumpet Loop 07 (99, Gm) - Stack.wav")), "G_minor")
         self.assertEqual(detect_filename_key(Path("KSHMR Big Kick 17 (F).wav")), "F")
         self.assertEqual(detect_filename_key(Path("Bass Loop 14 Em.wav")), "E_minor")
+
+    def test_detect_filename_bpm_prefers_pack_tempo_over_slice_range(self) -> None:
+        self.assertEqual(detect_filename_bpm(Path("PL_BGSY_Bass_49-63_140_E_Min_Wet.wav")), 140.0)
+        self.assertEqual(detect_filename_bpm(Path("deep_sub_bass_128bpm_loop.wav")), 128.0)
+
+    def test_normalise_bpm_uses_filename_tempo_for_half_time_readings(self) -> None:
+        self.assertEqual(round(_normalise_bpm(69.84, expected_bpm=140), 2), 139.68)
+        self.assertEqual(round(_normalise_bpm(143.55, expected_bpm=140), 2), 143.55)
+        self.assertEqual(round(_normalise_bpm(234.91, expected_bpm=140), 2), 117.45)
 
     def test_essentia_key_confidence_lifts_when_librosa_root_supports_it(self) -> None:
         key, root, confidence, review_reasons = choose_consensus_key(

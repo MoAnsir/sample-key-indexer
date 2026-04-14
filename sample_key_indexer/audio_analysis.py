@@ -61,7 +61,7 @@ def analyze_file(
         filename_key = detect_filename_key(path)
         features = extract_audio_features(y, sr, fundamental_freq)
         notes = detect_notes(y, sr)
-        bpm = detect_bpm(y, sr, duration)
+        bpm = detect_bpm(y, sr, duration, expected_bpm=detect_filename_bpm(path))
         signature = file_signature(path)
         essentia_key, essentia_root, essentia_confidence, essentia_warning = analyze_with_essentia(y, sr, selected_engines)
         if essentia_warning:
@@ -211,6 +211,23 @@ def detect_filename_key(path: Path) -> str | None:
             if "maj" in token or "major" in token:
                 return f"{note_name}_major"
             return note_name
+    return None
+
+
+def detect_filename_bpm(path: Path) -> float | None:
+    name = path.stem
+    patterns = (
+        r"(?<!\d)(?P<bpm>\d{2,3})\s*bpm(?![A-Za-z])",
+        r"(?<!\d)(?P<bpm>\d{2,3})(?!\d)",
+    )
+    for pattern in patterns:
+        matches: list[float] = []
+        for match in re.finditer(pattern, name, flags=re.IGNORECASE):
+            value = float(match.group("bpm"))
+            if 40 <= value <= 240:
+                matches.append(value)
+        if matches:
+            return matches[-1]
     return None
 
 
@@ -367,7 +384,7 @@ def detect_notes(y: np.ndarray, sr: int, limit: int = 5) -> list[str]:
     return [NOTE_NAMES[int(index)] for index in indexes if chroma_sum[int(index)] > 0]
 
 
-def detect_bpm(y: np.ndarray, sr: int, duration: float) -> float | None:
+def detect_bpm(y: np.ndarray, sr: int, duration: float, expected_bpm: float | None = None) -> float | None:
     if duration < 2.0:
         return None
     try:
@@ -378,9 +395,27 @@ def detect_bpm(y: np.ndarray, sr: int, duration: float) -> float | None:
         value = float(np.asarray(tempo).reshape(-1)[0])
         if value <= 0:
             return None
-        return round(value, 2)
+        return round(_normalise_bpm(value, expected_bpm), 2)
     except Exception:
         return None
+
+
+def _normalise_bpm(value: float, expected_bpm: float | None = None) -> float:
+    if value <= 0:
+        return value
+    candidates = [value]
+    for factor in (0.25, 0.5, 2.0, 4.0):
+        candidate = value * factor
+        if 40 <= candidate <= 220:
+            candidates.append(candidate)
+    if expected_bpm:
+        closest = min(candidates, key=lambda candidate: abs(candidate - expected_bpm))
+        if abs(closest - expected_bpm) / expected_bpm <= 0.12:
+            return closest
+    in_range = [candidate for candidate in candidates if 40 <= candidate <= 220]
+    if in_range:
+        return min(in_range, key=lambda candidate: abs(candidate - min(max(value, 70), 180)))
+    return value
 
 
 def detect_root_note(y: np.ndarray, sr: int) -> tuple[str | None, float, float | None]:

@@ -26,6 +26,20 @@ TONAL_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("FX", ("fx", "sfx", "riser", "downlifter", "impact", "sweep", "noise")),
 ]
 
+MELODIC_INSTRUMENT_TOKENS: tuple[str, ...] = (
+    "accordion",
+    "cello",
+    "flute",
+    "guitar",
+    "mandolin",
+    "mandolines",
+    "sax",
+    "saxophone",
+    "strings",
+    "trumpet",
+    "violin",
+    "woodwind",
+)
 LOOP_PATTERNS: tuple[str, ...] = ("loop", "groove", "break", "beat", "bpm")
 
 
@@ -49,8 +63,13 @@ def classify_sample(path: Path, duration: float, y: np.ndarray | None = None, sr
             return category, _loop_type(category, sample_type, is_drum=False)
 
     if y is not None and sr is not None and y.size:
-        return category, _feature_type(category, y, sr)
+        feature_type = _feature_type(category, y, sr)
+        if feature_type in {"Bass", "BassLoops", "FX", "FXLoops"} and _has_melodic_instrument_name(name):
+            return category, "MelodyLoops" if category == "Loops" else "Leads"
+        return category, feature_type
 
+    if _has_melodic_instrument_name(name):
+        return category, "MelodyLoops" if category == "Loops" else "Leads"
     return category, "FXLoops" if category == "Loops" else "FX"
 
 
@@ -93,3 +112,7 @@ def _loop_type(category: str, sample_type: str, is_drum: bool) -> str:
 def _normalise_name(path: Path) -> str:
     name = f"{path.stem} {' '.join(path.parts[-4:-1])}".lower()
     return re.sub(r"[_\-.]+", " ", name)
+
+
+def _has_melodic_instrument_name(name: str) -> bool:
+    return any(token in name for token in MELODIC_INSTRUMENT_TOKENS)

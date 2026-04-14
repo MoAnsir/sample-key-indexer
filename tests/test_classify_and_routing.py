@@ -3,10 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from sample_key_indexer.classify import classify_sample
 from sample_key_indexer.models import AnalysisResult
 from sample_key_indexer.routing import destination_for
+
+
+class FakeAudio:
+    size = 2048
 
 
 class ClassificationAndRoutingTests(unittest.TestCase):
@@ -19,6 +24,30 @@ class ClassificationAndRoutingTests(unittest.TestCase):
         category, sample_type = classify_sample(Path("deep_sub_bass_128bpm_loop.wav"), 8.0)
         self.assertEqual(category, "Loops")
         self.assertEqual(sample_type, "BassLoops")
+
+    def test_named_melodic_instrument_rescues_bright_fx_feature_guess(self) -> None:
+        with patch("sample_key_indexer.classify._feature_type", return_value="FXLoops"):
+            category, sample_type = classify_sample(
+                Path("PL_BGSY_Saxophone_1_40-48_140_E_Min_Wet.wav"),
+                13.7,
+                y=FakeAudio(),
+                sr=44100,
+            )
+
+        self.assertEqual(category, "Loops")
+        self.assertEqual(sample_type, "MelodyLoops")
+
+    def test_named_melodic_instrument_rescues_low_centroid_bass_feature_guess(self) -> None:
+        with patch("sample_key_indexer.classify._feature_type", return_value="BassLoops"):
+            category, sample_type = classify_sample(
+                Path("PL_BGSY_Cello_2_36-43_140_E_Min_Wet.wav"),
+                12.0,
+                y=FakeAudio(),
+                sr=44100,
+            )
+
+        self.assertEqual(category, "Loops")
+        self.assertEqual(sample_type, "MelodyLoops")
 
     def test_destination_uses_key_first(self) -> None:
         with TemporaryDirectory() as tmp:
