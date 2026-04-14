@@ -157,11 +157,6 @@ input[type="range"] {
 .analytics {
   grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.5fr);
   align-items: start;
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  padding-top: 8px;
-  background: var(--panel);
 }
 
 .chart-wrap,
