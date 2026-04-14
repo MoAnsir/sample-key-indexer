@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -12,9 +13,16 @@ from sample_key_indexer.models import AnalysisResult, file_signature
 NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 MAJOR_PROFILE = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
 MINOR_PROFILE = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
+DRUM_OR_NOISE_TYPES = {"Kick", "Snare", "Hat", "Perc", "DrumLoops", "FX", "FXLoops"}
+FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
+ENGINE_PRESETS = {
+    "fast": ("librosa",),
+    "balanced": ("librosa", "essentia"),
+    "deep": ("librosa", "essentia"),
+}
 
 
-def validate_audio_backend() -> None:
+def validate_audio_backend(engines: tuple[str, ...] | None = None) -> list[str]:
     import lzma
 
     import librosa
@@ -22,12 +30,25 @@ def validate_audio_backend() -> None:
     import soundfile
 
     _ = (lzma, librosa, numpy, soundfile)
+    warnings: list[str] = []
+    for engine in engines or ("librosa",):
+        if engine == "essentia" and not _essentia_available():
+            warnings.append("Essentia is not installed; V2 will keep using librosa-only decisions for now.")
+    return warnings
 
 
-def analyze_file(path: Path, analysis_duration: float = 30.0, sample_rate: int = 22050) -> AnalysisResult:
+def analyze_file(
+    path: Path,
+    analysis_duration: float = 30.0,
+    sample_rate: int = 22050,
+    analysis_profile: str = "fast",
+    engines: tuple[str, ...] | None = None,
+) -> AnalysisResult:
     try:
         import librosa
 
+        selected_engines = normalize_engines(analysis_profile, engines)
+        analysis_warnings: list[str] = []
         y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
         if y.size == 0:
             return _error_result(path, "empty audio")
@@ -37,23 +58,42 @@ def analyze_file(path: Path, analysis_duration: float = 30.0, sample_rate: int =
         key, key_confidence = detect_key(y, sr, root_note)
         category, sample_type = classify_sample(path, duration, y, sr)
         confidence = confidence_for(root_confidence, key_confidence, sample_type, key)
+        filename_key = detect_filename_key(path)
         features = extract_audio_features(y, sr, fundamental_freq)
         notes = detect_notes(y, sr)
         bpm = detect_bpm(y, sr, duration)
         signature = file_signature(path)
+        essentia_key, essentia_root, essentia_confidence, essentia_warning = analyze_with_essentia(y, sr, selected_engines)
+        if essentia_warning:
+            analysis_warnings.append(essentia_warning)
+        final_key, final_root, final_confidence, review_reasons = choose_consensus_key(
+            librosa_key=key,
+            librosa_root=root_note,
+            librosa_confidence=confidence,
+            librosa_key_confidence=key_confidence,
+            librosa_root_confidence=root_confidence,
+            essentia_key=essentia_key,
+            essentia_root=essentia_root,
+            essentia_confidence=essentia_confidence,
+            filename_key=filename_key,
+            sample_type=sample_type,
+        )
+        final_scale_confidence = key_confidence
+        if final_key == essentia_key:
+            final_scale_confidence = max(final_scale_confidence, essentia_confidence)
 
         return AnalysisResult(
             file_path=str(path),
-            root_note=root_note,
-            key=key,
-            confidence=confidence,
+            root_note=final_root,
+            key=final_key,
+            confidence=final_confidence,
             category=category,
             type=sample_type,
             sample_rate=original_sample_rate,
             format=path.suffix.lower().lstrip("."),
-            scale_confidence=key_confidence,
+            scale_confidence=round(final_scale_confidence, 3),
             notes=notes,
-            chords=estimate_chords(key, notes, duration, category),
+            chords=estimate_chords(final_key, notes, duration, category),
             bpm=bpm,
             rms_db=features["rms_db"],
             peak_db=features["peak_db"],
@@ -72,6 +112,15 @@ def analyze_file(path: Path, analysis_duration: float = 30.0, sample_rate: int =
             librosa_root_confidence=root_confidence,
             librosa_key=key,
             librosa_key_confidence=key_confidence,
+            essentia_root=essentia_root,
+            essentia_key=essentia_key,
+            essentia_key_confidence=essentia_confidence,
+            filename_key=filename_key,
+            analysis_profile=analysis_profile,
+            analysis_engines=list(selected_engines),
+            analysis_warnings=analysis_warnings,
+            needs_review=bool(review_reasons),
+            review_reasons=review_reasons,
             duration=round(duration, 3),
             size=int(signature["size"]),
             mtime=float(signature["mtime"]),
@@ -103,6 +152,174 @@ def quick_audio_duration(path: Path) -> float | None:
             return round(float(librosa.get_duration(path=str(path))), 3)
         except Exception:
             return None
+
+
+def normalize_engines(analysis_profile: str, engines: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    if engines:
+        selected = engines
+    else:
+        selected = ENGINE_PRESETS.get(analysis_profile, ENGINE_PRESETS["fast"])
+    normalized: list[str] = []
+    for engine in selected:
+        engine_name = engine.strip().lower()
+        if engine_name and engine_name not in normalized:
+            normalized.append(engine_name)
+    if "librosa" not in normalized:
+        normalized.insert(0, "librosa")
+    return tuple(normalized)
+
+
+def analyze_with_essentia(y: np.ndarray, sr: int, engines: tuple[str, ...]) -> tuple[str | None, str | None, float, str | None]:
+    if "essentia" not in engines:
+        return None, None, 0.0, None
+    try:
+        import numpy as np
+        from essentia.standard import KeyExtractor
+
+        audio = np.asarray(y, dtype="float32")
+        key, scale, strength = KeyExtractor(sampleRate=sr)(audio)
+        normalized_key = _normalise_key_name(key, scale)
+        root = key if key in NOTE_NAMES else None
+        return normalized_key, root, round(float(strength), 3), None
+    except ModuleNotFoundError:
+        return None, None, 0.0, "essentia unavailable"
+    except Exception as exc:
+        return None, None, 0.0, f"essentia failed: {exc}"
+
+
+def detect_filename_key(path: Path) -> str | None:
+    name = path.stem
+    text = re.sub(r"[_\-.]+", " ", name)
+    note = r"(?P<note>[A-Ga-g])(?P<accidental>#|b)?"
+    minor = r"(?:min(?:or)?|m)"
+    major = r"(?:maj(?:or)?|major)"
+    patterns = (
+        rf"(?<![A-Za-z]){note}\s+{minor}(?![A-Za-z])",
+        rf"(?<![A-Za-z]){note}\s+{major}(?![A-Za-z])",
+        rf"(?<![A-Za-z]){note}{minor}(?![A-Za-z])",
+        rf"(?<![A-Za-z]){note}{major}(?![A-Za-z])",
+        rf"\(({note})\)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            note_name = _normalise_note(match.group("note"), match.groupdict().get("accidental"))
+            if not note_name:
+                continue
+            token = match.group(0).lower()
+            if "min" in token or token.rstrip(")").endswith("m"):
+                return f"{note_name}_minor"
+            if "maj" in token or "major" in token:
+                return f"{note_name}_major"
+            return note_name
+    return None
+
+
+def choose_consensus_key(
+    librosa_key: str | None,
+    librosa_root: str | None,
+    librosa_confidence: float,
+    librosa_key_confidence: float,
+    librosa_root_confidence: float,
+    essentia_key: str | None,
+    essentia_root: str | None,
+    essentia_confidence: float,
+    filename_key: str | None,
+    sample_type: str,
+) -> tuple[str | None, str | None, float, list[str]]:
+    review_reasons = review_reasons_for(
+        librosa_key=librosa_key,
+        librosa_root=librosa_root,
+        librosa_root_confidence=librosa_root_confidence,
+        essentia_key=essentia_key,
+        essentia_root=essentia_root,
+        filename_key=filename_key,
+        sample_type=sample_type,
+    )
+    if essentia_key and librosa_key == essentia_key:
+        final_root = root_from_key(librosa_key) or librosa_root or essentia_root
+        return librosa_key, final_root, round(min(1.0, max(librosa_confidence, essentia_confidence) + 0.08), 3), review_reasons
+    if (
+        essentia_key
+        and not librosa_key
+        and essentia_root
+        and librosa_root == essentia_root
+        and librosa_key_confidence >= 0.85
+        and librosa_root_confidence >= 0.4
+        and sample_type not in DRUM_OR_NOISE_TYPES
+    ):
+        confidence = max(essentia_confidence * 0.85, min(0.84, (essentia_confidence + librosa_key_confidence) / 2))
+        return essentia_key, root_from_key(essentia_key) or essentia_root, round(confidence, 3), review_reasons
+    if essentia_key and not librosa_key and essentia_confidence >= 0.45:
+        final_root = root_from_key(essentia_key) or essentia_root or librosa_root
+        return essentia_key, final_root, round(min(1.0, essentia_confidence * 0.85), 3), review_reasons
+    if essentia_key and librosa_key and essentia_confidence > librosa_confidence + 0.2:
+        final_root = root_from_key(essentia_key) or essentia_root or librosa_root
+        return essentia_key, final_root, round(min(1.0, essentia_confidence * 0.8), 3), review_reasons
+    return librosa_key, root_from_key(librosa_key) or librosa_root, librosa_confidence, review_reasons
+
+
+def review_reasons_for(
+    librosa_key: str | None,
+    librosa_root: str | None,
+    librosa_root_confidence: float,
+    essentia_key: str | None,
+    essentia_root: str | None,
+    filename_key: str | None,
+    sample_type: str,
+) -> list[str]:
+    reasons: list[str] = []
+    if librosa_key and essentia_key and librosa_key != essentia_key:
+        reasons.append("engine_key_disagreement")
+    if (
+        not librosa_key
+        and librosa_root
+        and essentia_root
+        and librosa_root != essentia_root
+        and librosa_root_confidence >= 0.3
+        and sample_type not in DRUM_OR_NOISE_TYPES
+    ):
+        reasons.append("engine_root_disagreement")
+    if filename_key and sample_type not in DRUM_OR_NOISE_TYPES:
+        engine_keys = [key for key in (librosa_key, essentia_key) if key]
+        if engine_keys and filename_key not in engine_keys:
+            reasons.append("filename_key_disagreement")
+    return reasons
+
+
+def _essentia_available() -> bool:
+    try:
+        import essentia.standard  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _normalise_key_name(key: str, scale: str) -> str | None:
+    if key not in NOTE_NAMES:
+        return None
+    mode = scale.lower()
+    if mode not in {"major", "minor"}:
+        return key
+    return f"{key}_{mode}"
+
+
+def root_from_key(key: str | None) -> str | None:
+    if not key:
+        return None
+    root = key.split("_", maxsplit=1)[0]
+    if root in NOTE_NAMES:
+        return root
+    return None
+
+
+def _normalise_note(note: str, accidental: str | None) -> str | None:
+    note_name = note.upper()
+    if accidental:
+        note_name = f"{note_name}{accidental}"
+    note_name = FLAT_TO_SHARP.get(note_name, note_name)
+    if note_name not in NOTE_NAMES:
+        return None
+    return note_name
 
 
 def extract_audio_features(y: np.ndarray, sr: int, fundamental_freq: float | None) -> dict:
@@ -188,7 +405,7 @@ def detect_root_note(y: np.ndarray, sr: int) -> tuple[str | None, float, float |
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     chroma_sum = np.nan_to_num(chroma.sum(axis=1))
     if float(chroma_sum.sum()) <= 0:
-        return None, 0.0
+        return None, 0.0, None
     root_idx = int(np.argmax(chroma_sum))
     confidence = float(chroma_sum[root_idx] / chroma_sum.sum())
     return NOTE_NAMES[root_idx], round(min(1.0, confidence), 3), None

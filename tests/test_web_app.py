@@ -34,6 +34,12 @@ class WebAppTests(unittest.TestCase):
             notes=["E", "G", "B"],
             brightness="medium",
             source="synth",
+            essentia_key="E_minor",
+            filename_key="C_minor",
+            analysis_profile="balanced",
+            analysis_engines=["librosa", "essentia"],
+            needs_review=True,
+            review_reasons=["filename_key_disagreement"],
             destination="/organised/Key/E_minor/Loops/MelodyLoops/pad_dark_em.wav",
         )
 
@@ -46,6 +52,34 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(sample["notes"], ["E", "G", "B"])
         self.assertEqual(sample["brightness"], "medium")
         self.assertEqual(sample["source"], "synth")
+        self.assertEqual(sample["analysis_profile"], "balanced")
+        self.assertEqual(sample["analysis_engines"], ["librosa", "essentia"])
+        self.assertEqual(sample["essentia_key"], "E_minor")
+        self.assertEqual(sample["filename_key"], "C_minor")
+        self.assertTrue(sample["needs_review"])
+        self.assertEqual(sample["review_reasons"], ["filename_key_disagreement"])
+
+    def test_programs_keep_raw_engine_keys(self) -> None:
+        result = AnalysisResult(
+            file_path="/samples/accordion.wav",
+            root_note="G",
+            key="G_minor",
+            confidence=0.62,
+            category="Loops",
+            type="MelodyLoops",
+            duration=8.5,
+            librosa_root="G",
+            librosa_key=None,
+            librosa_key_confidence=0.947,
+            essentia_root="G",
+            essentia_key="G_minor",
+            essentia_key_confidence=0.73,
+        )
+
+        programs = result.to_dict()["analysis"]["programs"]
+
+        self.assertIsNone(programs["librosa"]["key"])
+        self.assertEqual(programs["essentia"]["key"], "G_minor")
 
 
 if __name__ == "__main__":

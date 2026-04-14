@@ -37,6 +37,15 @@ class AnalysisResult:
     librosa_root_confidence: float = 0.0
     librosa_key: str | None = None
     librosa_key_confidence: float = 0.0
+    essentia_root: str | None = None
+    essentia_key: str | None = None
+    essentia_key_confidence: float = 0.0
+    filename_key: str | None = None
+    analysis_profile: str = "fast"
+    analysis_engines: list[str] = field(default_factory=lambda: ["librosa"])
+    analysis_warnings: list[str] = field(default_factory=list)
+    needs_review: bool = False
+    review_reasons: list[str] = field(default_factory=list)
     destination: str | None = None
     error: str | None = None
     size: int | None = None
@@ -92,16 +101,31 @@ class AnalysisResult:
             "analysis": {
                 "programs": {
                     "librosa": {
-                        "root": self.librosa_root or self.root_note,
+                        "root": self.librosa_root,
                         "root_confidence": self.librosa_root_confidence,
-                        "key": self.librosa_key or self.key,
+                        "key": self.librosa_key,
                         "key_confidence": self.librosa_key_confidence,
-                    }
+                    },
+                    "essentia": {
+                        "root": self.essentia_root,
+                        "key": self.essentia_key,
+                        "key_confidence": self.essentia_key_confidence,
+                    },
+                    "filename": {
+                        "key": self.filename_key,
+                    },
                 },
                 "final_decision": {
                     "root": self.root_note,
                     "key": self.key,
                     "confidence": self.confidence,
+                },
+                "profile": self.analysis_profile,
+                "engines": self.analysis_engines,
+                "warnings": self.analysis_warnings,
+                "review": {
+                    "needs_review": self.needs_review,
+                    "reasons": self.review_reasons,
                 },
             },
             "routing": {

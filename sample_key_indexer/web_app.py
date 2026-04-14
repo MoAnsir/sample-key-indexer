@@ -9,13 +9,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from sample_key_indexer.index_store import load_records
+
 STATIC_ROOT = Path(__file__).with_name("web_static")
 
 
 def load_samples(index_path: Path) -> list[dict]:
-    with index_path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    records = payload if isinstance(payload, list) else payload.get("files", [])
+    records = load_records(index_path)
     samples = []
     for index, record in enumerate(records):
         sample = _flatten_sample(record)
@@ -142,6 +142,7 @@ def _flatten_sample(record: dict) -> dict:
     analysis = record.get("analysis", {})
     routing = record.get("routing", {})
     final = analysis.get("final_decision", {})
+    programs = analysis.get("programs", {})
 
     return {
         "file_path": file_block.get("path"),
@@ -173,6 +174,14 @@ def _flatten_sample(record: dict) -> dict:
         "subtype": classification.get("subtype"),
         "source": classification.get("source"),
         "confidence": classification.get("confidence") or final.get("confidence"),
+        "analysis_profile": analysis.get("profile"),
+        "analysis_engines": analysis.get("engines", []),
+        "analysis_warnings": analysis.get("warnings", []),
+        "needs_review": analysis.get("review", {}).get("needs_review", False),
+        "review_reasons": analysis.get("review", {}).get("reasons", []),
+        "librosa_key": programs.get("librosa", {}).get("key"),
+        "essentia_key": programs.get("essentia", {}).get("key"),
+        "filename_key": programs.get("filename", {}).get("key"),
         "destination": routing.get("destination"),
         "error": routing.get("error"),
         "structured": record,
@@ -181,7 +190,7 @@ def _flatten_sample(record: dict) -> dict:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a local web browser for sample-key-indexer metadata.")
-    parser.add_argument("index_path", type=Path, help="Path to metadata_index.json.")
+    parser.add_argument("index_path", type=Path, help="Path to metadata_index.json or metadata_index.sqlite.")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
     return parser

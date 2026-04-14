@@ -5,13 +5,21 @@ A practical V1 local CLI for scanning large sample libraries, estimating root no
 ## Install
 
 ```bash
-cd /Users/mohammedansir/DEV/sample-key-indexer
+cd /Users/mohammedansir/DEV/Projects/sample-key-indexer
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-`librosa` handles pitch and chroma analysis. `soundfile` is included for WAV/AIFF support; MP3 support depends on the audio backend available to librosa/audioread on your machine.
+`librosa` handles the baseline pitch and chroma analysis. `soundfile` is included for WAV/AIFF support; MP3 support depends on the audio backend available to librosa/audioread on your machine.
+
+V2 can compare against Essentia when it is installed:
+
+```bash
+pip install -e ".[v2]"
+```
+
+You can also install it directly with `pip install essentia`. If Essentia is not installed, the balanced V2 profile still runs and records a warning in the analysis metadata.
 
 ## Run
 
@@ -31,6 +39,26 @@ Copy files into the organised library:
 
 ```bash
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised
+```
+
+V2 uses the balanced analysis profile by default. It keeps the librosa baseline, tries optional Essentia key analysis when available, writes a SQLite working index, and exports the JSON metadata used by the browser:
+
+```text
+Samples_Organised/metadata_index.sqlite
+Samples_Organised/metadata_index.json
+```
+
+You can choose a different profile or engine list:
+
+```bash
+sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --analysis-profile fast
+sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --engines librosa,essentia
+```
+
+Use the old JSON-only index path if needed:
+
+```bash
+sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --no-sqlite
 ```
 
 By default, files longer than 60 seconds are treated as full songs and skipped. This keeps the library focused on samples and avoids filling the output folder with long tracks. To change the threshold:
@@ -55,6 +83,12 @@ Run the web browser:
 
 ```bash
 sample-key-indexer-web /path/to/Samples_Organised/metadata_index.json
+```
+
+The browser can also read the V2 SQLite index directly:
+
+```bash
+sample-key-indexer-web /path/to/Samples_Organised/metadata_index.sqlite
 ```
 
 If the console script has not been refreshed yet, run it as a module:
@@ -105,9 +139,10 @@ Samples_Organised/
   Unsorted/
 ```
 
-Metadata is written to:
+Metadata is written to the V2 SQLite index and exported as JSON:
 
 ```text
+Samples_Organised/metadata_index.sqlite
 Samples_Organised/metadata_index.json
 ```
 
@@ -119,7 +154,7 @@ New records use a structured V1 feature schema with:
 - `musical`: root, key, scale confidence, notes, simple chord hints, BPM
 - `audio_features`: loudness, frequency, timbre buckets, MFCC averages
 - `classification`: category, type, subtype, source, confidence
-- `analysis`: raw librosa decisions plus the final decision used for routing
+- `analysis`: raw librosa decisions, optional Essentia decisions, selected engines, warnings, and the final decision used for routing
 
 The web app can read both this structured schema and older flat records.
 
@@ -131,7 +166,7 @@ If every metadata entry has `root_note: null`, `key: null`, `type: FX`, `duratio
 brew install xz
 pyenv uninstall 3.11.9
 pyenv install 3.11.9
-cd /Users/mohammedansir/DEV/sample-key-indexer
+cd /Users/mohammedansir/DEV/Projects/sample-key-indexer
 rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate

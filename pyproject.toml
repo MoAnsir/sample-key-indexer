@@ -15,6 +15,11 @@ dependencies = [
   "tqdm>=4.66",
 ]
 
+[project.optional-dependencies]
+v2 = [
+  "essentia>=2.1b6.dev1389",
+]
+
 [project.scripts]
 sample-key-indexer = "sample_key_indexer.cli:main"
 sample-key-indexer-web = "sample_key_indexer.web_app:main"
