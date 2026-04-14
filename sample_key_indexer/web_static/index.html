@@ -106,6 +106,27 @@
       </section>
 
       <section id="browseTab" class="tab-panel is-active" aria-label="Browse samples">
+        <section class="table-controls" aria-label="Browse table controls">
+          <div>
+            <p class="eyebrow">Browse</p>
+            <strong id="pageSummary">Showing 0 samples</strong>
+          </div>
+          <div class="pagination-controls">
+            <label>
+              Rows
+              <select id="pageSizeSelect">
+                <option value="100">100</option>
+                <option value="250">250</option>
+                <option value="500" selected>500</option>
+                <option value="1000">1000</option>
+              </select>
+            </label>
+            <button id="prevPageButton" type="button">Previous</button>
+            <span id="pageIndicator">Page 1 of 1</span>
+            <button id="nextPageButton" type="button">Next</button>
+          </div>
+        </section>
+
         <section class="sample-table" aria-label="Samples">
           <div class="sample-header">
             <span>Play</span>

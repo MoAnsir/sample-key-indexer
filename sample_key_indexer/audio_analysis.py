@@ -61,7 +61,8 @@ def analyze_file(
         filename_key = detect_filename_key(path)
         features = extract_audio_features(y, sr, fundamental_freq)
         notes = detect_notes(y, sr)
-        bpm = detect_bpm(y, sr, duration, expected_bpm=detect_filename_bpm(path))
+        filename_bpm = detect_filename_bpm(path)
+        bpm, bpm_review_reasons = detect_bpm_with_review(y, sr, duration, expected_bpm=filename_bpm)
         signature = file_signature(path)
         essentia_key, essentia_root, essentia_confidence, essentia_warning = analyze_with_essentia(y, sr, selected_engines)
         if essentia_warning:
@@ -78,6 +79,7 @@ def analyze_file(
             filename_key=filename_key,
             sample_type=sample_type,
         )
+        review_reasons = [*review_reasons, *bpm_review_reasons]
         final_scale_confidence = key_confidence
         if final_key == essentia_key:
             final_scale_confidence = max(final_scale_confidence, essentia_confidence)
@@ -254,7 +256,8 @@ def choose_consensus_key(
     )
     if essentia_key and librosa_key == essentia_key:
         final_root = root_from_key(librosa_key) or librosa_root or essentia_root
-        return librosa_key, final_root, round(min(1.0, max(librosa_confidence, essentia_confidence) + 0.08), 3), review_reasons
+        final_confidence = round(min(1.0, max(librosa_confidence, essentia_confidence) + 0.08), 3)
+        return librosa_key, final_root, final_confidence, key_review_reasons_with_severity(review_reasons, librosa_key, final_confidence, filename_key, sample_type)
     if (
         essentia_key
         and not librosa_key
@@ -265,14 +268,17 @@ def choose_consensus_key(
         and sample_type not in DRUM_OR_NOISE_TYPES
     ):
         confidence = max(essentia_confidence * 0.85, min(0.84, (essentia_confidence + librosa_key_confidence) / 2))
-        return essentia_key, root_from_key(essentia_key) or essentia_root, round(confidence, 3), review_reasons
+        final_confidence = round(confidence, 3)
+        return essentia_key, root_from_key(essentia_key) or essentia_root, final_confidence, key_review_reasons_with_severity(review_reasons, essentia_key, final_confidence, filename_key, sample_type)
     if essentia_key and not librosa_key and essentia_confidence >= 0.45:
         final_root = root_from_key(essentia_key) or essentia_root or librosa_root
-        return essentia_key, final_root, round(min(1.0, essentia_confidence * 0.85), 3), review_reasons
+        final_confidence = round(min(1.0, essentia_confidence * 0.85), 3)
+        return essentia_key, final_root, final_confidence, key_review_reasons_with_severity(review_reasons, essentia_key, final_confidence, filename_key, sample_type)
     if essentia_key and librosa_key and essentia_confidence > librosa_confidence + 0.2:
         final_root = root_from_key(essentia_key) or essentia_root or librosa_root
-        return essentia_key, final_root, round(min(1.0, essentia_confidence * 0.8), 3), review_reasons
-    return librosa_key, root_from_key(librosa_key) or librosa_root, librosa_confidence, review_reasons
+        final_confidence = round(min(1.0, essentia_confidence * 0.8), 3)
+        return essentia_key, final_root, final_confidence, key_review_reasons_with_severity(review_reasons, essentia_key, final_confidence, filename_key, sample_type)
+    return librosa_key, root_from_key(librosa_key) or librosa_root, librosa_confidence, key_review_reasons_with_severity(review_reasons, librosa_key, librosa_confidence, filename_key, sample_type)
 
 
 def review_reasons_for(
@@ -301,6 +307,21 @@ def review_reasons_for(
         if engine_keys and filename_key not in engine_keys:
             reasons.append("filename_key_disagreement")
     return reasons
+
+
+def key_review_reasons_with_severity(
+    reasons: list[str],
+    final_key: str | None,
+    final_confidence: float,
+    filename_key: str | None,
+    sample_type: str,
+) -> list[str]:
+    if not filename_key or sample_type in DRUM_OR_NOISE_TYPES or not final_key or final_key == filename_key:
+        return reasons
+    if "filename_key_disagreement" not in reasons:
+        return reasons
+    severity = "filename_key_disagreement_confident" if final_confidence >= 0.75 else "filename_key_disagreement_weak"
+    return [*reasons, severity]
 
 
 def _essentia_available() -> bool:
@@ -385,8 +406,13 @@ def detect_notes(y: np.ndarray, sr: int, limit: int = 5) -> list[str]:
 
 
 def detect_bpm(y: np.ndarray, sr: int, duration: float, expected_bpm: float | None = None) -> float | None:
+    bpm, _ = detect_bpm_with_review(y, sr, duration, expected_bpm)
+    return bpm
+
+
+def detect_bpm_with_review(y: np.ndarray, sr: int, duration: float, expected_bpm: float | None = None) -> tuple[float | None, list[str]]:
     if duration < 2.0:
-        return None
+        return None, []
     try:
         import librosa
         import numpy as np
@@ -394,15 +420,21 @@ def detect_bpm(y: np.ndarray, sr: int, duration: float, expected_bpm: float | No
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
         value = float(np.asarray(tempo).reshape(-1)[0])
         if value <= 0:
-            return None
-        return round(_normalise_bpm(value, expected_bpm), 2)
+            return None, []
+        normalized, reason = _normalise_bpm_with_reason(value, expected_bpm)
+        return round(normalized, 2), ([reason] if reason else [])
     except Exception:
-        return None
+        return None, []
 
 
 def _normalise_bpm(value: float, expected_bpm: float | None = None) -> float:
+    normalized, _ = _normalise_bpm_with_reason(value, expected_bpm)
+    return normalized
+
+
+def _normalise_bpm_with_reason(value: float, expected_bpm: float | None = None) -> tuple[float, str | None]:
     if value <= 0:
-        return value
+        return value, None
     candidates = [value]
     for factor in (0.25, 0.5, 2.0, 4.0):
         candidate = value * factor
@@ -411,11 +443,13 @@ def _normalise_bpm(value: float, expected_bpm: float | None = None) -> float:
     if expected_bpm:
         closest = min(candidates, key=lambda candidate: abs(candidate - expected_bpm))
         if abs(closest - expected_bpm) / expected_bpm <= 0.12:
-            return closest
+            return expected_bpm, None
+        if abs(closest - expected_bpm) / expected_bpm > 0.15:
+            return expected_bpm, "filename_bpm_anchor"
     in_range = [candidate for candidate in candidates if 40 <= candidate <= 220]
     if in_range:
-        return min(in_range, key=lambda candidate: abs(candidate - min(max(value, 70), 180)))
-    return value
+        return min(in_range, key=lambda candidate: abs(candidate - min(max(value, 70), 180))), None
+    return value, None
 
 
 def detect_root_note(y: np.ndarray, sr: int) -> tuple[str | None, float, float | None]:

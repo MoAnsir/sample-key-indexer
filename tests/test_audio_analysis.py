@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from sample_key_indexer.audio_analysis import _normalise_bpm, choose_consensus_key, detect_filename_bpm, detect_filename_key
+from sample_key_indexer.audio_analysis import _normalise_bpm, _normalise_bpm_with_reason, choose_consensus_key, detect_filename_bpm, detect_filename_key
 
 
 class AudioAnalysisV2Tests(unittest.TestCase):
@@ -18,9 +18,21 @@ class AudioAnalysisV2Tests(unittest.TestCase):
         self.assertEqual(detect_filename_bpm(Path("deep_sub_bass_128bpm_loop.wav")), 128.0)
 
     def test_normalise_bpm_uses_filename_tempo_for_half_time_readings(self) -> None:
-        self.assertEqual(round(_normalise_bpm(69.84, expected_bpm=140), 2), 139.68)
-        self.assertEqual(round(_normalise_bpm(143.55, expected_bpm=140), 2), 143.55)
-        self.assertEqual(round(_normalise_bpm(234.91, expected_bpm=140), 2), 117.45)
+        self.assertEqual(round(_normalise_bpm(69.84, expected_bpm=140), 2), 140)
+        self.assertEqual(round(_normalise_bpm(143.55, expected_bpm=140), 2), 140)
+        self.assertEqual(round(_normalise_bpm(234.91, expected_bpm=140), 2), 140)
+
+    def test_normalise_bpm_snaps_near_miss_to_filename_tempo_without_review(self) -> None:
+        bpm, reason = _normalise_bpm_with_reason(129.2, expected_bpm=140)
+
+        self.assertEqual(bpm, 140)
+        self.assertIsNone(reason)
+
+    def test_normalise_bpm_flags_filename_anchor_for_suspicious_tempo(self) -> None:
+        bpm, reason = _normalise_bpm_with_reason(95.7, expected_bpm=140)
+
+        self.assertEqual(bpm, 140)
+        self.assertEqual(reason, "filename_bpm_anchor")
 
     def test_essentia_key_confidence_lifts_when_librosa_root_supports_it(self) -> None:
         key, root, confidence, review_reasons = choose_consensus_key(
@@ -39,7 +51,7 @@ class AudioAnalysisV2Tests(unittest.TestCase):
         self.assertEqual(key, "G_minor")
         self.assertEqual(root, "G")
         self.assertEqual(confidence, 0.839)
-        self.assertEqual(review_reasons, ["filename_key_disagreement"])
+        self.assertEqual(review_reasons, ["filename_key_disagreement", "filename_key_disagreement_confident"])
 
     def test_percussive_samples_do_not_get_filename_review_noise(self) -> None:
         _, _, _, review_reasons = choose_consensus_key(
@@ -74,7 +86,7 @@ class AudioAnalysisV2Tests(unittest.TestCase):
         self.assertEqual(key, "B_major")
         self.assertEqual(root, "B")
         self.assertEqual(confidence, 0.661)
-        self.assertEqual(review_reasons, ["engine_root_disagreement", "filename_key_disagreement"])
+        self.assertEqual(review_reasons, ["engine_root_disagreement", "filename_key_disagreement", "filename_key_disagreement_weak"])
 
     def test_final_root_matches_final_key_when_engine_roots_disagree(self) -> None:
         key, root, confidence, review_reasons = choose_consensus_key(
@@ -93,7 +105,7 @@ class AudioAnalysisV2Tests(unittest.TestCase):
         self.assertEqual(key, "E_major")
         self.assertEqual(root, "E")
         self.assertEqual(confidence, 0.88)
-        self.assertEqual(review_reasons, ["filename_key_disagreement"])
+        self.assertEqual(review_reasons, ["filename_key_disagreement", "filename_key_disagreement_confident"])
 
 
 if __name__ == "__main__":

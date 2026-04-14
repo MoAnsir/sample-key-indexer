@@ -5,6 +5,8 @@ const state = {
   sortKey: "name",
   sortDirection: "asc",
   activeTab: "browse",
+  page: 1,
+  pageSize: 500,
   audioContext: null,
 };
 
@@ -39,6 +41,11 @@ const els = {
   suggestions: document.querySelector("#suggestionView"),
   nowPlaying: document.querySelector("#nowPlaying"),
   nowPlayingDetails: document.querySelector("#nowPlayingDetails"),
+  pageSummary: document.querySelector("#pageSummary"),
+  pageSize: document.querySelector("#pageSizeSelect"),
+  pageIndicator: document.querySelector("#pageIndicator"),
+  prevPage: document.querySelector("#prevPageButton"),
+  nextPage: document.querySelector("#nextPageButton"),
   reviewTotal: document.querySelector("#reviewTotal"),
   reviewPercent: document.querySelector("#reviewPercent"),
   reviewReasonCount: document.querySelector("#reviewReasonCount"),
@@ -69,6 +76,13 @@ function bindEvents() {
   document.querySelectorAll("[data-sort]").forEach((button) => {
     button.addEventListener("click", () => setSort(button.dataset.sort));
   });
+  els.pageSize.addEventListener("change", () => {
+    state.pageSize = Number(els.pageSize.value);
+    state.page = 1;
+    render();
+  });
+  els.prevPage.addEventListener("click", () => setPage(state.page - 1));
+  els.nextPage.addEventListener("click", () => setPage(state.page + 1));
   els.tabButtons.forEach((button) => {
     button.addEventListener("click", () => setActiveTab(button.dataset.tab));
   });
@@ -140,6 +154,7 @@ function applyFilters() {
       (Number(sample.confidence || 0) >= minConfidence);
   });
 
+  state.page = 1;
   sortFiltered();
   render();
 }
@@ -151,6 +166,7 @@ function setSort(key) {
     state.sortKey = key;
     state.sortDirection = "asc";
   }
+  state.page = 1;
   sortFiltered();
   render();
 }
@@ -196,6 +212,12 @@ function setActiveTab(tab) {
     button.classList.toggle("is-active", selected);
     button.setAttribute("aria-selected", String(selected));
   });
+}
+
+function setPage(page) {
+  const totalPages = pageCount();
+  state.page = Math.min(Math.max(1, page), totalPages);
+  render();
 }
 
 function renderSortHeaders() {
@@ -300,7 +322,11 @@ function renderPieChart() {
 
 function renderList() {
   els.list.innerHTML = "";
-  state.filtered.slice(0, 500).forEach((sample) => {
+  const totalPages = pageCount();
+  state.page = Math.min(Math.max(1, state.page), totalPages);
+  const start = (state.page - 1) * state.pageSize;
+  const pageSamples = state.filtered.slice(start, start + state.pageSize);
+  pageSamples.forEach((sample) => {
     const row = document.createElement("article");
     row.className = "sample-row";
     const keyOrRoot = sample.key || sample.root_note || "Unsorted";
@@ -322,12 +348,23 @@ function renderList() {
     els.list.appendChild(row);
   });
 
-  if (state.filtered.length > 500) {
-    const note = document.createElement("p");
-    note.className = "sample-meta";
-    note.textContent = `Showing first 500 of ${state.filtered.length.toLocaleString()} matching samples. Use filters to narrow the list.`;
-    els.list.appendChild(note);
+  renderPagination(start, pageSamples.length, totalPages);
+}
+
+function renderPagination(start, renderedCount, totalPages) {
+  if (!state.filtered.length) {
+    els.pageSummary.textContent = "Showing 0 samples";
+  } else {
+    const end = start + renderedCount;
+    els.pageSummary.textContent = `Showing ${(start + 1).toLocaleString()}-${end.toLocaleString()} of ${state.filtered.length.toLocaleString()} matching samples`;
   }
+  els.pageIndicator.textContent = `Page ${state.page.toLocaleString()} of ${totalPages.toLocaleString()}`;
+  els.prevPage.disabled = state.page <= 1;
+  els.nextPage.disabled = state.page >= totalPages;
+}
+
+function pageCount() {
+  return Math.max(1, Math.ceil(state.filtered.length / state.pageSize));
 }
 
 function renderReview() {
