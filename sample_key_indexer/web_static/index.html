@@ -19,6 +19,63 @@
         </div>
       </section>
 
+      <section class="analytics" aria-label="Sample type distribution">
+        <div class="chart-wrap">
+          <canvas id="typeChart" width="920" height="320" aria-label="Sample type chart"></canvas>
+        </div>
+        <div class="pie-panel">
+          <canvas id="pieChart" width="320" height="240" aria-label="Sample type pie chart"></canvas>
+          <div id="pieLegend" class="pie-legend"></div>
+        </div>
+      </section>
+
+      <section class="filters" aria-label="Sample filters">
+        <label>
+          Search
+          <input id="searchInput" type="search" placeholder="Name, key, path, type">
+        </label>
+        <label>
+          Category
+          <select id="categoryFilter"></select>
+        </label>
+        <label>
+          Type
+          <select id="typeFilter"></select>
+        </label>
+        <label>
+          Key / Root
+          <select id="keyFilter"></select>
+        </label>
+        <label>
+          Source
+          <select id="sourceFilter"></select>
+        </label>
+        <label>
+          Brightness
+          <select id="brightnessFilter"></select>
+        </label>
+        <label>
+          Warmth
+          <select id="warmthFilter"></select>
+        </label>
+        <label>
+          BPM
+          <div class="range-pair">
+            <input id="bpmMinFilter" type="number" min="0" placeholder="Min">
+            <input id="bpmMaxFilter" type="number" min="0" placeholder="Max">
+          </div>
+        </label>
+        <label>
+          Minimum confidence
+          <input id="confidenceFilter" type="range" min="0" max="1" step="0.05" value="0">
+          <span id="confidenceValue">0.00</span>
+        </label>
+        <label class="checkbox">
+          <input id="unsortedOnly" type="checkbox">
+          Unsorted only
+        </label>
+      </section>
+
       <nav class="tabs" aria-label="Sample browser views">
         <button class="tab-button is-active" type="button" data-tab="browse" aria-controls="browseTab" aria-selected="true">Browse</button>
         <button class="tab-button" type="button" data-tab="review" aria-controls="reviewTab" aria-selected="false">Review</button>
@@ -49,63 +106,6 @@
       </section>
 
       <section id="browseTab" class="tab-panel is-active" aria-label="Browse samples">
-        <section class="analytics" aria-label="Sample type distribution">
-          <div class="chart-wrap">
-            <canvas id="typeChart" width="920" height="320" aria-label="Sample type chart"></canvas>
-          </div>
-          <div class="pie-panel">
-            <canvas id="pieChart" width="320" height="240" aria-label="Sample type pie chart"></canvas>
-            <div id="pieLegend" class="pie-legend"></div>
-          </div>
-        </section>
-
-        <section class="filters" aria-label="Sample filters">
-          <label>
-            Search
-            <input id="searchInput" type="search" placeholder="Name, key, path, type">
-          </label>
-          <label>
-            Category
-            <select id="categoryFilter"></select>
-          </label>
-          <label>
-            Type
-            <select id="typeFilter"></select>
-          </label>
-          <label>
-            Key / Root
-            <select id="keyFilter"></select>
-          </label>
-          <label>
-            Source
-            <select id="sourceFilter"></select>
-          </label>
-          <label>
-            Brightness
-            <select id="brightnessFilter"></select>
-          </label>
-          <label>
-            Warmth
-            <select id="warmthFilter"></select>
-          </label>
-          <label>
-            BPM
-            <div class="range-pair">
-              <input id="bpmMinFilter" type="number" min="0" placeholder="Min">
-              <input id="bpmMaxFilter" type="number" min="0" placeholder="Max">
-            </div>
-          </label>
-          <label>
-            Minimum confidence
-            <input id="confidenceFilter" type="range" min="0" max="1" step="0.05" value="0">
-            <span id="confidenceValue">0.00</span>
-          </label>
-          <label class="checkbox">
-            <input id="unsortedOnly" type="checkbox">
-            Unsorted only
-          </label>
-        </section>
-
         <section class="sample-table" aria-label="Samples">
           <div class="sample-header">
             <span>Play</span>
