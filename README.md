@@ -91,10 +91,17 @@ The browser can also read the V2 SQLite index directly:
 sample-key-indexer-web /path/to/Samples_Organised/metadata_index.sqlite
 ```
 
+Summarize files that need review:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite
+```
+
 If the console script has not been refreshed yet, run it as a module:
 
 ```bash
 python -m sample_key_indexer.web_app /path/to/Samples_Organised/metadata_index.json
+python -m sample_key_indexer.review_report /path/to/Samples_Organised/metadata_index.sqlite
 ```
 
 Enrich an existing index with the structured V1 feature schema without copying files again:
