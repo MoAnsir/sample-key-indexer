@@ -177,6 +177,18 @@ sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
   --keyfinder-json /path/to/keyfinder_all.json
 ```
 
+Store KeyFinder as an optional external comparison signal without changing the main key decision:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
+  --keyfinder-enrich \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --keyfinder-json /path/to/keyfinder_enrich_report.json
+```
+
+This writes KeyFinder details under `analysis.external.keyfinder`, including the raw key, normalized key, root, stored-key/root match flags, conversion status, errors, and update time. It does not overwrite `musical.key`, `musical.root`, `analysis.final_decision`, routing metadata, or copied files.
+
 If the console script has not been refreshed yet, run it as a module:
 
 ```bash
@@ -294,12 +306,14 @@ The web app can read both this structured schema and older flat records.
 - The check looks for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins in standard macOS/Homebrew Vamp paths, and aubio.
 - The report includes the current deep-review failure target summary so external backend experiments stay scoped to real failures.
 - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures and reports successes, errors, and stored-key/root matches without changing metadata.
+- `--keyfinder-enrich` runs the same KeyFinder path and stores its output under `analysis.external.keyfinder` without changing the main key decision or routing.
 - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or the full selected index.
 - `--keyfinder-convert-retry` retries KeyFinder failures by converting the source to a temporary 16-bit PCM WAV with ffmpeg.
 - Current SD 02 Trad result: KeyFinder processed 4 of 5 deep failures, failed 1 file with a resampling error, and matched the stored root on 2 files.
 - Full SD 02 Trad index result: KeyFinder processed 2,452 of 4,411 files, failed 1,959 files with the same resampling error, matched 779 stored keys, and matched 1,020 stored roots.
 - With `--keyfinder-convert-retry`, the same full index processed all 4,411 files, converted 1,959 files, had zero remaining errors, matched 1,346 stored keys, and matched 2,041 stored roots.
-- KeyFinder should stay a comparison backend for now. The next safe integration step is storing its result under external analysis metadata, not replacing the main key decision.
+- Full SD 02 Trad metadata enrichment result: 4,411 records updated under `analysis.external.keyfinder`, 1,959 conversion retries used, zero errors, 1,346 stored-key matches, and 2,041 stored-root matches.
+- KeyFinder is now an optional stored comparison backend. It should not replace the main key decision until more libraries are compared.
 - This phase does not install tools or update sample metadata by default; it tells us what can be tested next.
 
 ## Troubleshooting

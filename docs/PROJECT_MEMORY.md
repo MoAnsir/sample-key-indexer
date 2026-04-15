@@ -221,21 +221,22 @@ Completed:
   - Persist double-crash failures into `analysis.deep_review`.
   - Skip known deep-review failures by default.
   - `--retry-deep-failed` includes previously failed records for deliberate retesting.
-
-Active:
-
 - V3.5 Failure Reporting and Backend Triage
   - `--deep-failures` reports files marked `analysis.deep_review.failed`.
   - `--failures-json` and `--failures-csv` export the failure report.
   - Summarize failures by reason, library, format, type, duration bucket, and path family.
   - Add lightweight triage hints when failures share a pattern, such as short WAV files crashing the deep librosa+essentia path.
+
+Active:
+
 - V3.6 Deep Backend Experiments
   - `--backend-check` prints local availability for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins, and aubio.
   - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
   - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures, reports successes/errors and stored key/root matches, and can write `--keyfinder-json`.
+  - `--keyfinder-enrich` stores KeyFinder output under `analysis.external.keyfinder` without changing `musical.key`, `musical.root`, `analysis.final_decision`, routing, or copied files.
   - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or every sample in the selected index.
   - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
-  - Keep this phase report-first until an external backend proves useful on the small failure set.
+  - KeyFinder is now an optional stored comparison signal, not the main key decision.
 
 Later:
 
@@ -412,7 +413,44 @@ Matches stored root: 2041 files
 
 Interpretation: ffmpeg conversion fixes the KeyFinder resampling failure completely for this pack. KeyFinder still should not overwrite the main decision yet, but it is now viable as an optional comparison backend over full selected indexes.
 
-Recommended next step for V3.6: add an opt-in metadata enrichment command that stores KeyFinder output under external analysis metadata, for example `analysis.external.keyfinder`, including raw key, normalized key, root, match flags, conversion status, and errors. Do not change the main `musical.key` or routing decision yet. After one or two more libraries are tested, decide whether KeyFinder becomes part of the deep profile, remains a report-only comparator, or is used only when librosa/essentia disagree.
+V3.6 now includes an opt-in metadata enrichment command that stores KeyFinder output under `analysis.external.keyfinder`, including raw key, normalized key, root, stored key/root match flags, conversion status, errors, path, command, scope, and update timestamp. It does not change `musical.key`, `musical.root`, `analysis.final_decision`, routing metadata, or copied files.
+
+Metadata enrichment command:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-enrich \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --keyfinder-json /tmp/v36_keyfinder_enrich_all.json
+```
+
+Result on SD 02 Trad:
+
+```text
+Selected samples: 4411 files
+Processed: 4411 files
+Successes: 4411 files
+Metadata updated: 4411 files
+Conversion attempts: 1959 files
+Conversion successes: 1959 files
+Conversion errors: 0 files
+Missing audio: 0 files
+Errors: 0 files
+Matches stored key: 1346 files
+Matches stored root: 2041 files
+```
+
+SQLite verification:
+
+```text
+total records: 4411
+analysis.external.keyfinder.status = success: 4411
+analysis.external.keyfinder.conversion_used = true: 1959
+```
+
+Interpretation: KeyFinder is ready as an optional external comparison signal. Keep it separate from the main key decision until more libraries have stored comparison data. Later decisions can use match/disagreement patterns across libraries to decide whether KeyFinder becomes part of deep profile consensus, stays report-only, or is used only when librosa/essentia disagree.
 
 ## Common Gotchas
 

@@ -332,9 +332,157 @@ def build_keyfinder_experiment_report(
     return report
 
 
+def enrich_keyfinder_metadata(
+    index_path: Path,
+    records: list[dict[str, Any]],
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+    limit: int = 0,
+    timeout: float = 15.0,
+    scope: str = "failures",
+    low_confidence: float = 0.35,
+    convert_retry: bool = False,
+    dry_run: bool = False,
+    write_every: int = 25,
+    export_json: bool = True,
+) -> dict[str, Any]:
+    command = shutil.which("keyfinder-cli") or shutil.which("keyfinder")
+    ffmpeg_command = shutil.which("ffmpeg") if convert_retry else None
+    targets = keyfinder_targets(records, scope=scope, low_confidence=low_confidence)
+    if limit > 0:
+        targets = targets[:limit]
+    report: dict[str, Any] = {
+        "backend": "keyfinder",
+        "mode": "metadata_enrichment",
+        "scope": scope,
+        "command": command,
+        "convert_retry": convert_retry,
+        "ffmpeg_command": ffmpeg_command,
+        "selected": len(targets),
+        "processed": 0,
+        "successes": 0,
+        "updated": 0,
+        "conversion_attempts": 0,
+        "conversion_successes": 0,
+        "conversion_errors": 0,
+        "missing_audio": 0,
+        "errors": 0,
+        "matches_stored_key": 0,
+        "matches_stored_root": 0,
+        "dry_run": dry_run,
+        "results": [],
+    }
+    if not command:
+        report["errors"] = len(targets)
+        report["backend_error"] = "keyfinder_not_found"
+        return report
+
+    index = None if dry_run else open_writable_index(index_path)
+    try:
+        for target in targets:
+            playable = Path(_playable_path(target, library_roots, destination_roots))
+            result = {
+                "name": target.get("name"),
+                "library_id": target.get("library_id"),
+                "relative_path": target.get("relative_path"),
+                "path": str(playable),
+                "stored_key": target.get("key"),
+                "stored_root": target.get("root_note"),
+                "confidence": target.get("confidence"),
+                "needs_review": target.get("needs_review"),
+                "path_family": target.get("path_family") or path_family(target.get("relative_path") or target.get("file_path")),
+            }
+            if not playable.exists():
+                result["status"] = "missing_audio"
+                result["error"] = "audio_not_found"
+                report["missing_audio"] += 1
+                report["results"].append(result)
+                continue
+            keyfinder_result = run_keyfinder(command, playable, timeout=timeout)
+            if keyfinder_result["status"] != "success" and convert_retry:
+                report["conversion_attempts"] += 1
+                retry_result = run_keyfinder_with_converted_wav(command, playable, ffmpeg_command, timeout=timeout)
+                if retry_result.get("conversion_status") == "success":
+                    report["conversion_successes"] += 1
+                else:
+                    report["conversion_errors"] += 1
+                if retry_result["status"] == "success":
+                    keyfinder_result = retry_result
+                else:
+                    keyfinder_result["conversion_status"] = retry_result.get("conversion_status")
+                    keyfinder_result["conversion_error"] = retry_result.get("conversion_error")
+            result.update(keyfinder_result)
+            if keyfinder_result["status"] == "success":
+                report["processed"] += 1
+                report["successes"] += 1
+                result["matches_stored_key"] = keys_match(result.get("normalized_key"), result.get("stored_key"))
+                result["matches_stored_root"] = roots_match(result.get("root_note"), result.get("stored_root"))
+                if result["matches_stored_key"]:
+                    report["matches_stored_key"] += 1
+                if result["matches_stored_root"]:
+                    report["matches_stored_root"] += 1
+            else:
+                report["errors"] += 1
+            if not dry_run:
+                structured = target.get("structured")
+                if isinstance(structured, dict) and structured:
+                    updated_record = record_with_keyfinder_external(structured, result, command, scope)
+                    upsert_record(index, updated_record)
+                    report["updated"] += 1
+                    if report["updated"] % max(1, write_every) == 0:
+                        index.write()
+                else:
+                    report["errors"] += 1
+                    result["metadata_error"] = "missing_structured_record"
+            report["results"].append(result)
+        if index:
+            index.write()
+            if export_json and isinstance(index, SQLiteMetadataIndex):
+                index.export_json(index_path.with_suffix(".json"))
+    finally:
+        if index:
+            close_index(index)
+    report["error_reasons"] = count_items([item for item in report["results"] if item.get("status") != "success" or item.get("metadata_error")], "error")
+    report["success_by_path_family"] = count_items([item for item in report["results"] if item.get("status") == "success"], "path_family")
+    report["error_by_path_family"] = count_items([item for item in report["results"] if item.get("status") != "success"], "path_family")
+    return report
+
+
+def record_with_keyfinder_external(record: dict[str, Any], result: dict[str, Any], command: str | None, scope: str) -> dict[str, Any]:
+    updated = json.loads(json.dumps(record))
+    analysis = dict(updated.get("analysis") or {})
+    external = dict(analysis.get("external") or {})
+    external["keyfinder"] = {
+        "backend": "keyfinder",
+        "scope": scope,
+        "command": command,
+        "status": result.get("status"),
+        "raw_key": result.get("raw_key"),
+        "normalized_key": result.get("normalized_key"),
+        "root_note": result.get("root_note"),
+        "raw_output": result.get("raw_output"),
+        "error": result.get("error"),
+        "matches_stored_key": result.get("matches_stored_key"),
+        "matches_stored_root": result.get("matches_stored_root"),
+        "stored_key": result.get("stored_key"),
+        "stored_root": result.get("stored_root"),
+        "path": result.get("path"),
+        "conversion_used": result.get("conversion_status") == "success",
+        "conversion_status": result.get("conversion_status"),
+        "conversion_error": result.get("conversion_error"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    analysis["external"] = external
+    updated["analysis"] = analysis
+    return updated
+
+
 def keyfinder_targets(records: list[dict[str, Any]], scope: str, low_confidence: float = 0.35) -> list[dict[str, Any]]:
     if scope == "failures":
-        return build_deep_failure_report(records, max_examples=0)["failures"]
+        samples = [_flatten_sample(record) for record in records]
+        failures = [sample for sample in samples if deep_review_failed(sample)]
+        failures.sort(key=lambda sample: (sample.get("deep_review", {}).get("reason") or "unknown", sample.get("library_id") or "", sample.get("relative_path") or sample.get("name") or ""))
+        return failures
     if scope == "review":
         return select_deep_review_candidates(records, low_confidence=low_confidence, retry_deep_failed=True)
     if scope == "all":
@@ -689,8 +837,9 @@ def format_backend_check_report(report: dict[str, Any]) -> str:
 
 
 def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
+    is_enrichment = report.get("mode") == "metadata_enrichment"
     lines = [
-        "KeyFinder experiment:",
+        "KeyFinder metadata enrichment:" if is_enrichment else "KeyFinder experiment:",
         f"  Scope: {report.get('scope') or 'failures'}",
         f"  Command: {report.get('command') or 'not found'}",
         f"  Conversion retry: {'on' if report.get('convert_retry') else 'off'}",
@@ -706,6 +855,10 @@ def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
         f"  Matches stored key: {report['matches_stored_key']} files",
         f"  Matches stored root: {report['matches_stored_root']} files",
     ]
+    if is_enrichment:
+        lines.insert(8, f"  Metadata updated: {report.get('updated', 0)} files")
+    if is_enrichment and report.get("dry_run"):
+        lines.append("  Dry run: no metadata was changed")
     if report.get("backend_error"):
         lines.append(f"  Backend error: {report['backend_error']}")
     if report.get("error_reasons"):
@@ -1034,6 +1187,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
     parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
     parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
+    parser.add_argument("--keyfinder-enrich", action="store_true", help="Run KeyFinder CLI and store its output under analysis.external.keyfinder without changing the main key decision.")
     parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, or the full index.")
     parser.add_argument("--keyfinder-convert-retry", action="store_true", help="Retry failed KeyFinder reads via a temporary ffmpeg 16-bit PCM WAV conversion.")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
@@ -1065,22 +1219,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.backend_check:
         print(format_backend_check_report(build_backend_check_report(records)))
         return 0
-    if args.keyfinder_experiment:
+    if args.keyfinder_experiment or args.keyfinder_enrich:
         try:
             library_roots = parse_library_roots(args.library_root)
             destination_roots = parse_library_roots(args.destination_root, option_name="--destination-root")
         except ValueError as exc:
             print(str(exc))
             return 2
-        report = build_keyfinder_experiment_report(
-            records,
-            library_roots=library_roots,
-            destination_roots=destination_roots,
-            limit=args.limit,
-            scope=args.keyfinder_scope,
-            low_confidence=args.low_confidence,
-            convert_retry=args.keyfinder_convert_retry,
-        )
+        if args.keyfinder_enrich:
+            report = enrich_keyfinder_metadata(
+                index_path,
+                records,
+                library_roots=library_roots,
+                destination_roots=destination_roots,
+                limit=args.limit,
+                scope=args.keyfinder_scope,
+                low_confidence=args.low_confidence,
+                convert_retry=args.keyfinder_convert_retry,
+                dry_run=args.dry_run,
+                write_every=args.write_every,
+                export_json=not args.no_json_export,
+            )
+        else:
+            report = build_keyfinder_experiment_report(
+                records,
+                library_roots=library_roots,
+                destination_roots=destination_roots,
+                limit=args.limit,
+                scope=args.keyfinder_scope,
+                low_confidence=args.low_confidence,
+                convert_retry=args.keyfinder_convert_retry,
+            )
         print(format_keyfinder_experiment_report(report))
         if args.keyfinder_json:
             report_path = args.keyfinder_json.expanduser().resolve()
