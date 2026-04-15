@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from sample_key_indexer.cli import split_long_files
+from sample_key_indexer.cli import attach_library_metadata, format_gb, slugify, summarize_paths_by_extension, summarize_unsupported_files, split_long_files
+from sample_key_indexer.models import AnalysisResult
 
 
 class CliTests(unittest.TestCase):
@@ -28,6 +30,66 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(processable, paths)
         self.assertEqual(skipped, [])
+
+    def test_summarize_unsupported_files_groups_by_extension_and_size(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "kick.wav").write_bytes(b"audio")
+            (root / "loop.flac").write_bytes(b"12345")
+            (root / "cover.jpg").write_bytes(b"123")
+            (root / "license").write_bytes(b"12")
+
+            summary = summarize_unsupported_files(root)
+
+        self.assertNotIn(".wav", summary)
+        self.assertEqual(summary[".flac"].count, 1)
+        self.assertEqual(summary[".flac"].bytes, 5)
+        self.assertEqual(summary[".jpg"].count, 1)
+        self.assertEqual(summary[".jpg"].bytes, 3)
+        self.assertEqual(summary["[no extension]"].count, 1)
+        self.assertEqual(summary["[no extension]"].bytes, 2)
+
+    def test_summarize_paths_by_extension_groups_long_skips(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wav = root / "song.wav"
+            mp3 = root / "song.mp3"
+            wav.write_bytes(b"1234")
+            mp3.write_bytes(b"12")
+
+            summary = summarize_paths_by_extension([wav, mp3])
+
+        self.assertEqual(summary[".wav"].bytes, 4)
+        self.assertEqual(summary[".mp3"].bytes, 2)
+
+    def test_format_gb_uses_decimal_gigabytes(self) -> None:
+        self.assertEqual(format_gb(1_500_000_000), "1.50 GB")
+
+    def test_attach_library_metadata_stores_relative_path_and_library(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "Kicks" / "kick.wav"
+            audio_path.parent.mkdir()
+            audio_path.write_bytes(b"audio")
+            result = AnalysisResult(
+                file_path=str(audio_path),
+                root_note="C",
+                key="C_major",
+                confidence=0.8,
+                category="OneShots",
+                type="Kick",
+                duration=0.4,
+            )
+
+            enriched = attach_library_metadata(result, root, "usb_01", "USB 01")
+
+        self.assertEqual(enriched.relative_path, "Kicks/kick.wav")
+        self.assertEqual(enriched.library_id, "usb_01")
+        self.assertEqual(enriched.library_name, "USB 01")
+        self.assertEqual(enriched.library_root, str(root))
+
+    def test_slugify_creates_stable_library_id(self) -> None:
+        self.assertEqual(slugify("Samples to Detect!"), "samples_to_detect")
 
 
 if __name__ == "__main__":

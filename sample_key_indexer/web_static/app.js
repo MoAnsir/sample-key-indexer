@@ -127,6 +127,10 @@ function applyFilters() {
     const haystack = [
       sample.file_path,
       sample.destination,
+      sample.relative_path,
+      sample.library_id,
+      sample.library_name,
+      sample.playback_status,
       sample.category,
       sample.type,
       sample.root_note,
@@ -178,6 +182,8 @@ function sortFiltered() {
 
 function sortValue(sample, key) {
   if (key === "name") return fileName(sample);
+  if (key === "library") return sample.library_name || sample.library_id || "";
+  if (key === "status") return sample.playback_status || "";
   if (key === "path") return sample.playable_path || sample.file_path || "";
   if (key === "key") return sample.key || sample.root_note || "Unsorted";
   if (key === "bpm") return Number(sample.bpm || -1);
@@ -332,9 +338,14 @@ function renderList() {
     const keyOrRoot = sample.key || sample.root_note || "Unsorted";
     const confidence = Number(sample.confidence || 0);
     const playablePath = sample.playable_path || sample.file_path || "";
+    const isPlayable = sample.playback_status === "available";
+    const library = sample.library_name || sample.library_id || "-";
+    const status = isPlayable ? "Playable" : "Missing";
     row.innerHTML = `
-      <button class="play-button" type="button">Play</button>
+      <button class="play-button" type="button" ${isPlayable ? "" : "disabled"}>${isPlayable ? "Play" : "Missing"}</button>
       <span class="sample-name" title="${escapeHtml(fileName(sample))}">${escapeHtml(fileName(sample))}</span>
+      <span class="sample-cell" title="${escapeHtml(library)}">${escapeHtml(library)}</span>
+      <span class="sample-cell ${isPlayable ? "" : "missing"}" title="${escapeHtml(status)}">${escapeHtml(status)}</span>
       <span class="sample-path sample-meta" title="${escapeHtml(playablePath)}">${escapeHtml(playablePath)}</span>
       <span class="sample-cell" title="${escapeHtml(keyOrRoot)}">${escapeHtml(keyOrRoot)}</span>
       <span class="sample-cell" title="${escapeHtml(sample.category || "Unknown")}">${escapeHtml(sample.category || "Unknown")}</span>
@@ -344,7 +355,9 @@ function renderList() {
       <span class="sample-cell" title="${escapeHtml(sample.bpm ? `${sample.bpm} BPM` : "Unknown")}">${sample.bpm ? `${escapeHtml(sample.bpm)} BPM` : "-"}</span>
       <span class="sample-cell ${confidence < 0.35 ? "low" : ""}" title="${confidence.toFixed(2)}">${confidence.toFixed(2)}</span>
     `;
-    row.querySelector("button").addEventListener("click", () => playSample(sample));
+    if (isPlayable) {
+      row.querySelector("button").addEventListener("click", () => playSample(sample));
+    }
     els.list.appendChild(row);
   });
 
@@ -433,6 +446,9 @@ function countsFor(values) {
 }
 
 function playSample(sample) {
+  if (sample.playback_status !== "available") {
+    return;
+  }
   els.playerBar.classList.remove("is-empty");
   els.nowPlaying.textContent = fileName(sample);
   els.nowPlaying.title = fileName(sample);
@@ -455,6 +471,8 @@ function renderNowPlayingDetails(sample) {
     ["Fundamental", hasValue(sample.fundamental_freq) ? `${sample.fundamental_freq} Hz` : "-"],
     ["Timbre", [sample.brightness, sample.warmth, sample.roughness].filter(Boolean).join(" / ") || "-"],
     ["Source", sample.source || "-"],
+    ["Library", sample.library_name || sample.library_id || "-"],
+    ["Playback", sample.playback_status === "available" ? "Available" : "Missing"],
     ["Confidence", hasValue(sample.confidence) ? Number(sample.confidence).toFixed(2) : "-"],
   ];
 

@@ -14,14 +14,20 @@ from sample_key_indexer.index_store import load_records
 STATIC_ROOT = Path(__file__).with_name("web_static")
 
 
-def load_samples(index_path: Path) -> list[dict]:
-    records = load_records(index_path)
+def load_samples(
+    index_paths: Path | list[Path],
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+) -> list[dict]:
+    paths = [index_paths] if isinstance(index_paths, Path) else index_paths
     samples = []
-    for index, record in enumerate(records):
-        sample = _flatten_sample(record)
-        sample["id"] = index
-        sample["playable_path"] = _playable_path(sample)
-        samples.append(sample)
+    for index_path in paths:
+        records = load_records(index_path)
+        for record in records:
+            sample = _flatten_sample(record)
+            sample["index_path"] = str(index_path)
+            sample["id"] = len(samples)
+            samples.append(_with_playback_info(sample, library_roots, destination_roots))
     return samples
 
 
@@ -37,8 +43,13 @@ def summarize_by_type(samples: list[dict]) -> list[dict]:
     ]
 
 
-def build_app(index_path: Path) -> type[BaseHTTPRequestHandler]:
-    samples = load_samples(index_path)
+def build_app(
+    index_paths: Path | list[Path],
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+) -> type[BaseHTTPRequestHandler]:
+    paths = [index_paths] if isinstance(index_paths, Path) else index_paths
+    samples = load_samples(paths, library_roots, destination_roots)
     samples_by_id = {sample["id"]: sample for sample in samples}
     stats = summarize_by_type(samples)
 
@@ -53,7 +64,8 @@ def build_app(index_path: Path) -> type[BaseHTTPRequestHandler]:
             elif parsed.path in {"/app.css", "/app.js"}:
                 self._send_static(parsed.path.lstrip("/"))
             elif parsed.path == "/api/samples":
-                self._send_json({"index_path": str(index_path), "total": len(samples), "samples": samples, "stats": stats})
+                current_samples = [_with_playback_info(sample, library_roots, destination_roots) for sample in samples]
+                self._send_json({"index_paths": [str(path) for path in paths], "total": len(current_samples), "samples": current_samples, "stats": stats})
             elif parsed.path == "/api/audio":
                 self._send_audio(parsed.query)
             else:
@@ -96,7 +108,7 @@ def build_app(index_path: Path) -> type[BaseHTTPRequestHandler]:
                 self.send_error(HTTPStatus.NOT_FOUND, "Sample not found")
                 return
 
-            path = Path(sample["playable_path"])
+            path = Path(_playable_path(sample, library_roots, destination_roots))
             if not path.exists() or not path.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND, "Audio file not found")
                 return
@@ -152,6 +164,10 @@ def _flatten_sample(record: dict) -> dict:
         "sample_rate": file_block.get("sample_rate"),
         "size": file_block.get("size"),
         "mtime": file_block.get("mtime"),
+        "relative_path": file_block.get("relative_path"),
+        "library_id": record.get("library", {}).get("id"),
+        "library_name": record.get("library", {}).get("name"),
+        "library_root": record.get("library", {}).get("root"),
         "root_note": musical.get("root") or final.get("root"),
         "key": musical.get("key") or final.get("key"),
         "scale_confidence": musical.get("scale_confidence"),
@@ -190,7 +206,9 @@ def _flatten_sample(record: dict) -> dict:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a local web browser for sample-key-indexer metadata.")
-    parser.add_argument("index_path", type=Path, help="Path to metadata_index.json or metadata_index.sqlite.")
+    parser.add_argument("index_paths", nargs="+", type=Path, help="Path to one or more metadata_index.json or metadata_index.sqlite files.")
+    parser.add_argument("--library-root", action="append", default=[], help="Playback root override as LIBRARY_ID=/Volumes/USB/Samples. Can be passed more than once.")
+    parser.add_argument("--destination-root", action="append", default=[], help="Organized Key/Unsorted root override as LIBRARY_ID=/Volumes/USB/SAMPLEZ. Can be passed more than once.")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
     return parser
@@ -198,12 +216,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    index_path = args.index_path.expanduser().resolve()
-    if not index_path.exists():
-        print(f"Metadata index does not exist: {index_path}")
-        return 2
+    index_paths = [path.expanduser().resolve() for path in args.index_paths]
+    for index_path in index_paths:
+        if not index_path.exists():
+            print(f"Metadata index does not exist: {index_path}")
+            return 2
 
-    handler = build_app(index_path)
+    try:
+        library_roots = parse_library_roots(args.library_root)
+        destination_roots = parse_library_roots(args.destination_root, option_name="--destination-root")
+    except ValueError as exc:
+        print(str(exc))
+        return 2
+    handler = build_app(index_paths, library_roots, destination_roots)
     try:
         server = ThreadingHTTPServer((args.host, args.port), handler)
     except OSError as exc:
@@ -212,7 +237,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         raise
     print(f"Sample browser running at http://{args.host}:{args.port}")
-    print(f"Metadata: {index_path}")
+    print("Metadata:")
+    for index_path in index_paths:
+        print(f"  {index_path}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -222,12 +249,81 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _playable_path(sample: dict) -> str:
-    for key in ("destination", "file_path"):
-        value = sample.get(key)
-        if value and Path(value).exists():
-            return value
+def _playable_path(
+    sample: dict,
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+) -> str:
+    destination = sample.get("destination")
+    if destination and Path(destination).exists():
+        return destination
+
+    library_id = sample.get("library_id")
+    destination_relative_path = organized_relative_path(destination)
+    if destination_relative_path and destination_roots:
+        roots: list[Path] = []
+        if library_id and library_id in destination_roots:
+            roots.append(destination_roots[library_id])
+        if not library_id and len(destination_roots) == 1:
+            roots.extend(destination_roots.values())
+        for root in roots:
+            candidate = root / destination_relative_path
+            if candidate.exists():
+                return str(candidate)
+
+    file_path = sample.get("file_path")
+    if file_path and Path(file_path).exists():
+        return file_path
+
+    relative_path = sample.get("relative_path")
+    if relative_path:
+        roots: list[Path] = []
+        if library_roots:
+            if library_id and library_id in library_roots:
+                roots.append(library_roots[library_id])
+            if not library_id and len(library_roots) == 1:
+                roots.extend(library_roots.values())
+        library_root = sample.get("library_root")
+        if library_root:
+            roots.append(Path(library_root))
+        for root in roots:
+            candidate = root / relative_path
+            if candidate.exists():
+                return str(candidate)
     return sample.get("destination") or sample.get("file_path") or ""
+
+
+def organized_relative_path(destination: str | None) -> Path | None:
+    if not destination:
+        return None
+    path = Path(destination)
+    for anchor in ("Key", "Unsorted"):
+        if anchor in path.parts:
+            index = path.parts.index(anchor)
+            return Path(*path.parts[index:])
+    return None
+
+
+def _with_playback_info(
+    sample: dict,
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+) -> dict:
+    enriched = dict(sample)
+    playable_path = _playable_path(enriched, library_roots, destination_roots)
+    enriched["playable_path"] = playable_path
+    enriched["playback_status"] = "available" if playable_path and Path(playable_path).exists() else "missing"
+    return enriched
+
+
+def parse_library_roots(values: list[str], option_name: str = "--library-root") -> dict[str, Path]:
+    roots: dict[str, Path] = {}
+    for value in values:
+        library_id, separator, root = value.partition("=")
+        if not separator or not library_id.strip() or not root.strip():
+            raise ValueError(f"{option_name} must use LIBRARY_ID=/path/to/library")
+        roots[library_id.strip()] = Path(root).expanduser().resolve()
+    return roots
 
 
 def _range_from_header(header: str | None, file_size: int) -> tuple[int, int]:

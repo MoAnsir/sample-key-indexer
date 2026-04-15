@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.web_app import _flatten_sample, summarize_by_type
+from sample_key_indexer.web_app import _flatten_sample, _playable_path, _with_playback_info, organized_relative_path, parse_library_roots, summarize_by_type
 
 
 class WebAppTests(unittest.TestCase):
@@ -41,6 +43,10 @@ class WebAppTests(unittest.TestCase):
             needs_review=True,
             review_reasons=["filename_key_disagreement"],
             destination="/organised/Key/E_minor/Loops/MelodyLoops/pad_dark_em.wav",
+            relative_path="Pads/pad_dark_em.wav",
+            library_id="usb_01",
+            library_name="USB 01",
+            library_root="/Volumes/USB_01/Samples",
         )
 
         sample = _flatten_sample(result.to_dict())
@@ -54,6 +60,9 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(sample["source"], "synth")
         self.assertEqual(sample["analysis_profile"], "balanced")
         self.assertEqual(sample["analysis_engines"], ["librosa", "essentia"])
+        self.assertEqual(sample["relative_path"], "Pads/pad_dark_em.wav")
+        self.assertEqual(sample["library_id"], "usb_01")
+        self.assertEqual(sample["library_name"], "USB 01")
         self.assertEqual(sample["essentia_key"], "E_minor")
         self.assertEqual(sample["filename_key"], "C_minor")
         self.assertTrue(sample["needs_review"])
@@ -80,6 +89,80 @@ class WebAppTests(unittest.TestCase):
 
         self.assertIsNone(programs["librosa"]["key"])
         self.assertEqual(programs["essentia"]["key"], "G_minor")
+
+    def test_playable_path_uses_library_root_override(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "Kicks" / "kick.wav"
+            audio_path.parent.mkdir()
+            audio_path.write_bytes(b"audio")
+
+            sample = {
+                "destination": "/missing/Key/C_major/OneShots/Drums/Kick/kick.wav",
+                "file_path": "/old_mount/Kicks/kick.wav",
+                "relative_path": "Kicks/kick.wav",
+                "library_id": "usb_01",
+            }
+
+            playable_path = _playable_path(sample, {"usb_01": root})
+
+        self.assertEqual(playable_path, str(audio_path))
+
+    def test_playable_path_uses_destination_root_override(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "Key" / "C_major" / "OneShots" / "Drums" / "Kick" / "kick.wav"
+            audio_path.parent.mkdir(parents=True)
+            audio_path.write_bytes(b"audio")
+
+            sample = {
+                "destination": "/Users/mohammedansir/Desktop/SampleIndexes/usb_01/Key/C_major/OneShots/Drums/Kick/kick.wav",
+                "file_path": "/missing_source/Kicks/kick.wav",
+                "relative_path": "Kicks/kick.wav",
+                "library_id": "usb_01",
+            }
+
+            playable_path = _playable_path(sample, destination_roots={"usb_01": root})
+
+        self.assertEqual(playable_path, str(audio_path))
+
+    def test_organized_relative_path_starts_at_key_or_unsorted(self) -> None:
+        self.assertEqual(
+            organized_relative_path("/tmp/catalog/Key/A_minor/Loops/BassLoops/bass.wav"),
+            Path("Key/A_minor/Loops/BassLoops/bass.wav"),
+        )
+        self.assertEqual(
+            organized_relative_path("/tmp/catalog/Unsorted/OneShots/FX/noise.wav"),
+            Path("Unsorted/OneShots/FX/noise.wav"),
+        )
+
+    def test_playback_info_updates_when_library_root_becomes_available(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "Kicks" / "kick.wav"
+            sample = {
+                "destination": "/missing/Key/C_major/OneShots/Drums/Kick/kick.wav",
+                "file_path": "/old_mount/Kicks/kick.wav",
+                "relative_path": "Kicks/kick.wav",
+                "library_id": "usb_01",
+            }
+
+            missing = _with_playback_info(sample, {"usb_01": root})
+            audio_path.parent.mkdir()
+            audio_path.write_bytes(b"audio")
+            available = _with_playback_info(sample, {"usb_01": root})
+
+        self.assertEqual(missing["playback_status"], "missing")
+        self.assertEqual(available["playback_status"], "available")
+        self.assertEqual(available["playable_path"], str(audio_path))
+
+    def test_parse_library_roots_requires_library_id(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_library_roots(["/Volumes/USB_01/Samples"])
+
+    def test_parse_destination_roots_uses_option_name_in_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--destination-root"):
+            parse_library_roots(["/Volumes/USB_01/SAMPLEZ"], option_name="--destination-root")
 
 
 if __name__ == "__main__":

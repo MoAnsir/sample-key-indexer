@@ -41,6 +41,12 @@ Copy files into the organised library:
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised
 ```
 
+Build a searchable catalog without copying audio into `Key/` or `Unsorted`:
+
+```bash
+sample-key-indexer /path/to/SampleLibrary /path/to/SampleIndexes/USB_01 --catalog-only --library-id usb_01 --library-name "USB 01"
+```
+
 V2 uses the balanced analysis profile by default. It keeps the librosa baseline, tries optional Essentia key analysis when available, writes a SQLite working index, and exports the JSON metadata used by the browser:
 
 ```text
@@ -89,6 +95,26 @@ The browser can also read the V2 SQLite index directly:
 
 ```bash
 sample-key-indexer-web /path/to/Samples_Organised/metadata_index.sqlite
+```
+
+When a catalog was created from a USB stick and the copied folders are not present, provide the current USB mount root for playback:
+
+```bash
+sample-key-indexer-web /path/to/SampleIndexes/USB_01/metadata_index.sqlite --library-root usb_01=/Volumes/USB_01/Samples
+```
+
+When playback should come from an organised `Key/` and `Unsorted/` tree, provide that root instead:
+
+```bash
+sample-key-indexer-web /path/to/SampleIndexes/USB_01/metadata_index.sqlite --destination-root usb_01=/Volumes/USB_01/SAMPLEZ
+```
+
+The browser remains searchable when the USB is not mounted. Refresh the browser after plugging the USB in and matching files will become playable.
+
+You can also open multiple catalogs at once:
+
+```bash
+sample-key-indexer-web /path/to/SampleIndexes/USB_01/metadata_index.sqlite /path/to/SampleIndexes/USB_02/metadata_index.sqlite
 ```
 
 Summarize files that need review:
@@ -157,13 +183,24 @@ The index is resumable: files with the same path, size, and modification time ar
 
 New records use a structured V1 feature schema with:
 
-- `file`: path, name, format, duration, sample rate, size, modified time
+- `file`: path, relative path, name, format, duration, sample rate, size, modified time
+- `library`: source library ID, display name, and root path
 - `musical`: root, key, scale confidence, notes, simple chord hints, BPM
 - `audio_features`: loudness, frequency, timbre buckets, MFCC averages
 - `classification`: category, type, subtype, source, confidence
 - `analysis`: raw librosa decisions, optional Essentia decisions, selected engines, warnings, and the final decision used for routing
 
 The web app can read both this structured schema and older flat records.
+
+## V3 Ideas
+
+- Add `ffprobe` for better file probing and skip decisions before loading audio into the analysis engines.
+- Consider KeyFinder or Sonic Annotator with QM Vamp Plugins as a deep harmonic analysis backend.
+- Consider `aubio` for better onset and tempo utilities if we want a small dependency footprint.
+- Suppress noisy library warnings during bulk runs while still recording useful per-file analysis warnings.
+- Add an early tiny-audio path for ultra-short snippets so short clicks, transients, and near-silent files do not waste time in full spectral analysis.
+- Improve progress reporting with clearer counts for skipped, copied, failed, fallback-decoded, and needs-review files.
+- Add a deep review mode that reruns only low-confidence or disagreement cases instead of reprocessing the whole library.
 
 ## Troubleshooting
 

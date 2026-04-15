@@ -50,6 +50,10 @@ class AnalysisResult:
     error: str | None = None
     size: int | None = None
     mtime: float | None = None
+    relative_path: str | None = None
+    library_id: str | None = None
+    library_name: str | None = None
+    library_root: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         path = Path(self.file_path)
@@ -63,6 +67,12 @@ class AnalysisResult:
                 "sample_rate": self.sample_rate,
                 "size": self.size,
                 "mtime": self.mtime,
+                "relative_path": self.relative_path,
+            },
+            "library": {
+                "id": self.library_id,
+                "name": self.library_name,
+                "root": self.library_root,
             },
             "musical": {
                 "root": self.root_note,

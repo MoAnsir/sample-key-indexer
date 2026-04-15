@@ -467,11 +467,11 @@ audio {
 .sample-header,
 .sample-row {
   display: grid;
-  grid-template-columns: 72px minmax(180px, 1.4fr) minmax(220px, 1.8fr) 70px 92px 110px 86px 98px 76px 86px;
+  grid-template-columns: 72px minmax(180px, 1.35fr) minmax(120px, 0.85fr) 82px minmax(220px, 1.75fr) 70px 92px 110px 86px 98px 76px 86px;
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--line);
-  min-width: 1120px;
+  min-width: 1320px;
 }
 
 .sample-header {
@@ -544,6 +544,11 @@ audio {
   cursor: pointer;
 }
 
+.play-button:disabled {
+  background: #8b9995;
+  cursor: not-allowed;
+}
+
 .sample-name {
   min-width: 0;
   overflow: hidden;
@@ -572,6 +577,11 @@ audio {
 
 .sample-cell.low {
   background: #f9e7e7;
+}
+
+.sample-cell.missing {
+  background: #f9e7e7;
+  color: #8f2d2d;
 }
 
 .review-overview,
