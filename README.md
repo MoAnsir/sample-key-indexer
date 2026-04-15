@@ -151,6 +151,7 @@ sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
 Use `--dry-run` with `--deep-rerun` to preview counts without changing metadata.
 Real deep reruns analyze each selected file in an isolated worker process. If deep/balanced analysis crashes, the file is retried once with the safer `fast`/`librosa` path before being counted as a failed worker crash.
 Use `--report-json` to save missing-audio examples, analysis errors, worker crash failures, and fallback successes for follow-up.
+V3.4 records files that crash both the primary and fallback rerun in `analysis.deep_review` and skips those known failures by default. Pass `--retry-deep-failed` when you intentionally want to try them again after changing engines, dependencies, or analysis settings.
 
 If the console script has not been refreshed yet, run it as a module:
 

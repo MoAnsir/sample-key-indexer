@@ -6,6 +6,7 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -65,10 +66,13 @@ def select_deep_review_candidates(
     include_warnings: bool = True,
     include_errors: bool = True,
     limit: int = 0,
+    retry_deep_failed: bool = False,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for record in records:
         sample = _flatten_sample(record)
+        if deep_review_failed(sample) and not retry_deep_failed:
+            continue
         reasons = deep_review_reasons(sample, low_confidence, include_warnings, include_errors)
         if not reasons:
             continue
@@ -79,6 +83,10 @@ def select_deep_review_candidates(
     if limit > 0:
         return candidates[:limit]
     return candidates
+
+
+def deep_review_failed(sample: dict[str, Any]) -> bool:
+    return bool((sample.get("deep_review") or {}).get("failed"))
 
 
 def deep_review_reasons(sample: dict[str, Any], low_confidence: float, include_warnings: bool, include_errors: bool) -> list[str]:
@@ -128,12 +136,21 @@ def selection_priority(sample: dict[str, Any]) -> int:
     return 4
 
 
-def build_deep_review_plan(records: list[dict[str, Any]], low_confidence: float = 0.35, limit: int = 0) -> dict[str, Any]:
-    candidates = select_deep_review_candidates(records, low_confidence=low_confidence, limit=limit)
+def build_deep_review_plan(
+    records: list[dict[str, Any]],
+    low_confidence: float = 0.35,
+    limit: int = 0,
+    retry_deep_failed: bool = False,
+) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    skipped_failed = 0 if retry_deep_failed else sum(1 for sample in samples if deep_review_failed(sample))
+    candidates = select_deep_review_candidates(records, low_confidence=low_confidence, limit=limit, retry_deep_failed=retry_deep_failed)
     reason_counts = Counter(reason for sample in candidates for reason in sample.get("deep_review_reasons", []))
     return {
         "selected": len(candidates),
         "low_confidence": low_confidence,
+        "skipped_deep_failed": skipped_failed,
+        "retry_deep_failed": retry_deep_failed,
         "reasons": [{"reason": reason, "count": count} for reason, count in reason_counts.most_common()],
         "examples": [
             {
@@ -178,6 +195,10 @@ def format_deep_review_plan(plan: dict[str, Any]) -> str:
         f"Deep review candidates: {plan['selected']}",
         f"Low-confidence threshold: {plan['low_confidence']}",
     ]
+    if plan.get("skipped_deep_failed"):
+        lines.append(f"Skipped previous deep-review failures: {plan['skipped_deep_failed']}")
+    if plan.get("retry_deep_failed"):
+        lines.append("Retrying previous deep-review failures")
     if plan["reasons"]:
         lines.append("")
         lines.append("Selection reasons:")
@@ -215,6 +236,7 @@ def rerun_deep_review(
         "errors": 0,
         "worker_crashes": 0,
         "fallback_successes": 0,
+        "marked_failed": 0,
         "dry_run": dry_run,
         "details": {
             "missing": [],
@@ -242,6 +264,8 @@ def rerun_deep_review(
                     summary["worker_crashes"] += 1
                     summary["errors"] += 1
                     add_summary_detail(summary, "errors", candidate, playable_path, f"worker_crash:{fallback_error}")
+                    mark_deep_review_failed(index, candidate, playable_path, f"worker_crash:{fallback_error}", analysis_profile, selected_engines)
+                    summary["marked_failed"] += 1
                     continue
                 result = fallback_result
                 summary["fallback_successes"] += 1
@@ -321,6 +345,40 @@ def add_summary_detail(summary: dict[str, Any], bucket: str, candidate: dict[str
     })
 
 
+def mark_deep_review_failed(index, candidate: dict[str, Any], playable_path: Path, reason: str, analysis_profile: str, selected_engines: tuple[str, ...]) -> None:
+    record = dict(candidate.get("structured") or {})
+    if not record:
+        return
+    analysis = dict(record.get("analysis") or {})
+    previous = analysis.get("deep_review") or {}
+    attempts = int(previous.get("attempts") or 0) + 1
+    analysis["deep_review"] = {
+        "failed": True,
+        "reason": reason,
+        "attempts": attempts,
+        "last_attempt_at": datetime.now(timezone.utc).isoformat(),
+        "profile": analysis_profile,
+        "engines": list(selected_engines),
+        "path": str(playable_path),
+    }
+    record["analysis"] = analysis
+    upsert_record(index, record)
+
+
+def upsert_record(index, record: dict[str, Any]) -> None:
+    if hasattr(index, "upsert_record"):
+        index.upsert_record(record)
+        return
+    index.records[_record_path(record)] = record
+
+
+def _record_path(record: dict[str, Any]) -> str:
+    file_block = record.get("file")
+    if isinstance(file_block, dict):
+        return str(file_block.get("path", ""))
+    return str(record.get("file_path", ""))
+
+
 def format_deep_review_result(summary: dict[str, Any]) -> str:
     lines = [
         "Deep review rerun:",
@@ -332,6 +390,7 @@ def format_deep_review_result(summary: dict[str, Any]) -> str:
         f"  Errors: {summary['errors']} files",
         f"  Worker crashes: {summary.get('worker_crashes', 0)} files",
         f"  Fallback successes: {summary.get('fallback_successes', 0)} files",
+        f"  Marked failed: {summary.get('marked_failed', 0)} files",
     ]
     if summary.get("dry_run"):
         lines.append("  Dry run: no metadata was changed")
@@ -363,6 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
+    parser.add_argument("--retry-deep-failed", action="store_true", help="Include records already marked as failed by a previous deep-review rerun.")
     parser.add_argument("--library-root", action="append", default=[], help="Playback/source root override as LIBRARY_ID=/Volumes/USB/Samples. Can be passed more than once.")
     parser.add_argument("--destination-root", action="append", default=[], help="Organized Key/Unsorted root override as LIBRARY_ID=/Volumes/USB/SAMPLEZ. Can be passed more than once.")
     parser.add_argument("--analysis-duration", type=float, default=30.0, help="Max seconds loaded per rerun file.")
@@ -389,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(str(exc))
             return 2
-        plan = build_deep_review_plan(records, low_confidence=args.low_confidence, limit=args.limit)
+        plan = build_deep_review_plan(records, low_confidence=args.low_confidence, limit=args.limit, retry_deep_failed=args.retry_deep_failed)
         print(format_deep_review_plan(plan))
         if args.deep_rerun:
             rerun_summary = rerun_deep_review(

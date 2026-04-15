@@ -215,6 +215,43 @@ class ReviewReportTests(unittest.TestCase):
         self.assertIn("- low_confidence: 1", report)
         self.assertIn("loop.wav | B_major | confidence 0.5", report)
 
+    def test_deep_review_plan_skips_previous_failures_unless_retrying(self) -> None:
+        failed_record = AnalysisResult(
+            file_path="/samples/failed.wav",
+            root_note=None,
+            key=None,
+            confidence=0.2,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            needs_review=True,
+            review_reasons=["engine_key_disagreement"],
+        ).to_dict()
+        failed_record["analysis"]["deep_review"] = {"failed": True, "reason": "worker_crash:worker_crash", "attempts": 1}
+        records = [
+            failed_record,
+            AnalysisResult(
+                file_path="/samples/new.wav",
+                root_note=None,
+                key=None,
+                confidence=0.25,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+                needs_review=True,
+                review_reasons=["engine_key_disagreement"],
+            ).to_dict(),
+        ]
+
+        plan = build_deep_review_plan(records)
+        retry_plan = build_deep_review_plan(records, retry_deep_failed=True)
+
+        self.assertEqual([candidate["name"] for candidate in plan["candidates"]], ["new.wav"])
+        self.assertEqual(plan["skipped_deep_failed"], 1)
+        self.assertIn("Skipped previous deep-review failures: 1", format_deep_review_plan(plan))
+        self.assertEqual([candidate["name"] for candidate in retry_plan["candidates"]], ["failed.wav", "new.wav"])
+        self.assertTrue(retry_plan["retry_deep_failed"])
+
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -346,9 +383,12 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(summary["processed"], 0)
         self.assertEqual(summary["errors"], 1)
         self.assertEqual(summary["worker_crashes"], 2)
+        self.assertEqual(summary["marked_failed"], 1)
         self.assertEqual(summary["details"]["errors"][0]["name"], "loop.wav")
         self.assertEqual(summary["details"]["errors"][0]["reason"], "worker_crash:worker_crash")
         self.assertEqual(records[0]["classification"]["confidence"], 0.2)
+        self.assertTrue(records[0]["analysis"]["deep_review"]["failed"])
+        self.assertEqual(records[0]["analysis"]["deep_review"]["attempts"], 1)
 
     def test_rerun_deep_review_reports_missing_audio_details(self) -> None:
         with TemporaryDirectory() as tmp:

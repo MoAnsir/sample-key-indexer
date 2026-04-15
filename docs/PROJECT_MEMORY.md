@@ -192,6 +192,8 @@ sample-key-indexer-review /path/to/metadata_index.sqlite \
 
 Use `--destination-root` instead of `--library-root` when the mounted audio lives in an organised `Key/` and `Unsorted/` tree. Deep reruns preserve the existing library ID, relative path, library root, and routing destination so catalogs remain stable.
 
+V3.4 starts deep-review failure management. Files that crash both the primary deep rerun and the `fast`/`librosa` fallback are marked in `analysis.deep_review` with `failed`, `reason`, `attempts`, `last_attempt_at`, `profile`, `engines`, and `path`. Deep plans skip those known failures by default so a library does not keep getting stuck at the same crashy files. Use `--retry-deep-failed` when intentionally retesting after changing engines, dependencies, or analysis settings.
+
 ## V3 Roadmap
 
 Completed:
@@ -204,9 +206,6 @@ Completed:
   - Optional `ffprobe`-first duration probing.
   - `--probe-backend` switch.
   - Duration probe report.
-
-Active:
-
 - V3.3 Deep Review Mode
   - `--deep-plan` selects low-confidence, needs-review, disagreement, warning, and error records.
   - `--deep-rerun` reprocesses selected candidates instead of reprocessing the whole library.
@@ -215,6 +214,13 @@ Active:
   - `--dry-run`, `--limit`, and `--low-confidence` keep reruns controlled.
   - Current before/after summary counts selected, processed, missing audio, improved confidence, still-needs-review, errors, worker crashes, and fallback successes.
   - `--report-json` stores rerun diagnostics for missing files, analysis errors, crash failures, and fallback successes.
+
+Active:
+
+- V3.4 Deep Review Failure Management
+  - Persist double-crash failures into `analysis.deep_review`.
+  - Skip known deep-review failures by default.
+  - `--retry-deep-failed` includes previously failed records for deliberate retesting.
 
 Later:
 
