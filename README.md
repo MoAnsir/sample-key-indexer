@@ -159,6 +159,14 @@ Check optional deep backend availability before installing or wiring new engines
 sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite --backend-check
 ```
 
+Run the first KeyFinder-only experiment against recorded deep-review failures:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-json /path/to/keyfinder_experiment.json
+```
+
 If the console script has not been refreshed yet, run it as a module:
 
 ```bash
@@ -275,6 +283,8 @@ The web app can read both this structured schema and older flat records.
 - `sample-key-indexer-review --backend-check` prints a read-only report of optional deep backend availability.
 - The check looks for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins in standard macOS/Homebrew Vamp paths, and aubio.
 - The report includes the current deep-review failure target summary so external backend experiments stay scoped to real failures.
+- `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures and reports successes, errors, and stored-key/root matches without changing metadata.
+- Current SD 02 Trad result: KeyFinder processed 4 of 5 deep failures, failed 1 file with a resampling error, and matched the stored root on 2 files.
 - This phase does not install tools or reprocess files by default; it tells us what can be tested next.
 
 ## Troubleshooting

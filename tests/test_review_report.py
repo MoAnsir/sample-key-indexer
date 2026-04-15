@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_backend_check_report, build_deep_failure_report, build_deep_review_plan, build_review_summary, format_backend_check_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_review_summary, rerun_deep_review, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
+from sample_key_indexer.review_report import build_backend_check_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_experiment_report, build_review_summary, format_backend_check_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_experiment_report, format_review_summary, rerun_deep_review, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -374,6 +374,50 @@ class ReviewReportTests(unittest.TestCase):
         self.assertIn("Deep-review failure targets: 1 files", text)
         self.assertIn("Sonic Annotator: available (/usr/local/bin/sonic-annotator)", text)
         self.assertIn("QM Vamp Plugins: available", text)
+
+    def test_keyfinder_experiment_reports_successes_and_errors(self) -> None:
+        failed_a = AnalysisResult(
+            file_path="/samples/a.wav",
+            root_note="F",
+            key="F_minor",
+            confidence=0.2,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+            needs_review=True,
+        ).to_dict()
+        failed_a["analysis"]["deep_review"] = {"failed": True, "reason": "worker_crash:worker_crash"}
+        failed_b = AnalysisResult(
+            file_path="/samples/b.wav",
+            root_note="A",
+            key="A_major",
+            confidence=0.2,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+            needs_review=True,
+        ).to_dict()
+        failed_b["analysis"]["deep_review"] = {"failed": True, "reason": "worker_crash:worker_crash"}
+
+        with patch("sample_key_indexer.review_report.shutil.which", return_value="/usr/local/bin/keyfinder-cli"):
+            with patch("sample_key_indexer.review_report.Path.exists", return_value=True):
+                with patch("sample_key_indexer.review_report.run_keyfinder", side_effect=[
+                    {"status": "success", "raw_key": "Fm", "normalized_key": "F_minor", "root_note": "F", "raw_output": "Fm", "error": None},
+                    {"status": "error", "error": "Unable to resample audio into 16bit PCM data", "raw_output": "Unable to resample audio into 16bit PCM data"},
+                ]):
+                    report = build_keyfinder_experiment_report([failed_a, failed_b])
+        text = format_keyfinder_experiment_report(report)
+
+        self.assertEqual(report["selected"], 2)
+        self.assertEqual(report["processed"], 1)
+        self.assertEqual(report["successes"], 1)
+        self.assertEqual(report["errors"], 1)
+        self.assertEqual(report["matches_stored_key"], 1)
+        self.assertIn("KeyFinder experiment:", text)
+        self.assertIn("a.wav | KeyFinder Fm (F_minor)", text)
+        self.assertIn("b.wav | error | Unable to resample audio into 16bit PCM data", text)
 
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -63,6 +63,13 @@ VAMP_PLUGIN_DIRS = (
     Path("/opt/homebrew/lib/vamp"),
     Path("/usr/local/lib/vamp"),
 )
+FLAT_TO_SHARP = {
+    "Db": "C#",
+    "Eb": "D#",
+    "Gb": "F#",
+    "Ab": "G#",
+    "Bb": "A#",
+}
 
 
 def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10) -> dict[str, Any]:
@@ -231,6 +238,72 @@ def build_backend_check_report(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def build_keyfinder_experiment_report(
+    records: list[dict[str, Any]],
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+    limit: int = 0,
+    timeout: float = 15.0,
+) -> dict[str, Any]:
+    command = shutil.which("keyfinder-cli") or shutil.which("keyfinder")
+    failures = build_deep_failure_report(records, max_examples=0)["failures"]
+    if limit > 0:
+        failures = failures[:limit]
+    report: dict[str, Any] = {
+        "backend": "keyfinder",
+        "command": command,
+        "selected": len(failures),
+        "processed": 0,
+        "successes": 0,
+        "missing_audio": 0,
+        "errors": 0,
+        "matches_stored_key": 0,
+        "matches_stored_root": 0,
+        "results": [],
+    }
+    if not command:
+        report["errors"] = len(failures)
+        report["backend_error"] = "keyfinder_not_found"
+        return report
+
+    for failure in failures:
+        playable = Path(_playable_path(failure, library_roots, destination_roots))
+        result = {
+            "name": failure.get("name"),
+            "library_id": failure.get("library_id"),
+            "relative_path": failure.get("relative_path"),
+            "path": str(playable),
+            "stored_key": failure.get("key"),
+            "stored_root": failure.get("root_note"),
+            "path_family": failure.get("path_family"),
+        }
+        if not playable.exists():
+            result["status"] = "missing_audio"
+            result["error"] = "audio_not_found"
+            report["missing_audio"] += 1
+            report["results"].append(result)
+            continue
+        keyfinder_result = run_keyfinder(command, playable, timeout=timeout)
+        result.update(keyfinder_result)
+        if keyfinder_result["status"] == "success":
+            report["processed"] += 1
+            report["successes"] += 1
+            if keys_match(result.get("normalized_key"), result.get("stored_key")):
+                result["matches_stored_key"] = True
+                report["matches_stored_key"] += 1
+            else:
+                result["matches_stored_key"] = False
+            if roots_match(result.get("root_note"), result.get("stored_root")):
+                result["matches_stored_root"] = True
+                report["matches_stored_root"] += 1
+            else:
+                result["matches_stored_root"] = False
+        else:
+            report["errors"] += 1
+        report["results"].append(result)
+    return report
+
+
 def deep_failure_item(sample: dict[str, Any]) -> dict[str, Any]:
     deep_review = sample.get("deep_review") or {}
     duration = sample.get("duration")
@@ -245,6 +318,8 @@ def deep_failure_item(sample: dict[str, Any]) -> dict[str, Any]:
         "duration": duration,
         "duration_bucket": duration_bucket(duration),
         "type": sample.get("type") or "Unknown",
+        "key": sample.get("key"),
+        "root_note": sample.get("root_note"),
         "confidence": sample.get("confidence"),
         "reason": deep_review.get("reason") or "unknown",
         "attempts": deep_review.get("attempts") or 0,
@@ -315,6 +390,71 @@ def deep_failure_triage_hints(failures: list[dict[str, Any]]) -> list[str]:
     if profiles == {"deep"} and engine_sets == {("librosa", "essentia")}:
         hints.append("Failures happened under the deep librosa+essentia path; next backend test should compare fast/librosa-only or an external harmonic engine.")
     return hints
+
+
+def run_keyfinder(command: str, path: Path, timeout: float = 15.0) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            [command, str(path)],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": "timeout", "raw_output": ""}
+    except OSError as exc:
+        return {"status": "error", "error": str(exc), "raw_output": ""}
+    raw_output = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
+    if completed.returncode != 0:
+        return {"status": "error", "error": raw_output or f"exit_{completed.returncode}", "raw_output": raw_output}
+    raw_key = raw_output.splitlines()[0].strip() if raw_output else ""
+    normalized_key, root_note = normalize_keyfinder_key(raw_key)
+    return {
+        "status": "success" if raw_key else "error",
+        "raw_key": raw_key or None,
+        "normalized_key": normalized_key,
+        "root_note": root_note,
+        "raw_output": raw_output,
+        "error": None if raw_key else "empty_output",
+    }
+
+
+def normalize_keyfinder_key(raw_key: str | None) -> tuple[str | None, str | None]:
+    value = (raw_key or "").strip()
+    if not value:
+        return None, None
+    value = value.replace("♭", "b").replace("♯", "#")
+    if value.lower().endswith(" minor"):
+        root = value[:-6].strip()
+        mode = "minor"
+    elif value.lower().endswith(" major"):
+        root = value[:-6].strip()
+        mode = "major"
+    elif value.endswith("m") and len(value) > 1:
+        root = value[:-1]
+        mode = "minor"
+    else:
+        root = value
+        mode = "major"
+    root = FLAT_TO_SHARP.get(root, root)
+    return f"{root}_{mode}", root
+
+
+def keys_match(detected_key: Any, stored_key: Any) -> bool:
+    if not detected_key or not stored_key:
+        return False
+    detected = str(detected_key)
+    stored = str(stored_key)
+    if "_" not in stored:
+        return detected.startswith(f"{stored}_")
+    return detected == stored
+
+
+def roots_match(detected_root: Any, stored_root: Any) -> bool:
+    if not detected_root or not stored_root:
+        return False
+    return str(detected_root) == str(stored_root)
 
 
 def discover_deep_backends() -> dict[str, Any]:
@@ -454,7 +594,41 @@ def format_backend_check_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
+    lines = [
+        "KeyFinder experiment:",
+        f"  Command: {report.get('command') or 'not found'}",
+        f"  Selected deep failures: {report['selected']} files",
+        f"  Processed: {report['processed']} files",
+        f"  Successes: {report['successes']} files",
+        f"  Missing audio: {report['missing_audio']} files",
+        f"  Errors: {report['errors']} files",
+        f"  Matches stored key: {report['matches_stored_key']} files",
+        f"  Matches stored root: {report['matches_stored_root']} files",
+    ]
+    if report.get("backend_error"):
+        lines.append(f"  Backend error: {report['backend_error']}")
+    if report["results"]:
+        lines.append("")
+        lines.append("Results:")
+        for item in report["results"][:20]:
+            if item["status"] == "success":
+                lines.append(
+                    f"- {item['name']} | KeyFinder {item.get('raw_key')} ({item.get('normalized_key')}) | "
+                    f"stored {item.get('stored_key') or item.get('stored_root')} | "
+                    f"key match {item.get('matches_stored_key')} | root match {item.get('matches_stored_root')}"
+                )
+            else:
+                lines.append(f"- {item['name']} | {item['status']} | {item.get('error')}")
+    return "\n".join(lines)
+
+
 def write_deep_failure_json(report: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_keyfinder_report(report: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -744,6 +918,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deep-rerun", action="store_true", help="Rerun analysis only for deep-review candidates and update the index.")
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
     parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
+    parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
@@ -757,6 +932,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-every", type=int, default=25, help="Write metadata after this many rerun files.")
     parser.add_argument("--no-json-export", action="store_true", help="Do not export/update metadata_index.json after SQLite reruns.")
     parser.add_argument("--report-json", type=Path, default=None, help="Write a JSON rerun report with selected counts and failure examples.")
+    parser.add_argument("--keyfinder-json", type=Path, default=None, help="Write the KeyFinder experiment report to JSON.")
     parser.add_argument("--failures-json", type=Path, default=None, help="Write the deep-review failure report to JSON.")
     parser.add_argument("--failures-csv", type=Path, default=None, help="Write the deep-review failure list to CSV.")
     return parser
@@ -771,6 +947,25 @@ def main(argv: list[str] | None = None) -> int:
     records = load_records(index_path)
     if args.backend_check:
         print(format_backend_check_report(build_backend_check_report(records)))
+        return 0
+    if args.keyfinder_experiment:
+        try:
+            library_roots = parse_library_roots(args.library_root)
+            destination_roots = parse_library_roots(args.destination_root, option_name="--destination-root")
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        report = build_keyfinder_experiment_report(
+            records,
+            library_roots=library_roots,
+            destination_roots=destination_roots,
+            limit=args.limit,
+        )
+        print(format_keyfinder_experiment_report(report))
+        if args.keyfinder_json:
+            report_path = args.keyfinder_json.expanduser().resolve()
+            write_keyfinder_report(report, report_path)
+            print(f"KeyFinder report JSON: {report_path}")
         return 0
     if args.deep_failures:
         report = build_deep_failure_report(records, max_examples=max(0, args.examples))

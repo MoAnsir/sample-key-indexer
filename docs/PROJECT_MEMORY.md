@@ -232,6 +232,7 @@ Active:
 - V3.6 Deep Backend Experiments
   - `--backend-check` prints local availability for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins, and aubio.
   - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
+  - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures, reports successes/errors and stored key/root matches, and can write `--keyfinder-json`.
   - Keep this phase report-first until an external backend proves useful on the small failure set.
 
 Later:
@@ -327,7 +328,33 @@ aubio: missing
 QM Vamp Plugins: missing
 ```
 
-The first real V3.6 backend experiment should use KeyFinder CLI against the recorded deep failures before adding Sonic Annotator/QM or aubio integration.
+The first real V3.6 backend experiment uses KeyFinder CLI against the recorded deep failures before adding Sonic Annotator/QM or aubio integration.
+
+KeyFinder experiment command:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-json /tmp/v36_keyfinder_experiment.json
+```
+
+Verified result:
+
+```text
+Selected deep failures: 5 files
+Processed: 4 files
+Successes: 4 files
+Errors: 1 files
+Matches stored root: 2 files
+FlutePtn080 11.wav: Unable to resample audio into 16bit PCM data
+FltBhairavi115 01c.wav: Fm / F_minor, root match true
+MndMinLick080 01(lp5).wav: Bm / B_minor, root match false
+MndRatiPriya100 13(lp).wav: Bbm / A#_minor, root match true
+StrBhairaviAlap 01a.wav: E / E_major, root match false
+```
+
+Interpretation: KeyFinder can analyze most of the current crash set and gives useful comparison data, but it should not replace the current key decision yet. Treat it as an optional third opinion for deep-review failures until more libraries confirm whether its output improves confidence.
 
 ## Common Gotchas
 
