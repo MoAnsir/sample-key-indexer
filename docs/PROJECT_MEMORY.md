@@ -172,7 +172,7 @@ The browser may cancel audio range requests when users click around. Broken pipe
 
 `sample_key_indexer/review_report.py` summarizes samples that need review. It currently counts review reasons/types and prints low-confidence examples.
 
-V3.3 adds deep review mode to the review command. It selects records with low confidence, `needs_review`, key/root disagreements, analysis warnings, or analysis errors. Drum, percussion, and FX records are not selected just for weak key confidence because harmonic reruns usually cannot improve them; they need warnings or errors to enter the queue. This filter checks stored type labels and obvious path/name tokens, which keeps misclassified percussion folders such as Dholak/Khanjira/Idakka/Udakai out of harmonic review unless they also have warnings or errors. V3.3 can print a plan, dry-run the rerun counts, or re-analyze only selected records and upsert them into the same metadata index. Real reruns isolate each selected file in a worker process. If deep/balanced analysis crashes, the file is retried once with the safer `fast`/`librosa` path before being counted as a failed worker crash.
+V3.3 adds deep review mode to the review command. It selects records with low confidence, `needs_review`, key/root disagreements, analysis warnings, or analysis errors. Drum, percussion, and FX records are not selected just for weak key confidence because harmonic reruns usually cannot improve them; they need warnings or errors to enter the queue. This filter checks stored type labels and obvious path/name tokens, which keeps misclassified percussion folders such as Dholak/Khanjira/Idakka/Udakai out of harmonic review unless they also have warnings or errors. V3.3 can print a plan, dry-run the rerun counts, or re-analyze only selected records and upsert them into the same metadata index. Real reruns isolate each selected file in a worker process. If deep/balanced analysis crashes, the file is retried once with the safer `fast`/`librosa` path before being counted as a failed worker crash. `--report-json` writes a rerun report with counts plus examples for missing audio, analysis errors, worker crash failures, and fallback successes.
 
 Plan command:
 
@@ -186,7 +186,8 @@ Rerun command:
 sample-key-indexer-review /path/to/metadata_index.sqlite \
   --deep-rerun \
   --library-root library_id=/Volumes/USB/source_samples \
-  --limit 500
+  --limit 500 \
+  --report-json /path/to/deep_review_report.json
 ```
 
 Use `--destination-root` instead of `--library-root` when the mounted audio lives in an organised `Key/` and `Unsorted/` tree. Deep reruns preserve the existing library ID, relative path, library root, and routing destination so catalogs remain stable.
@@ -213,6 +214,7 @@ Active:
   - Reruns preserve SQLite metadata identity, library path metadata, and routing destinations.
   - `--dry-run`, `--limit`, and `--low-confidence` keep reruns controlled.
   - Current before/after summary counts selected, processed, missing audio, improved confidence, still-needs-review, errors, worker crashes, and fallback successes.
+  - `--report-json` stores rerun diagnostics for missing files, analysis errors, crash failures, and fallback successes.
 
 Later:
 

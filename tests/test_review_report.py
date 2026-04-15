@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_deep_review_plan, build_review_summary, format_deep_review_plan, format_review_summary, rerun_deep_review, select_deep_review_candidates
+from sample_key_indexer.review_report import build_deep_review_plan, build_review_summary, format_deep_review_plan, format_deep_review_result, format_review_summary, rerun_deep_review, select_deep_review_candidates, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -309,6 +309,8 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(summary["errors"], 0)
         self.assertEqual(summary["worker_crashes"], 1)
         self.assertEqual(summary["fallback_successes"], 1)
+        self.assertEqual(summary["details"]["fallback_successes"][0]["name"], "loop.wav")
+        self.assertEqual(summary["details"]["fallback_successes"][0]["reason"], "worker_crash")
         self.assertEqual(records[0]["analysis"]["profile"], "fast")
         self.assertEqual(records[0]["classification"]["confidence"], 0.55)
 
@@ -344,7 +346,66 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(summary["processed"], 0)
         self.assertEqual(summary["errors"], 1)
         self.assertEqual(summary["worker_crashes"], 2)
+        self.assertEqual(summary["details"]["errors"][0]["name"], "loop.wav")
+        self.assertEqual(summary["details"]["errors"][0]["reason"], "worker_crash:worker_crash")
         self.assertEqual(records[0]["classification"]["confidence"], 0.2)
+
+    def test_rerun_deep_review_reports_missing_audio_details(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            missing_path = root / "missing.wav"
+            index_path = root / "metadata_index.sqlite"
+            original = AnalysisResult(
+                file_path=str(missing_path),
+                root_note="A",
+                key="A_minor",
+                confidence=0.2,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+                needs_review=True,
+            )
+            index = SQLiteMetadataIndex(index_path)
+            try:
+                index.upsert(original)
+                index.write()
+            finally:
+                index.close()
+
+            candidates = select_deep_review_candidates(load_records(index_path))
+            summary = rerun_deep_review(index_path, candidates, dry_run=False)
+
+        self.assertEqual(summary["missing"], 1)
+        self.assertEqual(summary["details"]["missing"][0]["name"], "missing.wav")
+        self.assertEqual(summary["details"]["missing"][0]["reason"], "audio_not_found")
+
+    def test_format_and_write_deep_review_report_include_details(self) -> None:
+        with TemporaryDirectory() as tmp:
+            report_path = Path(tmp) / "reports" / "deep_review.json"
+            summary = {
+                "selected": 1,
+                "processed": 0,
+                "missing": 0,
+                "improved_confidence": 0,
+                "still_needs_review": 0,
+                "errors": 1,
+                "worker_crashes": 2,
+                "fallback_successes": 0,
+                "dry_run": False,
+                "details": {
+                    "missing": [],
+                    "errors": [{"name": "loop.wav", "reason": "worker_crash:worker_crash"}],
+                    "fallback_successes": [],
+                },
+            }
+
+            report = format_deep_review_result(summary)
+            write_deep_review_report(summary, report_path)
+
+            self.assertIn("Error examples:", report)
+            self.assertIn("loop.wav | worker_crash:worker_crash", report)
+            self.assertTrue(report_path.exists())
+            self.assertIn('"worker_crashes": 2', report_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

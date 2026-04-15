@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -215,6 +216,11 @@ def rerun_deep_review(
         "worker_crashes": 0,
         "fallback_successes": 0,
         "dry_run": dry_run,
+        "details": {
+            "missing": [],
+            "errors": [],
+            "fallback_successes": [],
+        },
     }
     if dry_run:
         return summary
@@ -226,6 +232,7 @@ def rerun_deep_review(
             playable_path = Path(_playable_path(candidate, library_roots, destination_roots))
             if not playable_path.exists() or not playable_path.is_file():
                 summary["missing"] += 1
+                add_summary_detail(summary, "missing", candidate, playable_path, "audio_not_found")
                 continue
             result, worker_error = analyze_candidate(playable_path, analysis_duration, sample_rate, analysis_profile, selected_engines, isolated=isolated)
             if worker_error:
@@ -234,9 +241,11 @@ def rerun_deep_review(
                 if fallback_error:
                     summary["worker_crashes"] += 1
                     summary["errors"] += 1
+                    add_summary_detail(summary, "errors", candidate, playable_path, f"worker_crash:{fallback_error}")
                     continue
                 result = fallback_result
                 summary["fallback_successes"] += 1
+                add_summary_detail(summary, "fallback_successes", candidate, playable_path, worker_error)
             result = preserve_candidate_context(result, candidate)
             if result.confidence > float(candidate.get("confidence") or 0.0):
                 summary["improved_confidence"] += 1
@@ -244,6 +253,7 @@ def rerun_deep_review(
                 summary["still_needs_review"] += 1
             if result.error:
                 summary["errors"] += 1
+                add_summary_detail(summary, "errors", candidate, playable_path, result.error)
             index.upsert(result)
             summary["processed"] += 1
             if summary["processed"] % max(1, write_every) == 0:
@@ -272,6 +282,8 @@ def analyze_candidate(
             return future.result(), None
     except BrokenProcessPool:
         return None, "worker_crash"
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
 
 
 def open_writable_index(index_path: Path):
@@ -298,6 +310,17 @@ def preserve_candidate_context(result, candidate: dict[str, Any]):
     )
 
 
+def add_summary_detail(summary: dict[str, Any], bucket: str, candidate: dict[str, Any], playable_path: Path, reason: str) -> None:
+    details = summary.setdefault("details", {}).setdefault(bucket, [])
+    details.append({
+        "name": candidate.get("name"),
+        "library_id": candidate.get("library_id"),
+        "relative_path": candidate.get("relative_path"),
+        "path": str(playable_path),
+        "reason": reason,
+    })
+
+
 def format_deep_review_result(summary: dict[str, Any]) -> str:
     lines = [
         "Deep review rerun:",
@@ -312,7 +335,23 @@ def format_deep_review_result(summary: dict[str, Any]) -> str:
     ]
     if summary.get("dry_run"):
         lines.append("  Dry run: no metadata was changed")
+    for title, bucket in (
+        ("Missing examples", "missing"),
+        ("Error examples", "errors"),
+        ("Fallback examples", "fallback_successes"),
+    ):
+        examples = (summary.get("details") or {}).get(bucket, [])[:5]
+        if not examples:
+            continue
+        lines.append(f"  {title}:")
+        for item in examples:
+            lines.append(f"    - {item.get('name')} | {item.get('reason')}")
     return "\n".join(lines)
+
+
+def write_deep_review_report(summary: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -332,6 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--engines", default=None, help="Comma-separated analysis engines for reruns.")
     parser.add_argument("--write-every", type=int, default=25, help="Write metadata after this many rerun files.")
     parser.add_argument("--no-json-export", action="store_true", help="Do not export/update metadata_index.json after SQLite reruns.")
+    parser.add_argument("--report-json", type=Path, default=None, help="Write a JSON rerun report with selected counts and failure examples.")
     return parser
 
 
@@ -367,6 +407,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             print("")
             print(format_deep_review_result(rerun_summary))
+            if args.report_json:
+                report_path = args.report_json.expanduser().resolve()
+                write_deep_review_report(rerun_summary, report_path)
+                print(f"Deep review report JSON: {report_path}")
         return 0
 
     summary = build_review_summary(records, max_examples=max(0, args.examples))

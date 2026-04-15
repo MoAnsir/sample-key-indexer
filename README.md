@@ -144,11 +144,13 @@ Rerun only selected low-confidence, warning, error, or disagreement records:
 sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
   --deep-rerun \
   --library-root library_id=/Volumes/USB/source_samples \
-  --limit 500
+  --limit 500 \
+  --report-json /path/to/deep_review_report.json
 ```
 
 Use `--dry-run` with `--deep-rerun` to preview counts without changing metadata.
 Real deep reruns analyze each selected file in an isolated worker process. If deep/balanced analysis crashes, the file is retried once with the safer `fast`/`librosa` path before being counted as a failed worker crash.
+Use `--report-json` to save missing-audio examples, analysis errors, worker crash failures, and fallback successes for follow-up.
 
 If the console script has not been refreshed yet, run it as a module:
 
@@ -245,6 +247,7 @@ The web app can read both this structured schema and older flat records.
 - Deep reruns preserve library IDs, relative paths, and existing routing destinations so removable-drive catalogs keep working.
 - Drum, percussion, and FX records are not selected just for weak key confidence; they need warnings or errors to enter the deep-review queue. This uses both stored type labels and obvious path/name tokens, so misclassified percussion folders do not flood harmonic review.
 - Deep reruns isolate each selected file in a worker process and retry crashes with a `fast`/`librosa` fallback.
+- `--report-json` writes a deep-review rerun report with counts and examples for missing audio, analysis errors, worker crash failures, and fallback successes.
 
 ## Troubleshooting
 
