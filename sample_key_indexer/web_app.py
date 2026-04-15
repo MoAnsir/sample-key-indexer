@@ -130,12 +130,15 @@ def build_app(
             with path.open("rb") as handle:
                 handle.seek(start)
                 remaining = length
-                while remaining > 0:
-                    chunk = handle.read(min(1024 * 512, remaining))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    remaining -= len(chunk)
+                try:
+                    while remaining > 0:
+                        chunk = handle.read(min(1024 * 512, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                    return
 
     return SampleBrowserHandler
 

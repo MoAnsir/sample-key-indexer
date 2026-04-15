@@ -18,6 +18,17 @@ class FileTypeSummary:
     bytes: int = 0
 
 
+@dataclass
+class AnalysisRunSummary:
+    errors: int = 0
+    needs_review: int = 0
+    low_confidence: int = 0
+    key_disagreements: int = 0
+    decoder_fallbacks: int = 0
+    tiny_audio: int = 0
+    warning_records: int = 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Index and organise audio samples by detected key/root note.")
     parser.add_argument("input_root", type=Path, help="Root directory containing .wav, .mp3, .aiff, or .aif files.")
@@ -105,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Warning: {warning}")
 
     processed = 0
+    analysis_summary = AnalysisRunSummary()
     if processable:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = {
@@ -116,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
                 routed = route_file(result, output_root, move=args.move, dry_run=args.dry_run or args.catalog_only)
                 routed = attach_library_metadata(routed, input_root, library_id, library_name)
                 index.upsert(routed)
+                update_analysis_summary(analysis_summary, routed)
                 processed += 1
                 if processed % max(1, args.write_every) == 0:
                     index.write()
@@ -130,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Metadata JSON export: {index_path}")
     else:
         print(f"Indexed {processed} files. Metadata: {index_path}")
-    print_copy_report(processed, already_indexed, skipped_long, unsupported_by_type)
+    print_copy_report(processed, already_indexed, skipped_long, unsupported_by_type, analysis_summary)
     return 0
 
 
@@ -212,6 +225,7 @@ def print_copy_report(
     already_indexed: list[Path],
     skipped_long: list[Path],
     unsupported_by_type: dict[str, FileTypeSummary],
+    analysis_summary: AnalysisRunSummary | None = None,
 ) -> None:
     print("")
     print("Copy report:")
@@ -223,6 +237,34 @@ def print_copy_report(
     print(f"  Not copied - unsupported file types: {sum(summary.count for summary in unsupported_by_type.values())} files ({format_gb(sum(summary.bytes for summary in unsupported_by_type.values()))})")
     for extension, summary in sorted(unsupported_by_type.items(), key=lambda item: item[1].bytes, reverse=True):
         print(f"    {extension}: {summary.count} files ({format_gb(summary.bytes)})")
+    if analysis_summary:
+        print("Analysis report:")
+        print(f"  Errors: {analysis_summary.errors} files")
+        print(f"  Needs review: {analysis_summary.needs_review} files")
+        print(f"  Low confidence: {analysis_summary.low_confidence} files")
+        print(f"  Key disagreements: {analysis_summary.key_disagreements} files")
+        print(f"  Decoder fallbacks: {analysis_summary.decoder_fallbacks} files")
+        print(f"  Tiny/near-silent audio: {analysis_summary.tiny_audio} files")
+        print(f"  Files with warnings: {analysis_summary.warning_records} files")
+
+
+def update_analysis_summary(summary: AnalysisRunSummary, result) -> None:
+    warnings = result.analysis_warnings or []
+    review_reasons = result.review_reasons or []
+    if result.error:
+        summary.errors += 1
+    if result.needs_review:
+        summary.needs_review += 1
+    if result.confidence < 0.35:
+        summary.low_confidence += 1
+    if any("key_disagreement" in reason or "root_disagreement" in reason for reason in review_reasons):
+        summary.key_disagreements += 1
+    if "decoder_fallback_audioread" in warnings:
+        summary.decoder_fallbacks += 1
+    if any(reason in {"tiny_audio", "near_silence"} for reason in [*warnings, *review_reasons]):
+        summary.tiny_audio += 1
+    if warnings:
+        summary.warning_records += 1
 
 
 def format_gb(bytes_count: int) -> str:

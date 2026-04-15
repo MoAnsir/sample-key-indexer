@@ -197,10 +197,13 @@ The web app can read both this structured schema and older flat records.
 - Add `ffprobe` for better file probing and skip decisions before loading audio into the analysis engines.
 - Consider KeyFinder or Sonic Annotator with QM Vamp Plugins as a deep harmonic analysis backend.
 - Consider `aubio` for better onset and tempo utilities if we want a small dependency footprint.
-- Suppress noisy library warnings during bulk runs while still recording useful per-file analysis warnings.
-- Add an early tiny-audio path for ultra-short snippets so short clicks, transients, and near-silent files do not waste time in full spectral analysis.
-- Improve progress reporting with clearer counts for skipped, copied, failed, fallback-decoded, and needs-review files.
 - Add a deep review mode that reruns only low-confidence or disagreement cases instead of reprocessing the whole library.
+
+## V3.1 Bulk Run Quality
+
+- Python library warnings are captured into per-file analysis metadata instead of flooding the terminal.
+- Ultra-short and near-silent audio gets a lightweight metadata result instead of full key, BPM, and spectral analysis.
+- The final report includes error, review, low-confidence, key-disagreement, decoder-fallback, tiny-audio, and warning counts.
 
 ## Troubleshooting
 

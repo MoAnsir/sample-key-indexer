@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from sample_key_indexer.cli import attach_library_metadata, format_gb, slugify, summarize_paths_by_extension, summarize_unsupported_files, split_long_files
+from sample_key_indexer.cli import AnalysisRunSummary, attach_library_metadata, format_gb, slugify, summarize_paths_by_extension, summarize_unsupported_files, split_long_files, update_analysis_summary
 from sample_key_indexer.models import AnalysisResult
 
 
@@ -90,6 +90,32 @@ class CliTests(unittest.TestCase):
 
     def test_slugify_creates_stable_library_id(self) -> None:
         self.assertEqual(slugify("Samples to Detect!"), "samples_to_detect")
+
+    def test_update_analysis_summary_counts_review_warning_and_error_flags(self) -> None:
+        summary = AnalysisRunSummary()
+        result = AnalysisResult(
+            file_path="/samples/noisy.wav",
+            root_note=None,
+            key=None,
+            confidence=0.2,
+            category="OneShots",
+            type="FX",
+            duration=0.03,
+            analysis_warnings=["decoder_fallback_audioread", "tiny_audio"],
+            needs_review=True,
+            review_reasons=["tiny_audio", "filename_key_disagreement_weak"],
+            error="decode failed",
+        )
+
+        update_analysis_summary(summary, result)
+
+        self.assertEqual(summary.errors, 1)
+        self.assertEqual(summary.needs_review, 1)
+        self.assertEqual(summary.low_confidence, 1)
+        self.assertEqual(summary.key_disagreements, 1)
+        self.assertEqual(summary.decoder_fallbacks, 1)
+        self.assertEqual(summary.tiny_audio, 1)
+        self.assertEqual(summary.warning_records, 1)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import re
+import warnings
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -45,90 +47,110 @@ def analyze_file(
     engines: tuple[str, ...] | None = None,
 ) -> AnalysisResult:
     try:
-        import librosa
-
-        selected_engines = normalize_engines(analysis_profile, engines)
-        analysis_warnings: list[str] = []
-        y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
-        if y.size == 0:
-            return _error_result(path, "empty audio")
-
-        duration, original_sample_rate = audio_file_info(path, fallback_duration=float(librosa.get_duration(y=y, sr=sr)), fallback_sr=sr)
-        root_note, root_confidence, fundamental_freq = detect_root_note(y, sr)
-        key, key_confidence = detect_key(y, sr, root_note)
-        category, sample_type = classify_sample(path, duration, y, sr)
-        confidence = confidence_for(root_confidence, key_confidence, sample_type, key)
-        filename_key = detect_filename_key(path)
-        features = extract_audio_features(y, sr, fundamental_freq)
-        notes = detect_notes(y, sr)
-        filename_bpm = detect_filename_bpm(path)
-        bpm, bpm_review_reasons = detect_bpm_with_review(y, sr, duration, expected_bpm=filename_bpm)
-        signature = file_signature(path)
-        essentia_key, essentia_root, essentia_confidence, essentia_warning = analyze_with_essentia(y, sr, selected_engines)
-        if essentia_warning:
-            analysis_warnings.append(essentia_warning)
-        final_key, final_root, final_confidence, review_reasons = choose_consensus_key(
-            librosa_key=key,
-            librosa_root=root_note,
-            librosa_confidence=confidence,
-            librosa_key_confidence=key_confidence,
-            librosa_root_confidence=root_confidence,
-            essentia_key=essentia_key,
-            essentia_root=essentia_root,
-            essentia_confidence=essentia_confidence,
-            filename_key=filename_key,
-            sample_type=sample_type,
-        )
-        review_reasons = [*review_reasons, *bpm_review_reasons]
-        final_scale_confidence = key_confidence
-        if final_key == essentia_key:
-            final_scale_confidence = max(final_scale_confidence, essentia_confidence)
-
-        return AnalysisResult(
-            file_path=str(path),
-            root_note=final_root,
-            key=final_key,
-            confidence=final_confidence,
-            category=category,
-            type=sample_type,
-            sample_rate=original_sample_rate,
-            format=path.suffix.lower().lstrip("."),
-            scale_confidence=round(final_scale_confidence, 3),
-            notes=notes,
-            chords=estimate_chords(final_key, notes, duration, category),
-            bpm=bpm,
-            rms_db=features["rms_db"],
-            peak_db=features["peak_db"],
-            dynamic_range_db=features["dynamic_range_db"],
-            spectral_centroid=features["spectral_centroid"],
-            spectral_bandwidth=features["spectral_bandwidth"],
-            rolloff=features["rolloff"],
-            fundamental_freq=features["fundamental_freq"],
-            brightness=features["brightness"],
-            warmth=features["warmth"],
-            roughness=features["roughness"],
-            mfcc=features["mfcc"],
-            subtype=estimate_subtype(sample_type, path),
-            source=estimate_source(sample_type, path),
-            librosa_root=root_note,
-            librosa_root_confidence=root_confidence,
-            librosa_key=key,
-            librosa_key_confidence=key_confidence,
-            essentia_root=essentia_root,
-            essentia_key=essentia_key,
-            essentia_key_confidence=essentia_confidence,
-            filename_key=filename_key,
-            analysis_profile=analysis_profile,
-            analysis_engines=list(selected_engines),
-            analysis_warnings=analysis_warnings,
-            needs_review=bool(review_reasons),
-            review_reasons=review_reasons,
-            duration=round(duration, 3),
-            size=int(signature["size"]),
-            mtime=float(signature["mtime"]),
-        )
+        with warnings.catch_warnings(record=True) as captured_warnings:
+            warnings.simplefilter("always")
+            result = _analyze_file(path, analysis_duration, sample_rate, analysis_profile, engines)
+        warning_messages = summarize_warnings(captured_warnings)
+        if warning_messages:
+            result = replace(result, analysis_warnings=unique_strings([*result.analysis_warnings, *warning_messages]))
+        return result
     except Exception as exc:
         return _error_result(path, str(exc))
+
+
+def _analyze_file(
+    path: Path,
+    analysis_duration: float,
+    sample_rate: int,
+    analysis_profile: str,
+    engines: tuple[str, ...] | None,
+) -> AnalysisResult:
+    import librosa
+
+    selected_engines = normalize_engines(analysis_profile, engines)
+    analysis_warnings: list[str] = []
+    y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
+    if y.size == 0:
+        return _error_result(path, "empty audio")
+
+    duration, original_sample_rate = audio_file_info(path, fallback_duration=float(librosa.get_duration(y=y, sr=sr)), fallback_sr=sr)
+    tiny_reason = tiny_audio_reason(y, sr, duration)
+    if tiny_reason:
+        return tiny_audio_result(path, y, sr, duration, original_sample_rate, selected_engines, analysis_profile, tiny_reason)
+
+    root_note, root_confidence, fundamental_freq = detect_root_note(y, sr)
+    key, key_confidence = detect_key(y, sr, root_note)
+    category, sample_type = classify_sample(path, duration, y, sr)
+    confidence = confidence_for(root_confidence, key_confidence, sample_type, key)
+    filename_key = detect_filename_key(path)
+    features = extract_audio_features(y, sr, fundamental_freq)
+    notes = detect_notes(y, sr)
+    filename_bpm = detect_filename_bpm(path)
+    bpm, bpm_review_reasons = detect_bpm_with_review(y, sr, duration, expected_bpm=filename_bpm)
+    signature = file_signature(path)
+    essentia_key, essentia_root, essentia_confidence, essentia_warning = analyze_with_essentia(y, sr, selected_engines)
+    if essentia_warning:
+        analysis_warnings.append(essentia_warning)
+    final_key, final_root, final_confidence, review_reasons = choose_consensus_key(
+        librosa_key=key,
+        librosa_root=root_note,
+        librosa_confidence=confidence,
+        librosa_key_confidence=key_confidence,
+        librosa_root_confidence=root_confidence,
+        essentia_key=essentia_key,
+        essentia_root=essentia_root,
+        essentia_confidence=essentia_confidence,
+        filename_key=filename_key,
+        sample_type=sample_type,
+    )
+    review_reasons = [*review_reasons, *bpm_review_reasons]
+    final_scale_confidence = key_confidence
+    if final_key == essentia_key:
+        final_scale_confidence = max(final_scale_confidence, essentia_confidence)
+
+    return AnalysisResult(
+        file_path=str(path),
+        root_note=final_root,
+        key=final_key,
+        confidence=final_confidence,
+        category=category,
+        type=sample_type,
+        sample_rate=original_sample_rate,
+        format=path.suffix.lower().lstrip("."),
+        scale_confidence=round(final_scale_confidence, 3),
+        notes=notes,
+        chords=estimate_chords(final_key, notes, duration, category),
+        bpm=bpm,
+        rms_db=features["rms_db"],
+        peak_db=features["peak_db"],
+        dynamic_range_db=features["dynamic_range_db"],
+        spectral_centroid=features["spectral_centroid"],
+        spectral_bandwidth=features["spectral_bandwidth"],
+        rolloff=features["rolloff"],
+        fundamental_freq=features["fundamental_freq"],
+        brightness=features["brightness"],
+        warmth=features["warmth"],
+        roughness=features["roughness"],
+        mfcc=features["mfcc"],
+        subtype=estimate_subtype(sample_type, path),
+        source=estimate_source(sample_type, path),
+        librosa_root=root_note,
+        librosa_root_confidence=root_confidence,
+        librosa_key=key,
+        librosa_key_confidence=key_confidence,
+        essentia_root=essentia_root,
+        essentia_key=essentia_key,
+        essentia_key_confidence=essentia_confidence,
+        filename_key=filename_key,
+        analysis_profile=analysis_profile,
+        analysis_engines=list(selected_engines),
+        analysis_warnings=analysis_warnings,
+        needs_review=bool(review_reasons),
+        review_reasons=review_reasons,
+        duration=round(duration, 3),
+        size=int(signature["size"]),
+        mtime=float(signature["mtime"]),
+    )
 
 
 def audio_file_info(path: Path, fallback_duration: float, fallback_sr: int) -> tuple[float, int]:
@@ -139,6 +161,85 @@ def audio_file_info(path: Path, fallback_duration: float, fallback_sr: int) -> t
         return round(float(info.frames / info.samplerate), 3), int(info.samplerate)
     except Exception:
         return round(float(fallback_duration), 3), int(fallback_sr)
+
+
+def tiny_audio_reason(y: np.ndarray, sr: int, duration: float) -> str | None:
+    import numpy as np
+
+    if duration < 0.08 or y.size < int(sr * 0.08):
+        return "tiny_audio"
+    if float(np.nanmax(np.abs(y))) < 1e-5:
+        return "near_silence"
+    return None
+
+
+def tiny_audio_result(
+    path: Path,
+    y: np.ndarray,
+    sr: int,
+    duration: float,
+    original_sample_rate: int,
+    selected_engines: tuple[str, ...],
+    analysis_profile: str,
+    reason: str,
+) -> AnalysisResult:
+    import numpy as np
+
+    category, sample_type = classify_sample(path, duration, None, None)
+    signature = file_signature(path)
+    peak_amp = float(np.nanmax(np.abs(y))) if y.size else 0.0
+    rms_amp = float(np.sqrt(np.nanmean(np.square(y)))) if y.size else 0.0
+    filename_key = detect_filename_key(path)
+    return AnalysisResult(
+        file_path=str(path),
+        root_note=None,
+        key=None,
+        confidence=0.0,
+        category=category,
+        type=sample_type,
+        sample_rate=original_sample_rate,
+        format=path.suffix.lower().lstrip("."),
+        filename_key=filename_key,
+        analysis_profile=analysis_profile,
+        analysis_engines=list(selected_engines),
+        analysis_warnings=[reason],
+        needs_review=True,
+        review_reasons=[reason],
+        duration=round(duration, 3),
+        rms_db=round(_amp_to_db(rms_amp), 2),
+        peak_db=round(_amp_to_db(peak_amp), 2),
+        dynamic_range_db=round(max(0.0, _amp_to_db(peak_amp) - _amp_to_db(rms_amp)), 2),
+        brightness="unknown",
+        warmth="unknown",
+        roughness="unknown",
+        size=int(signature["size"]),
+        mtime=float(signature["mtime"]),
+    )
+
+
+def summarize_warnings(captured_warnings: list[warnings.WarningMessage]) -> list[str]:
+    messages: list[str] = []
+    for warning in captured_warnings:
+        text = str(warning.message)
+        if "PySoundFile failed. Trying audioread instead." in text:
+            messages.append("decoder_fallback_audioread")
+        elif "n_fft=" in text and "too large for input signal" in text:
+            messages.append("short_signal_fft_adjusted")
+        elif "Trying to estimate tuning from empty frequency set" in text:
+            messages.append("empty_frequency_set")
+        else:
+            messages.append(f"{warning.category.__name__}: {text}")
+    return unique_strings(messages)
+
+
+def unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            unique.append(value)
+    return unique
 
 
 def quick_audio_duration(path: Path) -> float | None:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 import unittest
+import warnings
 
-from sample_key_indexer.audio_analysis import _normalise_bpm, _normalise_bpm_with_reason, choose_consensus_key, detect_filename_bpm, detect_filename_key
+from sample_key_indexer.audio_analysis import _normalise_bpm, _normalise_bpm_with_reason, choose_consensus_key, detect_filename_bpm, detect_filename_key, summarize_warnings, tiny_audio_reason
 
 
 class AudioAnalysisV2Tests(unittest.TestCase):
@@ -106,6 +108,26 @@ class AudioAnalysisV2Tests(unittest.TestCase):
         self.assertEqual(root, "E")
         self.assertEqual(confidence, 0.88)
         self.assertEqual(review_reasons, ["filename_key_disagreement", "filename_key_disagreement_confident"])
+
+    @unittest.skipUnless(importlib.util.find_spec("numpy"), "numpy is required for audio array tests")
+    def test_tiny_audio_reason_flags_short_or_silent_audio(self) -> None:
+        import numpy as np
+
+        self.assertEqual(tiny_audio_reason(np.zeros(1000), 22050, 0.04), "tiny_audio")
+        self.assertEqual(tiny_audio_reason(np.zeros(3000), 22050, 0.2), "near_silence")
+        self.assertIsNone(tiny_audio_reason(np.ones(3000) * 0.1, 22050, 0.2))
+
+    def test_summarize_warnings_groups_known_noisy_warnings(self) -> None:
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            warnings.warn("PySoundFile failed. Trying audioread instead.")
+            warnings.warn("n_fft=1024 is too large for input signal of length=43")
+            warnings.warn("Trying to estimate tuning from empty frequency set.")
+
+        self.assertEqual(
+            summarize_warnings(captured),
+            ["decoder_fallback_audioread", "short_signal_fft_adjusted", "empty_frequency_set"],
+        )
 
 
 if __name__ == "__main__":
