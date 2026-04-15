@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_backend_check_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_experiment_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_experiment_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
+from sample_key_indexer.review_report import build_backend_check_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -374,6 +374,108 @@ class ReviewReportTests(unittest.TestCase):
         self.assertIn("Deep-review failure targets: 1 files", text)
         self.assertIn("Sonic Annotator: available (/usr/local/bin/sonic-annotator)", text)
         self.assertIn("QM Vamp Plugins: available", text)
+
+    def test_keyfinder_comparison_report_groups_stored_external_metadata(self) -> None:
+        match = AnalysisResult(
+            file_path="/samples/match.wav",
+            root_note="C",
+            key="C_major",
+            confidence=0.82,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+            library_id="sd_01",
+            library_name="SD 01",
+        ).to_dict()
+        match["analysis"]["external"] = {
+            "keyfinder": {
+                "status": "success",
+                "normalized_key": "C_major",
+                "root_note": "C",
+                "matches_stored_key": True,
+                "matches_stored_root": True,
+                "conversion_used": False,
+            }
+        }
+        root_only = AnalysisResult(
+            file_path="/samples/root.wav",
+            root_note="D",
+            key="D_minor",
+            confidence=0.62,
+            category="Loops",
+            type="BassLoops",
+            duration=4.0,
+            format="wav",
+            library_id="sd_01",
+            library_name="SD 01",
+        ).to_dict()
+        root_only["analysis"]["external"] = {
+            "keyfinder": {
+                "status": "success",
+                "normalized_key": "D_major",
+                "root_note": "D",
+                "matches_stored_key": False,
+                "matches_stored_root": True,
+                "conversion_used": True,
+            }
+        }
+        disagreement = AnalysisResult(
+            file_path="/samples/disagree.wav",
+            root_note="F",
+            key="F_minor",
+            confidence=0.9,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+            library_id="sd_02",
+            library_name="SD 02",
+        ).to_dict()
+        disagreement["analysis"]["external"] = {
+            "keyfinder": {
+                "status": "success",
+                "normalized_key": "A_major",
+                "root_note": "A",
+                "matches_stored_key": False,
+                "matches_stored_root": False,
+                "conversion_used": False,
+            }
+        }
+        missing = AnalysisResult(
+            file_path="/samples/missing.wav",
+            root_note="G",
+            key="G_major",
+            confidence=0.4,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+            library_id="sd_02",
+            library_name="SD 02",
+        ).to_dict()
+
+        report = build_keyfinder_comparison_report([match, root_only, disagreement, missing], max_examples=5)
+        text = format_keyfinder_comparison_report(report)
+
+        self.assertEqual(report["total"], 4)
+        self.assertEqual(report["enriched"], 3)
+        self.assertEqual(report["missing_keyfinder"], 1)
+        self.assertEqual(report["matches_stored_key"], 1)
+        self.assertEqual(report["matches_stored_root"], 2)
+        self.assertEqual(report["root_only_matches"], 1)
+        self.assertEqual(report["key_and_root_disagreements"], 1)
+        self.assertEqual(report["conversion_used"], 1)
+        self.assertEqual(report["by_decision"], [
+            {"value": "key_match", "count": 1},
+            {"value": "root_match_key_diff", "count": 1},
+            {"value": "key_and_root_disagree", "count": 1},
+        ])
+        self.assertEqual(report["disagreement_examples"][0]["name"], "disagree.wav")
+        self.assertIn("KeyFinder comparison:", text)
+        self.assertIn("With KeyFinder metadata: 3 files", text)
+        self.assertIn("By library:", text)
+        self.assertIn("disagree.wav | sd_02", text)
 
     def test_keyfinder_experiment_reports_successes_and_errors(self) -> None:
         failed_a = AnalysisResult(

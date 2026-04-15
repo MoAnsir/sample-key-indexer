@@ -239,6 +239,140 @@ def build_backend_check_report(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def build_keyfinder_comparison_report(records: list[dict[str, Any]], max_examples: int = 20) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    items = [keyfinder_comparison_item(sample) for sample in samples]
+    enriched = [item for item in items if item["has_keyfinder"]]
+    successes = [item for item in enriched if item["status"] == "success"]
+    errors = [item for item in enriched if item["status"] != "success"]
+    disagreements = [item for item in successes if not item["matches_stored_key"] and not item["matches_stored_root"]]
+    root_only_matches = [item for item in successes if not item["matches_stored_key"] and item["matches_stored_root"]]
+    return {
+        "total": len(samples),
+        "enriched": len(enriched),
+        "missing_keyfinder": len(samples) - len(enriched),
+        "successes": len(successes),
+        "errors": len(errors),
+        "conversion_used": sum(1 for item in enriched if item["conversion_used"]),
+        "matches_stored_key": sum(1 for item in successes if item["matches_stored_key"]),
+        "matches_stored_root": sum(1 for item in successes if item["matches_stored_root"]),
+        "root_only_matches": len(root_only_matches),
+        "key_and_root_disagreements": len(disagreements),
+        "by_library": aggregate_keyfinder_group(enriched, "library_id"),
+        "by_type": aggregate_keyfinder_group(enriched, "type"),
+        "by_confidence": aggregate_keyfinder_group(enriched, "confidence_bucket"),
+        "by_status": count_items(enriched, "status"),
+        "by_decision": count_items(successes, "decision"),
+        "disagreement_examples": sorted(
+            disagreements,
+            key=lambda item: (-(item.get("confidence") or 0.0), item.get("library_id") or "", item.get("name") or ""),
+        )[:max(0, max_examples)],
+        "root_only_examples": sorted(
+            root_only_matches,
+            key=lambda item: (-(item.get("confidence") or 0.0), item.get("library_id") or "", item.get("name") or ""),
+        )[:max(0, max_examples)],
+        "missing_examples": [
+            {
+                "name": sample.get("name"),
+                "library_id": sample.get("library_id"),
+                "type": sample.get("type"),
+                "confidence": sample.get("confidence"),
+                "relative_path": sample.get("relative_path"),
+            }
+            for sample in samples
+            if not keyfinder_external(sample)
+        ][:max(0, max_examples)],
+    }
+
+
+def keyfinder_comparison_item(sample: dict[str, Any]) -> dict[str, Any]:
+    external = keyfinder_external(sample)
+    confidence = sample.get("confidence")
+    item = {
+        "name": sample.get("name"),
+        "library_id": sample.get("library_id") or "unknown",
+        "library_name": sample.get("library_name"),
+        "relative_path": sample.get("relative_path"),
+        "type": sample.get("type") or "Unknown",
+        "confidence": confidence,
+        "confidence_bucket": confidence_bucket(confidence),
+        "stored_key": sample.get("key"),
+        "stored_root": sample.get("root_note"),
+        "has_keyfinder": bool(external),
+        "status": "missing",
+        "keyfinder_key": None,
+        "keyfinder_root": None,
+        "matches_stored_key": False,
+        "matches_stored_root": False,
+        "conversion_used": False,
+        "decision": "missing_keyfinder",
+        "error": None,
+    }
+    if not external:
+        return item
+    item["status"] = external.get("status") or "unknown"
+    item["keyfinder_key"] = external.get("normalized_key")
+    item["keyfinder_root"] = external.get("root_note")
+    item["conversion_used"] = bool(external.get("conversion_used"))
+    item["error"] = external.get("error")
+    item["matches_stored_key"] = bool(external.get("matches_stored_key")) or keys_match(item["keyfinder_key"], item["stored_key"])
+    item["matches_stored_root"] = bool(external.get("matches_stored_root")) or roots_match(item["keyfinder_root"], item["stored_root"])
+    item["decision"] = keyfinder_comparison_decision(item)
+    return item
+
+
+def keyfinder_external(sample: dict[str, Any]) -> dict[str, Any]:
+    structured = sample.get("structured") or {}
+    analysis = structured.get("analysis") if isinstance(structured, dict) else None
+    if isinstance(analysis, dict):
+        external = analysis.get("external") or {}
+        keyfinder = external.get("keyfinder") if isinstance(external, dict) else None
+        if isinstance(keyfinder, dict):
+            return keyfinder
+    flat_analysis = sample.get("analysis")
+    if isinstance(flat_analysis, dict):
+        external = flat_analysis.get("external") or {}
+        keyfinder = external.get("keyfinder") if isinstance(external, dict) else None
+        if isinstance(keyfinder, dict):
+            return keyfinder
+    return {}
+
+
+def keyfinder_comparison_decision(item: dict[str, Any]) -> str:
+    if not item.get("has_keyfinder"):
+        return "missing_keyfinder"
+    if item.get("status") != "success":
+        return "keyfinder_error"
+    if item.get("matches_stored_key"):
+        return "key_match"
+    if item.get("matches_stored_root"):
+        return "root_match_key_diff"
+    if not item.get("stored_key") and not item.get("stored_root"):
+        return "no_stored_key"
+    return "key_and_root_disagree"
+
+
+def aggregate_keyfinder_group(items: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        grouped.setdefault(str(item.get(key) or "unknown"), []).append(item)
+    rows = []
+    for value, group in grouped.items():
+        successes = [item for item in group if item["status"] == "success"]
+        rows.append({
+            "value": value,
+            "count": len(group),
+            "successes": len(successes),
+            "errors": len(group) - len(successes),
+            "conversion_used": sum(1 for item in group if item["conversion_used"]),
+            "matches_stored_key": sum(1 for item in successes if item["matches_stored_key"]),
+            "matches_stored_root": sum(1 for item in successes if item["matches_stored_root"]),
+            "key_and_root_disagreements": sum(1 for item in successes if item["decision"] == "key_and_root_disagree"),
+        })
+    rows.sort(key=lambda row: (-row["count"], row["value"]))
+    return rows
+
+
 def build_keyfinder_experiment_report(
     records: list[dict[str, Any]],
     library_roots: dict[str, Path] | None = None,
@@ -541,6 +675,22 @@ def duration_bucket(duration: Any) -> str:
     return "30s+"
 
 
+def confidence_bucket(confidence: Any) -> str:
+    if confidence is None:
+        return "unknown"
+    try:
+        value = float(confidence)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value < 0.35:
+        return "<0.35"
+    if value < 0.5:
+        return "0.35-0.49"
+    if value < 0.75:
+        return "0.50-0.74"
+    return "0.75+"
+
+
 def path_family(path_value: Any, depth: int = 2) -> str:
     parts = [part for part in Path(str(path_value or "")).parts if part not in {"/", ""}]
     if not parts:
@@ -833,6 +983,57 @@ def format_backend_check_report(report: dict[str, Any]) -> str:
     lines.append("- If Sonic Annotator and QM Vamp Plugins are available, test them first against the recorded deep failures.")
     lines.append("- If KeyFinder CLI is available, compare its key output against the same failure set.")
     lines.append("- Keep aubio optional for tempo/onset checks rather than primary key detection.")
+    return "\n".join(lines)
+
+
+def format_keyfinder_comparison_report(report: dict[str, Any]) -> str:
+    lines = [
+        "KeyFinder comparison:",
+        f"  Total samples: {report['total']} files",
+        f"  With KeyFinder metadata: {report['enriched']} files",
+        f"  Missing KeyFinder metadata: {report['missing_keyfinder']} files",
+        f"  Successes: {report['successes']} files",
+        f"  Errors: {report['errors']} files",
+        f"  Conversion used: {report['conversion_used']} files",
+        f"  Matches stored key: {report['matches_stored_key']} files",
+        f"  Matches stored root: {report['matches_stored_root']} files",
+        f"  Root-only matches: {report['root_only_matches']} files",
+        f"  Key/root disagreements: {report['key_and_root_disagreements']} files",
+    ]
+    for title, key in (
+        ("By decision", "by_decision"),
+        ("By library", "by_library"),
+        ("By type", "by_type"),
+        ("By confidence", "by_confidence"),
+        ("By status", "by_status"),
+    ):
+        rows = report.get(key) or []
+        if not rows:
+            continue
+        lines.append("")
+        lines.append(f"{title}:")
+        for row in rows[:12]:
+            if "successes" in row:
+                lines.append(
+                    f"- {row['value']}: {row['count']} files | success {row['successes']} | "
+                    f"key match {row['matches_stored_key']} | root match {row['matches_stored_root']} | "
+                    f"disagree {row['key_and_root_disagreements']} | converted {row['conversion_used']}"
+                )
+            else:
+                lines.append(f"- {row['value']}: {row['count']}")
+    if report.get("disagreement_examples"):
+        lines.append("")
+        lines.append("High-confidence disagreement examples:")
+        for item in report["disagreement_examples"][:10]:
+            lines.append(
+                f"- {item['name']} | {item['library_id']} | confidence {item['confidence']} | "
+                f"stored {item.get('stored_key') or item.get('stored_root')} | KeyFinder {item.get('keyfinder_key') or item.get('keyfinder_root')}"
+            )
+    if report.get("missing_examples"):
+        lines.append("")
+        lines.append("Missing metadata examples:")
+        for item in report["missing_examples"][:5]:
+            lines.append(f"- {item['name']} | {item['library_id']} | {item.get('relative_path')}")
     return "\n".join(lines)
 
 
@@ -1186,6 +1387,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deep-rerun", action="store_true", help="Rerun analysis only for deep-review candidates and update the index.")
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
     parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
+    parser.add_argument("--keyfinder-compare", action="store_true", help="Compare stored analysis.external.keyfinder metadata against the current stored key/root decisions.")
     parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
     parser.add_argument("--keyfinder-enrich", action="store_true", help="Run KeyFinder CLI and store its output under analysis.external.keyfinder without changing the main key decision.")
     parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, or the full index.")
@@ -1218,6 +1420,14 @@ def main(argv: list[str] | None = None) -> int:
     records = load_records(index_path)
     if args.backend_check:
         print(format_backend_check_report(build_backend_check_report(records)))
+        return 0
+    if args.keyfinder_compare:
+        report = build_keyfinder_comparison_report(records, max_examples=max(0, args.examples))
+        print(format_keyfinder_comparison_report(report))
+        if args.keyfinder_json:
+            report_path = args.keyfinder_json.expanduser().resolve()
+            write_keyfinder_report(report, report_path)
+            print(f"KeyFinder comparison JSON: {report_path}")
         return 0
     if args.keyfinder_experiment or args.keyfinder_enrich:
         try:

@@ -234,6 +234,7 @@ Active:
   - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
   - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures, reports successes/errors and stored key/root matches, and can write `--keyfinder-json`.
   - `--keyfinder-enrich` stores KeyFinder output under `analysis.external.keyfinder` without changing `musical.key`, `musical.root`, `analysis.final_decision`, routing, or copied files.
+  - `--keyfinder-compare` prints a read-only report over stored `analysis.external.keyfinder`, grouped by library, sample type, confidence bucket, status, and match/disagreement decision.
   - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or every sample in the selected index.
   - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
   - KeyFinder is now an optional stored comparison signal, not the main key decision.
@@ -241,8 +242,8 @@ Active:
 Remaining before V3.6 is complete:
 
 - Run `--keyfinder-enrich --keyfinder-scope all --keyfinder-convert-retry` on at least one more real library so KeyFinder agreement/disagreement can be compared beyond SD 02 Trad.
-- Add a small comparison report over stored `analysis.external.keyfinder` values, grouped by library, sample type, confidence bucket, and match/disagreement status.
-- Keep the main key decision unchanged during V3.6. V3.6 is complete when the stored comparison data and comparison report are good enough to inform the next scoring decision.
+- Run the comparison report against at least one more real library after enrichment so match/disagreement behavior can be compared across libraries.
+- Keep the main key decision unchanged during V3.6. V3.6 is complete when stored comparison data from more than one library is good enough to inform the next scoring decision.
 
 Likely next phases:
 
@@ -471,6 +472,41 @@ analysis.external.keyfinder.conversion_used = true: 1959
 ```
 
 Interpretation: KeyFinder is ready as an optional external comparison signal. Keep it separate from the main key decision until more libraries have stored comparison data. Later decisions can use match/disagreement patterns across libraries to decide whether KeyFinder becomes part of deep profile consensus, stays report-only, or is used only when librosa/essentia disagree.
+
+V3.6 stored comparison report command:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-compare \
+  --examples 15 \
+  --keyfinder-json /tmp/v36_keyfinder_compare_sd_02_trad.json
+```
+
+Result on SD 02 Trad:
+
+```text
+Total samples: 4411 files
+With KeyFinder metadata: 4411 files
+Missing KeyFinder metadata: 0 files
+Successes: 4411 files
+Errors: 0 files
+Conversion used: 1959 files
+Matches stored key: 1346 files
+Matches stored root: 2041 files
+Root-only matches: 695 files
+Key/root disagreements: 2370 files
+```
+
+Top-level decision counts:
+
+```text
+key_and_root_disagree: 2370
+key_match: 1346
+root_match_key_diff: 695
+```
+
+Interpretation: SD 02 alone is not enough to change scoring rules. The next V3.6 validation step is to enrich another real library and compare whether these disagreement rates are similar, library-specific, or concentrated in certain sample types/confidence buckets.
 
 ## Common Gotchas
 
