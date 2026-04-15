@@ -179,6 +179,7 @@ def rerun_deep_review(
         "still_needs_review": 0,
         "errors": 0,
         "worker_crashes": 0,
+        "fallback_successes": 0,
         "dry_run": dry_run,
     }
     if dry_run:
@@ -195,8 +196,13 @@ def rerun_deep_review(
             result, worker_error = analyze_candidate(playable_path, analysis_duration, sample_rate, analysis_profile, selected_engines, isolated=isolated)
             if worker_error:
                 summary["worker_crashes"] += 1
-                summary["errors"] += 1
-                continue
+                fallback_result, fallback_error = analyze_candidate(playable_path, analysis_duration, sample_rate, "fast", ("librosa",), isolated=isolated)
+                if fallback_error:
+                    summary["worker_crashes"] += 1
+                    summary["errors"] += 1
+                    continue
+                result = fallback_result
+                summary["fallback_successes"] += 1
             result = preserve_candidate_context(result, candidate)
             if result.confidence > float(candidate.get("confidence") or 0.0):
                 summary["improved_confidence"] += 1
@@ -268,6 +274,7 @@ def format_deep_review_result(summary: dict[str, Any]) -> str:
         f"  Still needs review: {summary['still_needs_review']} files",
         f"  Errors: {summary['errors']} files",
         f"  Worker crashes: {summary.get('worker_crashes', 0)} files",
+        f"  Fallback successes: {summary.get('fallback_successes', 0)} files",
     ]
     if summary.get("dry_run"):
         lines.append("  Dry run: no metadata was changed")

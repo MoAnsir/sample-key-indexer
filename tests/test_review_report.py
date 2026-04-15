@@ -207,7 +207,54 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(records[0]["library"]["id"], "sd_02")
         self.assertEqual(records[0]["file"]["relative_path"], "Samples/loop.wav")
 
-    def test_rerun_deep_review_counts_worker_crash_without_updating_record(self) -> None:
+    def test_rerun_deep_review_retries_worker_crash_with_fast_librosa_fallback(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "loop.wav"
+            audio_path.write_bytes(b"audio")
+            index_path = root / "metadata_index.sqlite"
+            original = AnalysisResult(
+                file_path=str(audio_path),
+                root_note="A",
+                key="A_minor",
+                confidence=0.2,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+                needs_review=True,
+            )
+            fallback = AnalysisResult(
+                file_path=str(audio_path),
+                root_note="A",
+                key="A_minor",
+                confidence=0.55,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+                analysis_profile="fast",
+                analysis_engines=["librosa"],
+            )
+            index = SQLiteMetadataIndex(index_path)
+            try:
+                index.upsert(original)
+                index.write()
+            finally:
+                index.close()
+
+            candidates = select_deep_review_candidates(load_records(index_path))
+            with patch("sample_key_indexer.review_report.analyze_candidate", side_effect=[(None, "worker_crash"), (fallback, None)]):
+                summary = rerun_deep_review(index_path, candidates, dry_run=False)
+
+            records = load_records(index_path)
+
+        self.assertEqual(summary["processed"], 1)
+        self.assertEqual(summary["errors"], 0)
+        self.assertEqual(summary["worker_crashes"], 1)
+        self.assertEqual(summary["fallback_successes"], 1)
+        self.assertEqual(records[0]["analysis"]["profile"], "fast")
+        self.assertEqual(records[0]["classification"]["confidence"], 0.55)
+
+    def test_rerun_deep_review_counts_worker_crash_when_fallback_also_crashes(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             audio_path = root / "loop.wav"
@@ -231,14 +278,14 @@ class ReviewReportTests(unittest.TestCase):
                 index.close()
 
             candidates = select_deep_review_candidates(load_records(index_path))
-            with patch("sample_key_indexer.review_report.analyze_candidate", return_value=(None, "worker_crash")):
+            with patch("sample_key_indexer.review_report.analyze_candidate", side_effect=[(None, "worker_crash"), (None, "worker_crash")]):
                 summary = rerun_deep_review(index_path, candidates, dry_run=False)
 
             records = load_records(index_path)
 
         self.assertEqual(summary["processed"], 0)
         self.assertEqual(summary["errors"], 1)
-        self.assertEqual(summary["worker_crashes"], 1)
+        self.assertEqual(summary["worker_crashes"], 2)
         self.assertEqual(records[0]["classification"]["confidence"], 0.2)
 
 
