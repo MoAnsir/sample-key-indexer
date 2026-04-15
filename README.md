@@ -314,6 +314,7 @@ The web app can read both this structured schema and older flat records.
 - With `--keyfinder-convert-retry`, the same full index processed all 4,411 files, converted 1,959 files, had zero remaining errors, matched 1,346 stored keys, and matched 2,041 stored roots.
 - Full SD 02 Trad metadata enrichment result: 4,411 records updated under `analysis.external.keyfinder`, 1,959 conversion retries used, zero errors, 1,346 stored-key matches, and 2,041 stored-root matches.
 - KeyFinder is now an optional stored comparison backend. It should not replace the main key decision until more libraries are compared.
+- Later comparison TODO: use stored KeyFinder data across multiple libraries to decide whether it should raise confidence when engines agree, add review flags when it disagrees, act as a tie-breaker, or stay report-only.
 - This phase does not install tools or update sample metadata by default; it tells us what can be tested next.
 
 ## Troubleshooting

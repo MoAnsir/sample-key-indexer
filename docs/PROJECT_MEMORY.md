@@ -241,6 +241,7 @@ Active:
 Later:
 
 - Optional deep harmonic backend integration with KeyFinder or Sonic Annotator/QM Vamp Plugins, if the V3.6 checks prove useful.
+- Compare stored `analysis.external.keyfinder` results across multiple libraries before changing the final key decision. Use this to decide whether KeyFinder should increase confidence when it agrees with librosa/Essentia, add a review reason when it strongly disagrees, act only as a tie-breaker, or remain a report-only signal.
 - Optional aubio onset/tempo utility if tempo/onset quality needs a small-footprint boost.
 - Multi-USB UX polish.
 
