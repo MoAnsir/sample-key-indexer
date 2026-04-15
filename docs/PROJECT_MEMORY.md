@@ -233,6 +233,7 @@ Active:
   - `--backend-check` prints local availability for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins, and aubio.
   - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
   - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures, reports successes/errors and stored key/root matches, and can write `--keyfinder-json`.
+  - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or every sample in the selected index.
   - Keep this phase report-first until an external backend proves useful on the small failure set.
 
 Later:
@@ -355,6 +356,31 @@ StrBhairaviAlap 01a.wav: E / E_major, root match false
 ```
 
 Interpretation: KeyFinder can analyze most of the current crash set and gives useful comparison data, but it should not replace the current key decision yet. Treat it as an optional third opinion for deep-review failures until more libraries confirm whether its output improves confidence.
+
+Full-index KeyFinder experiment on the same selected folder:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-scope all \
+  --keyfinder-json /tmp/v36_keyfinder_all_sd_02_trad.json
+```
+
+Verified result:
+
+```text
+Selected samples: 4411 files
+Processed: 2452 files
+Successes: 2452 files
+Errors: 1959 files
+Matches stored key: 779 files
+Matches stored root: 1020 files
+All 1959 errors were: Unable to resample audio into 16bit PCM data
+Most errors were in Indian Percussion / WAV: 1447 files
+```
+
+Interpretation: KeyFinder is usable at pack scale, but nearly 44% of this pack fails due to its resampling path. It is more useful as a comparison/reporting backend than as the main key engine until a conversion retry path is tested.
 
 ## Common Gotchas
 

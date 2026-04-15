@@ -411,13 +411,56 @@ class ReviewReportTests(unittest.TestCase):
         text = format_keyfinder_experiment_report(report)
 
         self.assertEqual(report["selected"], 2)
+        self.assertEqual(report["scope"], "failures")
         self.assertEqual(report["processed"], 1)
         self.assertEqual(report["successes"], 1)
         self.assertEqual(report["errors"], 1)
         self.assertEqual(report["matches_stored_key"], 1)
+        self.assertEqual(report["error_reasons"], [{"value": "Unable to resample audio into 16bit PCM data", "count": 1}])
+        self.assertEqual(report["success_by_path_family"], [{"value": "samples", "count": 1}])
+        self.assertEqual(report["error_by_path_family"], [{"value": "samples", "count": 1}])
         self.assertIn("KeyFinder experiment:", text)
+        self.assertIn("Scope: failures", text)
+        self.assertIn("Selected samples: 2 files", text)
+        self.assertIn("Error reasons:", text)
         self.assertIn("a.wav | KeyFinder Fm (F_minor)", text)
         self.assertIn("b.wav | error | Unable to resample audio into 16bit PCM data", text)
+
+    def test_keyfinder_experiment_can_target_full_index(self) -> None:
+        record_a = AnalysisResult(
+            file_path="/samples/a.wav",
+            root_note="C",
+            key="C_major",
+            confidence=0.8,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+        ).to_dict()
+        record_b = AnalysisResult(
+            file_path="/samples/b.wav",
+            root_note="D",
+            key="D_minor",
+            confidence=0.7,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+        ).to_dict()
+
+        with patch("sample_key_indexer.review_report.shutil.which", return_value="/usr/local/bin/keyfinder-cli"):
+            with patch("sample_key_indexer.review_report.Path.exists", return_value=True):
+                with patch("sample_key_indexer.review_report.run_keyfinder", side_effect=[
+                    {"status": "success", "raw_key": "C", "normalized_key": "C_major", "root_note": "C", "raw_output": "C", "error": None},
+                    {"status": "success", "raw_key": "Dm", "normalized_key": "D_minor", "root_note": "D", "raw_output": "Dm", "error": None},
+                ]):
+                    report = build_keyfinder_experiment_report([record_a, record_b], scope="all")
+
+        self.assertEqual(report["scope"], "all")
+        self.assertEqual(report["selected"], 2)
+        self.assertEqual(report["processed"], 2)
+        self.assertEqual(report["matches_stored_key"], 2)
+        self.assertEqual(report["matches_stored_root"], 2)
 
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:

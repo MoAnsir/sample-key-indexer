@@ -244,15 +244,18 @@ def build_keyfinder_experiment_report(
     destination_roots: dict[str, Path] | None = None,
     limit: int = 0,
     timeout: float = 15.0,
+    scope: str = "failures",
+    low_confidence: float = 0.35,
 ) -> dict[str, Any]:
     command = shutil.which("keyfinder-cli") or shutil.which("keyfinder")
-    failures = build_deep_failure_report(records, max_examples=0)["failures"]
+    targets = keyfinder_targets(records, scope=scope, low_confidence=low_confidence)
     if limit > 0:
-        failures = failures[:limit]
+        targets = targets[:limit]
     report: dict[str, Any] = {
         "backend": "keyfinder",
+        "scope": scope,
         "command": command,
-        "selected": len(failures),
+        "selected": len(targets),
         "processed": 0,
         "successes": 0,
         "missing_audio": 0,
@@ -262,20 +265,22 @@ def build_keyfinder_experiment_report(
         "results": [],
     }
     if not command:
-        report["errors"] = len(failures)
+        report["errors"] = len(targets)
         report["backend_error"] = "keyfinder_not_found"
         return report
 
-    for failure in failures:
-        playable = Path(_playable_path(failure, library_roots, destination_roots))
+    for target in targets:
+        playable = Path(_playable_path(target, library_roots, destination_roots))
         result = {
-            "name": failure.get("name"),
-            "library_id": failure.get("library_id"),
-            "relative_path": failure.get("relative_path"),
+            "name": target.get("name"),
+            "library_id": target.get("library_id"),
+            "relative_path": target.get("relative_path"),
             "path": str(playable),
-            "stored_key": failure.get("key"),
-            "stored_root": failure.get("root_note"),
-            "path_family": failure.get("path_family"),
+            "stored_key": target.get("key"),
+            "stored_root": target.get("root_note"),
+            "confidence": target.get("confidence"),
+            "needs_review": target.get("needs_review"),
+            "path_family": target.get("path_family") or path_family(target.get("relative_path") or target.get("file_path")),
         }
         if not playable.exists():
             result["status"] = "missing_audio"
@@ -301,7 +306,22 @@ def build_keyfinder_experiment_report(
         else:
             report["errors"] += 1
         report["results"].append(result)
+    report["error_reasons"] = count_items([item for item in report["results"] if item.get("status") != "success"], "error")
+    report["success_by_path_family"] = count_items([item for item in report["results"] if item.get("status") == "success"], "path_family")
+    report["error_by_path_family"] = count_items([item for item in report["results"] if item.get("status") != "success"], "path_family")
     return report
+
+
+def keyfinder_targets(records: list[dict[str, Any]], scope: str, low_confidence: float = 0.35) -> list[dict[str, Any]]:
+    if scope == "failures":
+        return build_deep_failure_report(records, max_examples=0)["failures"]
+    if scope == "review":
+        return select_deep_review_candidates(records, low_confidence=low_confidence, retry_deep_failed=True)
+    if scope == "all":
+        samples = [_flatten_sample(record) for record in records]
+        samples.sort(key=lambda sample: (sample.get("relative_path") or sample.get("file_path") or sample.get("name") or ""))
+        return samples
+    raise ValueError(f"Unknown KeyFinder scope: {scope}")
 
 
 def deep_failure_item(sample: dict[str, Any]) -> dict[str, Any]:
@@ -597,8 +617,9 @@ def format_backend_check_report(report: dict[str, Any]) -> str:
 def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
     lines = [
         "KeyFinder experiment:",
+        f"  Scope: {report.get('scope') or 'failures'}",
         f"  Command: {report.get('command') or 'not found'}",
-        f"  Selected deep failures: {report['selected']} files",
+        f"  Selected samples: {report['selected']} files",
         f"  Processed: {report['processed']} files",
         f"  Successes: {report['successes']} files",
         f"  Missing audio: {report['missing_audio']} files",
@@ -608,6 +629,21 @@ def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
     ]
     if report.get("backend_error"):
         lines.append(f"  Backend error: {report['backend_error']}")
+    if report.get("error_reasons"):
+        lines.append("")
+        lines.append("Error reasons:")
+        for item in report["error_reasons"][:10]:
+            lines.append(f"- {item['value']}: {item['count']}")
+    if report.get("success_by_path_family"):
+        lines.append("")
+        lines.append("Successes by path family:")
+        for item in report["success_by_path_family"][:10]:
+            lines.append(f"- {item['value']}: {item['count']}")
+    if report.get("error_by_path_family"):
+        lines.append("")
+        lines.append("Errors by path family:")
+        for item in report["error_by_path_family"][:10]:
+            lines.append(f"- {item['value']}: {item['count']}")
     if report["results"]:
         lines.append("")
         lines.append("Results:")
@@ -919,6 +955,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
     parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
     parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
+    parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, or the full index.")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
@@ -960,6 +997,8 @@ def main(argv: list[str] | None = None) -> int:
             library_roots=library_roots,
             destination_roots=destination_roots,
             limit=args.limit,
+            scope=args.keyfinder_scope,
+            low_confidence=args.low_confidence,
         )
         print(format_keyfinder_experiment_report(report))
         if args.keyfinder_json:
