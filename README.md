@@ -258,8 +258,9 @@ The web app can read both this structured schema and older flat records.
 
 ## V3.5 Failure Reporting and Backend Triage
 
-- Planned next: add a deep-failure report/export command.
-- Planned next: summarize failed rerun files by reason, library, format, duration bucket, and other useful triage fields.
+- `sample-key-indexer-review --deep-failures` prints a summary of files marked `analysis.deep_review.failed`.
+- `--failures-json` and `--failures-csv` export deep-review failures for spreadsheet or later backend analysis.
+- Failure reports summarize failed rerun files by reason, library, format, type, and duration bucket.
 - Planned next: use those reports to decide whether KeyFinder, Sonic Annotator/QM Vamp Plugins, aubio, or pre-conversion/probing work should come next.
 
 ## Troubleshooting
