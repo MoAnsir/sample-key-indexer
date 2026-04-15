@@ -148,6 +148,7 @@ sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
 ```
 
 Use `--dry-run` with `--deep-rerun` to preview counts without changing metadata.
+Real deep reruns analyze each selected file in an isolated worker process, so a native decoder or analysis crash is reported as a worker crash instead of taking down the whole index update.
 
 If the console script has not been refreshed yet, run it as a module:
 
@@ -242,6 +243,7 @@ The web app can read both this structured schema and older flat records.
 - `sample-key-indexer-review --deep-plan` selects records needing focused reanalysis.
 - `sample-key-indexer-review --deep-rerun` reprocesses only selected records and upserts them into the existing index.
 - Deep reruns preserve library IDs, relative paths, and existing routing destinations so removable-drive catalogs keep working.
+- Deep reruns isolate each selected file in a worker process and report native analysis crashes.
 
 ## Troubleshooting
 

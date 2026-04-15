@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -167,6 +169,7 @@ def rerun_deep_review(
     dry_run: bool = False,
     write_every: int = 25,
     export_json: bool = True,
+    isolated: bool = True,
 ) -> dict[str, Any]:
     summary = {
         "selected": len(candidates),
@@ -175,6 +178,7 @@ def rerun_deep_review(
         "improved_confidence": 0,
         "still_needs_review": 0,
         "errors": 0,
+        "worker_crashes": 0,
         "dry_run": dry_run,
     }
     if dry_run:
@@ -188,7 +192,11 @@ def rerun_deep_review(
             if not playable_path.exists() or not playable_path.is_file():
                 summary["missing"] += 1
                 continue
-            result = analyze_file(playable_path, analysis_duration, sample_rate, analysis_profile, selected_engines)
+            result, worker_error = analyze_candidate(playable_path, analysis_duration, sample_rate, analysis_profile, selected_engines, isolated=isolated)
+            if worker_error:
+                summary["worker_crashes"] += 1
+                summary["errors"] += 1
+                continue
             result = preserve_candidate_context(result, candidate)
             if result.confidence > float(candidate.get("confidence") or 0.0):
                 summary["improved_confidence"] += 1
@@ -206,6 +214,24 @@ def rerun_deep_review(
     finally:
         close_index(index)
     return summary
+
+
+def analyze_candidate(
+    path: Path,
+    analysis_duration: float,
+    sample_rate: int,
+    analysis_profile: str,
+    selected_engines: tuple[str, ...],
+    isolated: bool = True,
+):
+    if not isolated:
+        return analyze_file(path, analysis_duration, sample_rate, analysis_profile, selected_engines), None
+    try:
+        with ProcessPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(analyze_file, path, analysis_duration, sample_rate, analysis_profile, selected_engines)
+            return future.result(), None
+    except BrokenProcessPool:
+        return None, "worker_crash"
 
 
 def open_writable_index(index_path: Path):
@@ -241,6 +267,7 @@ def format_deep_review_result(summary: dict[str, Any]) -> str:
         f"  Improved confidence: {summary['improved_confidence']} files",
         f"  Still needs review: {summary['still_needs_review']} files",
         f"  Errors: {summary['errors']} files",
+        f"  Worker crashes: {summary.get('worker_crashes', 0)} files",
     ]
     if summary.get("dry_run"):
         lines.append("  Dry run: no metadata was changed")

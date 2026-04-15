@@ -197,7 +197,7 @@ class ReviewReportTests(unittest.TestCase):
 
             candidates = select_deep_review_candidates(load_records(index_path))
             with patch("sample_key_indexer.review_report.analyze_file", return_value=replacement):
-                summary = rerun_deep_review(index_path, candidates, dry_run=False)
+                summary = rerun_deep_review(index_path, candidates, dry_run=False, isolated=False)
 
             records = load_records(index_path)
 
@@ -206,6 +206,40 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(records[0]["classification"]["confidence"], 0.8)
         self.assertEqual(records[0]["library"]["id"], "sd_02")
         self.assertEqual(records[0]["file"]["relative_path"], "Samples/loop.wav")
+
+    def test_rerun_deep_review_counts_worker_crash_without_updating_record(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "loop.wav"
+            audio_path.write_bytes(b"audio")
+            index_path = root / "metadata_index.sqlite"
+            original = AnalysisResult(
+                file_path=str(audio_path),
+                root_note="A",
+                key="A_minor",
+                confidence=0.2,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+                needs_review=True,
+            )
+            index = SQLiteMetadataIndex(index_path)
+            try:
+                index.upsert(original)
+                index.write()
+            finally:
+                index.close()
+
+            candidates = select_deep_review_candidates(load_records(index_path))
+            with patch("sample_key_indexer.review_report.analyze_candidate", return_value=(None, "worker_crash")):
+                summary = rerun_deep_review(index_path, candidates, dry_run=False)
+
+            records = load_records(index_path)
+
+        self.assertEqual(summary["processed"], 0)
+        self.assertEqual(summary["errors"], 1)
+        self.assertEqual(summary["worker_crashes"], 1)
+        self.assertEqual(records[0]["classification"]["confidence"], 0.2)
 
 
 if __name__ == "__main__":
