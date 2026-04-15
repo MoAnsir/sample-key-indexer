@@ -168,7 +168,8 @@ def build_deep_review_plan(
 
 
 def build_deep_failure_report(records: list[dict[str, Any]], max_examples: int = 20) -> dict[str, Any]:
-    failures = [deep_failure_item(_flatten_sample(record)) for record in records if deep_review_failed(_flatten_sample(record))]
+    samples = [_flatten_sample(record) for record in records]
+    failures = [deep_failure_item(sample) for sample in samples if deep_review_failed(sample)]
     failures.sort(key=lambda item: (item["reason"], item["library_id"] or "", item["relative_path"] or item["name"] or ""))
     return {
         "total": len(failures),
@@ -177,6 +178,8 @@ def build_deep_failure_report(records: list[dict[str, Any]], max_examples: int =
         "by_format": count_items(failures, "format"),
         "by_type": count_items(failures, "type"),
         "by_duration": count_items(failures, "duration_bucket"),
+        "by_path_family": count_items(failures, "path_family"),
+        "triage_hints": deep_failure_triage_hints(failures),
         "examples": failures[:max(0, max_examples)],
         "failures": failures,
     }
@@ -191,6 +194,7 @@ def deep_failure_item(sample: dict[str, Any]) -> dict[str, Any]:
         "library_name": sample.get("library_name"),
         "relative_path": sample.get("relative_path"),
         "file_path": sample.get("file_path"),
+        "path_family": path_family(sample.get("relative_path") or sample.get("file_path")),
         "format": sample.get("format") or Path(str(sample.get("file_path") or "")).suffix.lower().lstrip(".") or "unknown",
         "duration": duration,
         "duration_bucket": duration_bucket(duration),
@@ -228,6 +232,45 @@ def duration_bucket(duration: Any) -> str:
     return "30s+"
 
 
+def path_family(path_value: Any, depth: int = 2) -> str:
+    parts = [part for part in Path(str(path_value or "")).parts if part not in {"/", ""}]
+    if not parts:
+        return "unknown"
+    if Path(parts[-1]).suffix:
+        parts = parts[:-1]
+    if not parts:
+        return "unknown"
+    if parts[0] == "Users" and len(parts) > 5:
+        for marker in ("Indian Melodic", "Indian Percussion", "SAMPLES", "Key", "Unsorted"):
+            if marker in parts:
+                marker_index = parts.index(marker)
+                parts = parts[marker_index:] if marker.startswith("Indian ") else parts[marker_index + 1 :]
+                break
+    if len(parts) <= 1:
+        return parts[0]
+    return " / ".join(parts[:depth])
+
+
+def deep_failure_triage_hints(failures: list[dict[str, Any]]) -> list[str]:
+    if not failures:
+        return ["No deep-review failures are currently recorded."]
+    hints: list[str] = []
+    formats = {item.get("format") for item in failures}
+    reasons = {item.get("reason") for item in failures}
+    profiles = {item.get("profile") for item in failures}
+    engine_sets = {tuple(item.get("engines") or []) for item in failures}
+    duration_buckets = {item.get("duration_bucket") for item in failures}
+    if len(formats) == 1:
+        hints.append(f"All failures are {next(iter(formats))} files, so this does not look like broad unsupported-format handling.")
+    if reasons == {"worker_crash:worker_crash"}:
+        hints.append("All failures crashed both the primary worker and fallback worker; treat these as backend stability cases.")
+    if duration_buckets and duration_buckets <= {"<2s", "2-5s", "5-10s"}:
+        hints.append("Failures are all under 10 seconds, so short melodic phrases should be tested separately from long loops.")
+    if profiles == {"deep"} and engine_sets == {("librosa", "essentia")}:
+        hints.append("Failures happened under the deep librosa+essentia path; next backend test should compare fast/librosa-only or an external harmonic engine.")
+    return hints
+
+
 def format_deep_failure_report(report: dict[str, Any]) -> str:
     lines = [f"Deep review failures: {report['total']} files"]
     for title, key in (
@@ -236,6 +279,7 @@ def format_deep_failure_report(report: dict[str, Any]) -> str:
         ("Formats", "by_format"),
         ("Types", "by_type"),
         ("Durations", "by_duration"),
+        ("Path families", "by_path_family"),
     ):
         if not report[key]:
             continue
@@ -243,6 +287,11 @@ def format_deep_failure_report(report: dict[str, Any]) -> str:
         lines.append(f"{title}:")
         for item in report[key]:
             lines.append(f"- {item['value']}: {item['count']}")
+    if report.get("triage_hints"):
+        lines.append("")
+        lines.append("Triage hints:")
+        for hint in report["triage_hints"]:
+            lines.append(f"- {hint}")
     if report["examples"]:
         lines.append("")
         lines.append("Examples:")
@@ -264,6 +313,7 @@ def write_deep_failure_csv(report: dict[str, Any], path: Path) -> None:
         "library_name",
         "relative_path",
         "file_path",
+        "path_family",
         "format",
         "duration",
         "duration_bucket",

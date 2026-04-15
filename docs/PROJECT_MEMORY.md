@@ -226,8 +226,8 @@ Active:
 - V3.5 Failure Reporting and Backend Triage
   - `--deep-failures` reports files marked `analysis.deep_review.failed`.
   - `--failures-json` and `--failures-csv` export the failure report.
-  - Summarize failures by reason, library, format, type, and duration bucket.
-  - Add lightweight triage data so future engine choices are based on real failure patterns.
+  - Summarize failures by reason, library, format, type, duration bucket, and path family.
+  - Add lightweight triage hints when failures share a pattern, such as short WAV files crashing the deep librosa+essentia path.
   - Keep backend experiments scoped; do not add KeyFinder/Sonic Annotator until failure data tells us what to test first.
 
 Later:

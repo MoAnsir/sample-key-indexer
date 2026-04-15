@@ -299,12 +299,24 @@ class ReviewReportTests(unittest.TestCase):
             self.assertEqual(report["by_reason"], [{"value": "worker_crash:worker_crash", "count": 1}])
             self.assertEqual(report["by_library"], [{"value": "sd_02", "count": 1}])
             self.assertEqual(report["by_duration"], [{"value": "2-5s", "count": 1}])
+            self.assertEqual(report["by_path_family"], [{"value": "Flute", "count": 1}])
+            self.assertEqual(report["triage_hints"], [
+                "All failures are wav files, so this does not look like broad unsupported-format handling.",
+                "All failures crashed both the primary worker and fallback worker; treat these as backend stability cases.",
+                "Failures are all under 10 seconds, so short melodic phrases should be tested separately from long loops.",
+                "Failures happened under the deep librosa+essentia path; next backend test should compare fast/librosa-only or an external harmonic engine.",
+            ])
             self.assertIn("Deep review failures: 1 files", text)
+            self.assertIn("Path families:", text)
+            self.assertIn("- Flute: 1", text)
+            self.assertIn("Triage hints:", text)
             self.assertIn("failed.wav | worker_crash:worker_crash | 2-5s | attempts 2", text)
-            self.assertIn('"total": 1', json_path.read_text(encoding="utf-8"))
+            json_text = json_path.read_text(encoding="utf-8")
+            self.assertIn('"total": 1', json_text)
+            self.assertIn('"path_family": "Flute"', json_text)
             csv_text = csv_path.read_text(encoding="utf-8")
-            self.assertIn("name,library_id", csv_text)
-            self.assertIn("failed.wav,sd_02", csv_text)
+            self.assertIn("name,library_id,library_name,relative_path,file_path,path_family", csv_text)
+            self.assertIn("failed.wav,sd_02,SD 02,Flute/failed.wav,/samples/Flute/failed.wav,Flute", csv_text)
 
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:

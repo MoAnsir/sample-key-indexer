@@ -260,8 +260,9 @@ The web app can read both this structured schema and older flat records.
 
 - `sample-key-indexer-review --deep-failures` prints a summary of files marked `analysis.deep_review.failed`.
 - `--failures-json` and `--failures-csv` export deep-review failures for spreadsheet or later backend analysis.
-- Failure reports summarize failed rerun files by reason, library, format, type, and duration bucket.
-- Planned next: use those reports to decide whether KeyFinder, Sonic Annotator/QM Vamp Plugins, aubio, or pre-conversion/probing work should come next.
+- Failure reports summarize failed rerun files by reason, library, format, type, duration bucket, and path family.
+- Reports include lightweight triage hints when failures share a clear pattern, such as all files being short WAVs that crash the deep librosa+essentia path.
+- Use these reports to decide whether KeyFinder, Sonic Annotator/QM Vamp Plugins, aubio, or pre-conversion/probing work should come next.
 
 ## Troubleshooting
 
