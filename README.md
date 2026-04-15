@@ -243,6 +243,7 @@ The web app can read both this structured schema and older flat records.
 - `sample-key-indexer-review --deep-plan` selects records needing focused reanalysis.
 - `sample-key-indexer-review --deep-rerun` reprocesses only selected records and upserts them into the existing index.
 - Deep reruns preserve library IDs, relative paths, and existing routing destinations so removable-drive catalogs keep working.
+- Drum, percussion, and FX records are not selected just for weak key confidence; they need warnings or errors to enter the deep-review queue.
 - Deep reruns isolate each selected file in a worker process and retry crashes with a `fast`/`librosa` fallback.
 
 ## Troubleshooting

@@ -102,7 +102,7 @@ class ReviewReportTests(unittest.TestCase):
                 key=None,
                 confidence=0.2,
                 category="OneShots",
-                type="FX",
+                type="Leads",
                 duration=0.5,
             ).to_dict(),
             AnalysisResult(
@@ -131,8 +131,40 @@ class ReviewReportTests(unittest.TestCase):
         candidates = select_deep_review_candidates(records)
 
         self.assertEqual([candidate["name"] for candidate in candidates], ["error.wav", "disagree.wav", "low.wav"])
-        self.assertEqual(candidates[0]["deep_review_reasons"], ["low_confidence", "analysis_error"])
+        self.assertEqual(candidates[0]["deep_review_reasons"], ["analysis_error"])
         self.assertIn("key_or_root_disagreement", candidates[1]["deep_review_reasons"])
+
+    def test_select_deep_review_candidates_skips_non_harmonic_low_confidence_without_warning_or_error(self) -> None:
+        records = [
+            AnalysisResult(
+                file_path="/samples/dholak.wav",
+                root_note=None,
+                key=None,
+                confidence=0.1,
+                category="OneShots",
+                type="Perc",
+                duration=0.5,
+                needs_review=True,
+                review_reasons=["engine_root_disagreement"],
+            ).to_dict(),
+            AnalysisResult(
+                file_path="/samples/dholak_warn.wav",
+                root_note=None,
+                key=None,
+                confidence=0.1,
+                category="OneShots",
+                type="Perc",
+                duration=0.5,
+                needs_review=True,
+                review_reasons=["engine_root_disagreement"],
+                analysis_warnings=["short_signal_fft_adjusted"],
+            ).to_dict(),
+        ]
+
+        candidates = select_deep_review_candidates(records)
+
+        self.assertEqual([candidate["name"] for candidate in candidates], ["dholak_warn.wav"])
+        self.assertEqual(candidates[0]["deep_review_reasons"], ["analysis_warnings"])
 
     def test_build_and_format_deep_review_plan(self) -> None:
         records = [

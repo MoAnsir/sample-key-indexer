@@ -12,6 +12,8 @@ from sample_key_indexer.audio_analysis import analyze_file, normalize_engines
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.web_app import _flatten_sample, _playable_path, parse_library_roots
 
+NON_HARMONIC_REVIEW_TYPES = {"Kick", "Snare", "Hat", "Perc", "DrumLoops", "FX", "FXLoops"}
+
 
 def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10) -> dict[str, Any]:
     samples = [_flatten_sample(record) for record in records]
@@ -67,17 +69,23 @@ def deep_review_reasons(sample: dict[str, Any], low_confidence: float, include_w
     confidence = sample.get("confidence")
     review_reasons = sample.get("review_reasons") or []
     warnings = sample.get("analysis_warnings") or []
+    if include_warnings and warnings:
+        reasons.append("analysis_warnings")
     if sample.get("needs_review"):
         reasons.append("needs_review")
     if confidence is None or float(confidence) < low_confidence:
         reasons.append("low_confidence")
     if any("key_disagreement" in reason or "root_disagreement" in reason for reason in review_reasons):
         reasons.append("key_or_root_disagreement")
-    if include_warnings and warnings:
-        reasons.append("analysis_warnings")
     if include_errors and sample.get("error"):
         reasons.append("analysis_error")
+    if is_non_harmonic_review_sample(sample):
+        return [reason for reason in reasons if reason in {"analysis_warnings", "analysis_error"}]
     return reasons
+
+
+def is_non_harmonic_review_sample(sample: dict[str, Any]) -> bool:
+    return (sample.get("type") or "") in NON_HARMONIC_REVIEW_TYPES
 
 
 def selection_priority(sample: dict[str, Any]) -> int:
