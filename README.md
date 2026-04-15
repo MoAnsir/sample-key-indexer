@@ -153,6 +153,12 @@ Real deep reruns analyze each selected file in an isolated worker process. If de
 Use `--report-json` to save missing-audio examples, analysis errors, worker crash failures, and fallback successes for follow-up.
 V3.4 records files that crash both the primary and fallback rerun in `analysis.deep_review` and skips those known failures by default. Pass `--retry-deep-failed` when you intentionally want to try them again after changing engines, dependencies, or analysis settings.
 
+Check optional deep backend availability before installing or wiring new engines:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite --backend-check
+```
+
 If the console script has not been refreshed yet, run it as a module:
 
 ```bash
@@ -263,6 +269,13 @@ The web app can read both this structured schema and older flat records.
 - Failure reports summarize failed rerun files by reason, library, format, type, duration bucket, and path family.
 - Reports include lightweight triage hints when failures share a clear pattern, such as all files being short WAVs that crash the deep librosa+essentia path.
 - Use these reports to decide whether KeyFinder, Sonic Annotator/QM Vamp Plugins, aubio, or pre-conversion/probing work should come next.
+
+## V3.6 Deep Backend Experiments
+
+- `sample-key-indexer-review --backend-check` prints a read-only report of optional deep backend availability.
+- The check looks for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins in standard macOS/Homebrew Vamp paths, and aubio.
+- The report includes the current deep-review failure target summary so external backend experiments stay scoped to real failures.
+- This phase does not install tools or reprocess files by default; it tells us what can be tested next.
 
 ## Troubleshooting
 

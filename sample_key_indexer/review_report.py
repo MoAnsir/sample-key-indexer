@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
+import subprocess
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -31,6 +33,35 @@ NON_HARMONIC_REVIEW_TEXT = (
     "duff",
     "duf",
     "daf",
+)
+DEEP_BACKEND_COMMANDS = (
+    {
+        "id": "keyfinder",
+        "label": "KeyFinder CLI",
+        "commands": ("keyfinder-cli", "keyfinder"),
+        "version_args": ("--version",),
+        "purpose": "External harmonic key detection.",
+    },
+    {
+        "id": "sonic_annotator",
+        "label": "Sonic Annotator",
+        "commands": ("sonic-annotator",),
+        "version_args": ("--version",),
+        "purpose": "Vamp plugin runner for QM key/chord plugins.",
+    },
+    {
+        "id": "aubio",
+        "label": "aubio",
+        "commands": ("aubio",),
+        "version_args": ("--version",),
+        "purpose": "Small-footprint onset/tempo utility, not a primary key backend.",
+    },
+)
+VAMP_PLUGIN_DIRS = (
+    Path("~/Library/Audio/Plug-Ins/Vamp").expanduser(),
+    Path("/Library/Audio/Plug-Ins/Vamp"),
+    Path("/opt/homebrew/lib/vamp"),
+    Path("/usr/local/lib/vamp"),
 )
 
 
@@ -185,6 +216,21 @@ def build_deep_failure_report(records: list[dict[str, Any]], max_examples: int =
     }
 
 
+def build_backend_check_report(records: list[dict[str, Any]]) -> dict[str, Any]:
+    failure_report = build_deep_failure_report(records, max_examples=0)
+    return {
+        "deep_failure_targets": {
+            "total": failure_report["total"],
+            "by_reason": failure_report["by_reason"],
+            "by_format": failure_report["by_format"],
+            "by_duration": failure_report["by_duration"],
+            "by_path_family": failure_report["by_path_family"],
+            "triage_hints": failure_report["triage_hints"],
+        },
+        "backend_status": discover_deep_backends(),
+    }
+
+
 def deep_failure_item(sample: dict[str, Any]) -> dict[str, Any]:
     deep_review = sample.get("deep_review") or {}
     duration = sample.get("duration")
@@ -271,6 +317,69 @@ def deep_failure_triage_hints(failures: list[dict[str, Any]]) -> list[str]:
     return hints
 
 
+def discover_deep_backends() -> dict[str, Any]:
+    return {
+        "commands": [discover_command_backend(spec) for spec in DEEP_BACKEND_COMMANDS],
+        "qm_vamp_plugins": discover_qm_vamp_plugins(),
+    }
+
+
+def discover_command_backend(spec: dict[str, Any]) -> dict[str, Any]:
+    for command in spec["commands"]:
+        path = shutil.which(command)
+        if path:
+            return {
+                "id": spec["id"],
+                "label": spec["label"],
+                "status": "available",
+                "command": command,
+                "path": path,
+                "version": command_version(path, spec["version_args"]),
+                "purpose": spec["purpose"],
+            }
+    return {
+        "id": spec["id"],
+        "label": spec["label"],
+        "status": "missing",
+        "command": None,
+        "path": None,
+        "version": None,
+        "purpose": spec["purpose"],
+    }
+
+
+def command_version(path: str, version_args: tuple[str, ...]) -> str | None:
+    try:
+        completed = subprocess.run(
+            [path, *version_args],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    output = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
+    return output.splitlines()[0] if output else None
+
+
+def discover_qm_vamp_plugins() -> dict[str, Any]:
+    matches: list[str] = []
+    searched: list[str] = []
+    for plugin_dir in VAMP_PLUGIN_DIRS:
+        searched.append(str(plugin_dir))
+        if not plugin_dir.exists():
+            continue
+        for path in plugin_dir.iterdir():
+            if "qm" in path.name.lower():
+                matches.append(str(path))
+    return {
+        "status": "available" if matches else "missing",
+        "matches": sorted(matches),
+        "searched": searched,
+    }
+
+
 def format_deep_failure_report(report: dict[str, Any]) -> str:
     lines = [f"Deep review failures: {report['total']} files"]
     for title, key in (
@@ -297,6 +406,51 @@ def format_deep_failure_report(report: dict[str, Any]) -> str:
         lines.append("Examples:")
         for item in report["examples"]:
             lines.append(f"- {item['name']} | {item['reason']} | {item['duration_bucket']} | attempts {item['attempts']}")
+    return "\n".join(lines)
+
+
+def format_backend_check_report(report: dict[str, Any]) -> str:
+    targets = report["deep_failure_targets"]
+    status = report["backend_status"]
+    lines = [
+        "Deep backend check:",
+        f"  Deep-review failure targets: {targets['total']} files",
+    ]
+    for title, key in (
+        ("Failure reasons", "by_reason"),
+        ("Failure formats", "by_format"),
+        ("Failure durations", "by_duration"),
+        ("Failure path families", "by_path_family"),
+    ):
+        if not targets[key]:
+            continue
+        lines.append(f"  {title}:")
+        for item in targets[key]:
+            lines.append(f"    - {item['value']}: {item['count']}")
+    if targets.get("triage_hints"):
+        lines.append("  Triage hints:")
+        for hint in targets["triage_hints"]:
+            lines.append(f"    - {hint}")
+    lines.append("")
+    lines.append("Candidate backends:")
+    for backend in status["commands"]:
+        detail = backend["path"] if backend["status"] == "available" else "not found on PATH"
+        lines.append(f"- {backend['label']}: {backend['status']} ({detail})")
+        if backend.get("version"):
+            lines.append(f"  Version: {backend['version']}")
+        lines.append(f"  Role: {backend['purpose']}")
+    qm_plugins = status["qm_vamp_plugins"]
+    lines.append(f"- QM Vamp Plugins: {qm_plugins['status']}")
+    if qm_plugins["matches"]:
+        for match in qm_plugins["matches"][:10]:
+            lines.append(f"  - {match}")
+    else:
+        lines.append("  No qm-named Vamp plugin files found in the standard macOS/Homebrew Vamp paths.")
+    lines.append("")
+    lines.append("Next experiment:")
+    lines.append("- If Sonic Annotator and QM Vamp Plugins are available, test them first against the recorded deep failures.")
+    lines.append("- If KeyFinder CLI is available, compare its key output against the same failure set.")
+    lines.append("- Keep aubio optional for tempo/onset checks rather than primary key detection.")
     return "\n".join(lines)
 
 
@@ -589,6 +743,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deep-plan", action="store_true", help="Print the V3.3 deep-review candidate plan.")
     parser.add_argument("--deep-rerun", action="store_true", help="Rerun analysis only for deep-review candidates and update the index.")
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
+    parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
@@ -614,6 +769,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Metadata index does not exist: {index_path}")
         return 2
     records = load_records(index_path)
+    if args.backend_check:
+        print(format_backend_check_report(build_backend_check_report(records)))
+        return 0
     if args.deep_failures:
         report = build_deep_failure_report(records, max_examples=max(0, args.examples))
         print(format_deep_failure_report(report))

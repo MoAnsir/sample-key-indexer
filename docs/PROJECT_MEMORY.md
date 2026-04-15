@@ -11,13 +11,14 @@ The user workflow is based around multiple removable drives. Each USB or SD card
 ## Current Branch State
 
 - `dev` is the local integration branch.
-- `v3.5-failure-reporting-and-backend-triage` is the active feature branch, created from `dev` after V3.4 was merged.
+- `v3.6-deep-backend-experiments` is the active feature branch, created from `dev` after V3.5 was merged.
 - There is currently no configured git remote in this checkout, so "push to dev" means commit locally on the `dev` branch unless a remote is added later.
 - Recent completed local dev commits:
   - `357a89b Start V3.1 bulk run quality`
   - `2b22882 Start V3.2 ffprobe duration probing`
   - `602e884 Add deep review rerun diagnostics`
   - `c374164 Start V3.4 deep review failure tracking`
+  - `18009fb Complete V3.5 failure triage reporting`
 
 ## Core Commands
 
@@ -228,11 +229,14 @@ Active:
   - `--failures-json` and `--failures-csv` export the failure report.
   - Summarize failures by reason, library, format, type, duration bucket, and path family.
   - Add lightweight triage hints when failures share a pattern, such as short WAV files crashing the deep librosa+essentia path.
-  - Keep backend experiments scoped; do not add KeyFinder/Sonic Annotator until failure data tells us what to test first.
+- V3.6 Deep Backend Experiments
+  - `--backend-check` prints local availability for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins, and aubio.
+  - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
+  - Keep this phase report-first until an external backend proves useful on the small failure set.
 
 Later:
 
-- Deep harmonic backend experiments with KeyFinder or Sonic Annotator/QM Vamp Plugins.
+- Optional deep harmonic backend integration with KeyFinder or Sonic Annotator/QM Vamp Plugins, if the V3.6 checks prove useful.
 - Optional aubio onset/tempo utility if tempo/onset quality needs a small-footprint boost.
 - Multi-USB UX polish.
 
@@ -300,6 +304,30 @@ Duration probe report:
   Unknown backend: 0 files
   Failed duration probes: 0 files
 ```
+
+V3.6 backend check against the SD 02 Trad failure set used:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --backend-check
+```
+
+Verified signal on this machine:
+
+```text
+Deep-review failure targets: 5 files
+Failure path families:
+  Indian Melodic / Flute: 2
+  Indian Melodic / Mandolin: 2
+  Indian Melodic / Sitar: 1
+KeyFinder CLI: available (/usr/local/bin/keyfinder-cli)
+Sonic Annotator: missing
+aubio: missing
+QM Vamp Plugins: missing
+```
+
+The first real V3.6 backend experiment should use KeyFinder CLI against the recorded deep failures before adding Sonic Annotator/QM or aubio integration.
 
 ## Common Gotchas
 

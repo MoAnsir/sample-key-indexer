@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_deep_failure_report, build_deep_review_plan, build_review_summary, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_review_summary, rerun_deep_review, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
+from sample_key_indexer.review_report import build_backend_check_report, build_deep_failure_report, build_deep_review_plan, build_review_summary, format_backend_check_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_review_summary, rerun_deep_review, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -317,6 +317,63 @@ class ReviewReportTests(unittest.TestCase):
             csv_text = csv_path.read_text(encoding="utf-8")
             self.assertIn("name,library_id,library_name,relative_path,file_path,path_family", csv_text)
             self.assertIn("failed.wav,sd_02,SD 02,Flute/failed.wav,/samples/Flute/failed.wav,Flute", csv_text)
+
+    def test_backend_check_report_includes_targets_and_backend_status(self) -> None:
+        failed_record = AnalysisResult(
+            file_path="/samples/Indian Melodic/Flute/failed.wav",
+            root_note=None,
+            key=None,
+            confidence=0.2,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+            needs_review=True,
+            relative_path="Indian Melodic/Flute/failed.wav",
+        ).to_dict()
+        failed_record["analysis"]["deep_review"] = {
+            "failed": True,
+            "reason": "worker_crash:worker_crash",
+            "attempts": 1,
+            "profile": "deep",
+            "engines": ["librosa", "essentia"],
+        }
+        backend_status = {
+            "commands": [
+                {
+                    "id": "keyfinder",
+                    "label": "KeyFinder CLI",
+                    "status": "missing",
+                    "path": None,
+                    "version": None,
+                    "purpose": "External harmonic key detection.",
+                },
+                {
+                    "id": "sonic_annotator",
+                    "label": "Sonic Annotator",
+                    "status": "available",
+                    "path": "/usr/local/bin/sonic-annotator",
+                    "version": "Sonic Annotator 1.6",
+                    "purpose": "Vamp plugin runner for QM key/chord plugins.",
+                },
+            ],
+            "qm_vamp_plugins": {
+                "status": "available",
+                "matches": ["/Library/Audio/Plug-Ins/Vamp/qm-vamp-plugins.dylib"],
+                "searched": [],
+            },
+        }
+
+        with patch("sample_key_indexer.review_report.discover_deep_backends", return_value=backend_status):
+            report = build_backend_check_report([failed_record])
+        text = format_backend_check_report(report)
+
+        self.assertEqual(report["deep_failure_targets"]["total"], 1)
+        self.assertEqual(report["deep_failure_targets"]["by_path_family"], [{"value": "Indian Melodic / Flute", "count": 1}])
+        self.assertIn("Deep backend check:", text)
+        self.assertIn("Deep-review failure targets: 1 files", text)
+        self.assertIn("Sonic Annotator: available (/usr/local/bin/sonic-annotator)", text)
+        self.assertIn("QM Vamp Plugins: available", text)
 
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:
