@@ -2,6 +2,8 @@
 
 A practical V1 local CLI for scanning large sample libraries, estimating root notes and keys, classifying samples, and organising them primarily by musical key.
 
+For durable project context, architecture notes, workflows, branch state, and AI-agent memory, read [`docs/PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md).
+
 ## Install
 
 ```bash
