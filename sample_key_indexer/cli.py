@@ -29,6 +29,15 @@ class AnalysisRunSummary:
     warning_records: int = 0
 
 
+@dataclass
+class ProbeRunSummary:
+    ffprobe: int = 0
+    soundfile: int = 0
+    librosa: int = 0
+    unknown: int = 0
+    failed: int = 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Index and organise audio samples by detected key/root note.")
     parser.add_argument("input_root", type=Path, help="Root directory containing .wav, .mp3, .aiff, or .aif files.")
@@ -51,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-every", type=int, default=100, help="Write metadata after this many processed files.")
     parser.add_argument("--max-duration", type=float, default=60.0, help="Skip files longer than this many seconds. Use 0 with --include-long-files to disable.")
     parser.add_argument("--include-long-files", action="store_true", help="Do not skip long files by duration.")
+    parser.add_argument("--probe-backend", choices=("auto", "ffprobe", "python"), default="auto", help="Duration probe backend for skip decisions. auto uses ffprobe when available, then Python fallbacks.")
     parser.add_argument("--doctor", action="store_true", help="Check the local audio-analysis environment and exit.")
     return parser
 
@@ -107,8 +117,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.include_long_files:
         processable = pending
         skipped_long = []
+        probe_summary = ProbeRunSummary()
     else:
-        processable, skipped_long = split_long_files(pending, args.max_duration)
+        processable, skipped_long, probe_summary = split_long_files(pending, args.max_duration, args.probe_backend)
     unsupported_count = sum(summary.count for summary in unsupported_by_type.values())
     print(f"Discovered {len(files)} supported audio files; {unsupported_count} unsupported files; {len(pending)} pending; {len(skipped_long)} skipped as long files.")
     print(f"Analysis profile: {args.analysis_profile}; engines: {', '.join(selected_engines)}")
@@ -143,25 +154,41 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Metadata JSON export: {index_path}")
     else:
         print(f"Indexed {processed} files. Metadata: {index_path}")
-    print_copy_report(processed, already_indexed, skipped_long, unsupported_by_type, analysis_summary)
+    print_copy_report(processed, already_indexed, skipped_long, unsupported_by_type, analysis_summary, probe_summary)
     return 0
 
 
-def split_long_files(files: list[Path], max_duration: float) -> tuple[list[Path], list[Path]]:
+def split_long_files(files: list[Path], max_duration: float, probe_backend: str = "auto") -> tuple[list[Path], list[Path], ProbeRunSummary]:
+    probe_summary = ProbeRunSummary()
     if max_duration <= 0:
-        return files, []
+        return files, [], probe_summary
 
-    from sample_key_indexer.audio_analysis import quick_audio_duration
+    from sample_key_indexer.audio_analysis import probe_audio_file
 
     processable: list[Path] = []
     skipped: list[Path] = []
     for path in files:
-        duration = quick_audio_duration(path)
+        probe = probe_audio_file(path, probe_backend)
+        record_probe_summary(probe_summary, probe)
+        duration = probe.duration
         if duration is not None and duration > max_duration:
             skipped.append(path)
         else:
             processable.append(path)
-    return processable, skipped
+    return processable, skipped, probe_summary
+
+
+def record_probe_summary(summary: ProbeRunSummary, probe) -> None:
+    if probe.backend == "ffprobe":
+        summary.ffprobe += 1
+    elif probe.backend == "soundfile":
+        summary.soundfile += 1
+    elif probe.backend == "librosa":
+        summary.librosa += 1
+    else:
+        summary.unknown += 1
+    if probe.duration is None:
+        summary.failed += 1
 
 
 def attach_library_metadata(result, input_root: Path, library_id: str, library_name: str):
@@ -226,6 +253,7 @@ def print_copy_report(
     skipped_long: list[Path],
     unsupported_by_type: dict[str, FileTypeSummary],
     analysis_summary: AnalysisRunSummary | None = None,
+    probe_summary: ProbeRunSummary | None = None,
 ) -> None:
     print("")
     print("Copy report:")
@@ -237,6 +265,13 @@ def print_copy_report(
     print(f"  Not copied - unsupported file types: {sum(summary.count for summary in unsupported_by_type.values())} files ({format_gb(sum(summary.bytes for summary in unsupported_by_type.values()))})")
     for extension, summary in sorted(unsupported_by_type.items(), key=lambda item: item[1].bytes, reverse=True):
         print(f"    {extension}: {summary.count} files ({format_gb(summary.bytes)})")
+    if probe_summary:
+        print("Duration probe report:")
+        print(f"  ffprobe: {probe_summary.ffprobe} files")
+        print(f"  soundfile fallback: {probe_summary.soundfile} files")
+        print(f"  librosa fallback: {probe_summary.librosa} files")
+        print(f"  Unknown backend: {probe_summary.unknown} files")
+        print(f"  Failed duration probes: {probe_summary.failed} files")
     if analysis_summary:
         print("Analysis report:")
         print(f"  Errors: {analysis_summary.errors} files")

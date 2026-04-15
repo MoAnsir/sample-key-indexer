@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from sample_key_indexer.audio_analysis import AudioProbe
 from sample_key_indexer.cli import AnalysisRunSummary, attach_library_metadata, format_gb, slugify, summarize_paths_by_extension, summarize_unsupported_files, split_long_files, update_analysis_summary
 from sample_key_indexer.models import AnalysisResult
 
@@ -12,24 +13,27 @@ from sample_key_indexer.models import AnalysisResult
 class CliTests(unittest.TestCase):
     def test_split_long_files_skips_above_threshold(self) -> None:
         paths = [Path("short.wav"), Path("song.wav"), Path("unknown.wav")]
-        durations = {
-            Path("short.wav"): 12.0,
-            Path("song.wav"): 180.0,
-            Path("unknown.wav"): None,
+        probes = {
+            Path("short.wav"): AudioProbe(duration=12.0, backend="ffprobe"),
+            Path("song.wav"): AudioProbe(duration=180.0, backend="ffprobe"),
+            Path("unknown.wav"): AudioProbe(duration=None, backend="python", error="decode failed"),
         }
 
-        with patch("sample_key_indexer.audio_analysis.quick_audio_duration", side_effect=lambda path: durations[path]):
-            processable, skipped = split_long_files(paths, 60.0)
+        with patch("sample_key_indexer.audio_analysis.probe_audio_file", side_effect=lambda path, _: probes[path]):
+            processable, skipped, summary = split_long_files(paths, 60.0)
 
         self.assertEqual(processable, [Path("short.wav"), Path("unknown.wav")])
         self.assertEqual(skipped, [Path("song.wav")])
+        self.assertEqual(summary.ffprobe, 2)
+        self.assertEqual(summary.failed, 1)
 
     def test_split_long_files_can_be_disabled(self) -> None:
         paths = [Path("song.wav")]
-        processable, skipped = split_long_files(paths, 0)
+        processable, skipped, summary = split_long_files(paths, 0)
 
         self.assertEqual(processable, paths)
         self.assertEqual(skipped, [])
+        self.assertEqual(summary.ffprobe, 0)
 
     def test_summarize_unsupported_files_groups_by_extension_and_size(self) -> None:
         with TemporaryDirectory() as tmp:

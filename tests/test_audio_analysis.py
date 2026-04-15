@@ -3,9 +3,10 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import Mock, patch
 import warnings
 
-from sample_key_indexer.audio_analysis import _normalise_bpm, _normalise_bpm_with_reason, choose_consensus_key, detect_filename_bpm, detect_filename_key, summarize_warnings, tiny_audio_reason
+from sample_key_indexer.audio_analysis import _normalise_bpm, _normalise_bpm_with_reason, choose_consensus_key, detect_filename_bpm, detect_filename_key, ffprobe_audio_file, probe_audio_file, summarize_warnings, tiny_audio_reason
 
 
 class AudioAnalysisV2Tests(unittest.TestCase):
@@ -128,6 +129,28 @@ class AudioAnalysisV2Tests(unittest.TestCase):
             summarize_warnings(captured),
             ["decoder_fallback_audioread", "short_signal_fft_adjusted", "empty_frequency_set"],
         )
+
+    def test_ffprobe_audio_file_parses_stream_duration_and_sample_rate(self) -> None:
+        completed = Mock()
+        completed.returncode = 0
+        completed.stdout = '{"streams":[{"duration":"12.3456","sample_rate":"48000"}],"format":{"duration":"12.3456"}}'
+        completed.stderr = ""
+
+        with patch("sample_key_indexer.audio_analysis.shutil.which", return_value="/usr/bin/ffprobe"):
+            with patch("sample_key_indexer.audio_analysis.subprocess.run", return_value=completed):
+                probe = ffprobe_audio_file(Path("loop.wav"))
+
+        self.assertEqual(probe.duration, 12.346)
+        self.assertEqual(probe.sample_rate, 48000)
+        self.assertEqual(probe.backend, "ffprobe")
+
+    def test_probe_audio_file_falls_back_to_python_when_ffprobe_is_missing_in_auto_mode(self) -> None:
+        with patch("sample_key_indexer.audio_analysis.ffprobe_audio_file", return_value=Mock(duration=None, backend="ffprobe", error="ffprobe_not_found")):
+            with patch("sample_key_indexer.audio_analysis.python_audio_file_info", return_value=Mock(duration=3.0, backend="soundfile")):
+                probe = probe_audio_file(Path("kick.wav"), "auto")
+
+        self.assertEqual(probe.duration, 3.0)
+        self.assertEqual(probe.backend, "soundfile")
 
 
 if __name__ == "__main__":

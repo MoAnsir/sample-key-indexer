@@ -73,6 +73,13 @@ By default, files longer than 60 seconds are treated as full songs and skipped. 
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --max-duration 90
 ```
 
+Duration probing uses `ffprobe` when it is installed, then falls back to the Python audio backends. To force one path while testing:
+
+```bash
+sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --probe-backend ffprobe
+sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --probe-backend python
+```
+
 To include long files anyway:
 
 ```bash
@@ -204,6 +211,12 @@ The web app can read both this structured schema and older flat records.
 - Python library warnings are captured into per-file analysis metadata instead of flooding the terminal.
 - Ultra-short and near-silent audio gets a lightweight metadata result instead of full key, BPM, and spectral analysis.
 - The final report includes error, review, low-confidence, key-disagreement, decoder-fallback, tiny-audio, and warning counts.
+
+## V3.2 File Probing
+
+- Duration probing uses `ffprobe` first when available, with soundfile/librosa fallbacks in `auto` mode.
+- The CLI has a `--probe-backend auto|ffprobe|python` switch for testing skip decisions.
+- The final report includes a duration probe breakdown so failed probes and fallback use are visible.
 
 ## Troubleshooting
 

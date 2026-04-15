@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
+import json
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import warnings
 from typing import TYPE_CHECKING
 
@@ -22,6 +25,14 @@ ENGINE_PRESETS = {
     "balanced": ("librosa", "essentia"),
     "deep": ("librosa", "essentia"),
 }
+
+
+@dataclass(frozen=True)
+class AudioProbe:
+    duration: float | None = None
+    sample_rate: int | None = None
+    backend: str = "unknown"
+    error: str | None = None
 
 
 def validate_audio_backend(engines: tuple[str, ...] | None = None) -> list[str]:
@@ -154,13 +165,10 @@ def _analyze_file(
 
 
 def audio_file_info(path: Path, fallback_duration: float, fallback_sr: int) -> tuple[float, int]:
-    try:
-        import soundfile as sf
-
-        info = sf.info(path)
-        return round(float(info.frames / info.samplerate), 3), int(info.samplerate)
-    except Exception:
-        return round(float(fallback_duration), 3), int(fallback_sr)
+    probe = probe_audio_file(path)
+    if probe.duration is not None:
+        return round(float(probe.duration), 3), int(probe.sample_rate or fallback_sr)
+    return round(float(fallback_duration), 3), int(fallback_sr)
 
 
 def tiny_audio_reason(y: np.ndarray, sr: int, duration: float) -> str | None:
@@ -242,19 +250,89 @@ def unique_strings(values: list[str]) -> list[str]:
     return unique
 
 
-def quick_audio_duration(path: Path) -> float | None:
+def quick_audio_duration(path: Path, probe_backend: str = "auto") -> float | None:
+    return probe_audio_file(path, probe_backend).duration
+
+
+def probe_audio_file(path: Path, probe_backend: str = "auto") -> AudioProbe:
+    if probe_backend not in {"auto", "ffprobe", "python"}:
+        raise ValueError(f"Unsupported probe backend: {probe_backend}")
+
+    if probe_backend in {"auto", "ffprobe"}:
+        ffprobe_result = ffprobe_audio_file(path)
+        if ffprobe_result.duration is not None or probe_backend == "ffprobe":
+            return ffprobe_result
+
+    return python_audio_file_info(path)
+
+
+def ffprobe_audio_file(path: Path) -> AudioProbe:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return AudioProbe(backend="ffprobe", error="ffprobe_not_found")
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=duration,sample_rate:format=duration",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, check=False, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return AudioProbe(backend="ffprobe", error="ffprobe_timeout")
+    except OSError as exc:
+        return AudioProbe(backend="ffprobe", error=f"ffprobe_error:{exc}")
+    if completed.returncode != 0:
+        detail = completed.stderr.strip().splitlines()[0] if completed.stderr.strip() else f"exit_{completed.returncode}"
+        return AudioProbe(backend="ffprobe", error=f"ffprobe_error:{detail}")
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return AudioProbe(backend="ffprobe", error="ffprobe_invalid_json")
+
+    streams = payload.get("streams") or []
+    stream = streams[0] if streams else {}
+    duration = _float_or_none(stream.get("duration")) or _float_or_none((payload.get("format") or {}).get("duration"))
+    sample_rate = _int_or_none(stream.get("sample_rate"))
+    if duration is None:
+        return AudioProbe(sample_rate=sample_rate, backend="ffprobe", error="ffprobe_missing_duration")
+    return AudioProbe(duration=round(duration, 3), sample_rate=sample_rate, backend="ffprobe")
+
+
+def python_audio_file_info(path: Path) -> AudioProbe:
     try:
         import soundfile as sf
 
         info = sf.info(path)
-        return round(float(info.frames / info.samplerate), 3)
+        return AudioProbe(duration=round(float(info.frames / info.samplerate), 3), sample_rate=int(info.samplerate), backend="soundfile")
     except Exception:
         try:
             import librosa
 
-            return round(float(librosa.get_duration(path=str(path))), 3)
-        except Exception:
-            return None
+            duration = round(float(librosa.get_duration(path=str(path))), 3)
+            return AudioProbe(duration=duration, backend="librosa")
+        except Exception as exc:
+            return AudioProbe(backend="python", error=str(exc))
+
+
+def _float_or_none(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def normalize_engines(analysis_profile: str, engines: tuple[str, ...] | None = None) -> tuple[str, ...]:
