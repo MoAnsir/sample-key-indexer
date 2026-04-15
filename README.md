@@ -299,7 +299,8 @@ The web app can read both this structured schema and older flat records.
 - Current SD 02 Trad result: KeyFinder processed 4 of 5 deep failures, failed 1 file with a resampling error, and matched the stored root on 2 files.
 - Full SD 02 Trad index result: KeyFinder processed 2,452 of 4,411 files, failed 1,959 files with the same resampling error, matched 779 stored keys, and matched 1,020 stored roots.
 - With `--keyfinder-convert-retry`, the same full index processed all 4,411 files, converted 1,959 files, had zero remaining errors, matched 1,346 stored keys, and matched 2,041 stored roots.
-- This phase does not install tools or reprocess files by default; it tells us what can be tested next.
+- KeyFinder should stay a comparison backend for now. The next safe integration step is storing its result under external analysis metadata, not replacing the main key decision.
+- This phase does not install tools or update sample metadata by default; it tells us what can be tested next.
 
 ## Troubleshooting
 

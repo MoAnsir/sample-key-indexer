@@ -412,6 +412,8 @@ Matches stored root: 2041 files
 
 Interpretation: ffmpeg conversion fixes the KeyFinder resampling failure completely for this pack. KeyFinder still should not overwrite the main decision yet, but it is now viable as an optional comparison backend over full selected indexes.
 
+Recommended next step for V3.6: add an opt-in metadata enrichment command that stores KeyFinder output under external analysis metadata, for example `analysis.external.keyfinder`, including raw key, normalized key, root, match flags, conversion status, and errors. Do not change the main `musical.key` or routing decision yet. After one or two more libraries are tested, decide whether KeyFinder becomes part of the deep profile, remains a report-only comparator, or is used only when librosa/essentia disagree.
+
 ## Common Gotchas
 
 - Paths with spaces must be quoted in shell commands.
