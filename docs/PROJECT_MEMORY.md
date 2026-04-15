@@ -11,13 +11,14 @@ The user workflow is based around multiple removable drives. Each USB or SD card
 ## Current Branch State
 
 - `dev` is the local integration branch.
-- `v3.5-failure-reporting-and-backend-triage` is the active feature branch, created from `dev` after V3.4 was merged.
+- `v3.6-deep-backend-experiments` is the active feature branch, created from `dev` after V3.5 was merged.
 - There is currently no configured git remote in this checkout, so "push to dev" means commit locally on the `dev` branch unless a remote is added later.
 - Recent completed local dev commits:
   - `357a89b Start V3.1 bulk run quality`
   - `2b22882 Start V3.2 ffprobe duration probing`
   - `602e884 Add deep review rerun diagnostics`
   - `c374164 Start V3.4 deep review failure tracking`
+  - `18009fb Complete V3.5 failure triage reporting`
 
 ## Core Commands
 
@@ -220,19 +221,46 @@ Completed:
   - Persist double-crash failures into `analysis.deep_review`.
   - Skip known deep-review failures by default.
   - `--retry-deep-failed` includes previously failed records for deliberate retesting.
-
-Active:
-
 - V3.5 Failure Reporting and Backend Triage
   - `--deep-failures` reports files marked `analysis.deep_review.failed`.
   - `--failures-json` and `--failures-csv` export the failure report.
   - Summarize failures by reason, library, format, type, duration bucket, and path family.
   - Add lightweight triage hints when failures share a pattern, such as short WAV files crashing the deep librosa+essentia path.
-  - Keep backend experiments scoped; do not add KeyFinder/Sonic Annotator until failure data tells us what to test first.
+
+Active:
+
+- V3.6 Deep Backend Experiments
+  - `--backend-check` prints local availability for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins, and aubio.
+  - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
+  - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures, reports successes/errors and stored key/root matches, and can write `--keyfinder-json`.
+  - `--keyfinder-enrich` stores KeyFinder output under `analysis.external.keyfinder` without changing `musical.key`, `musical.root`, `analysis.final_decision`, routing, or copied files.
+  - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or every sample in the selected index.
+  - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
+  - KeyFinder is now an optional stored comparison signal, not the main key decision.
+
+Remaining before V3.6 is complete:
+
+- Run `--keyfinder-enrich --keyfinder-scope all --keyfinder-convert-retry` on at least one more real library so KeyFinder agreement/disagreement can be compared beyond SD 02 Trad.
+- Add a small comparison report over stored `analysis.external.keyfinder` values, grouped by library, sample type, confidence bucket, and match/disagreement status.
+- Keep the main key decision unchanged during V3.6. V3.6 is complete when the stored comparison data and comparison report are good enough to inform the next scoring decision.
+
+Likely next phases:
+
+- V3.7 KeyFinder Comparison Scoring
+  - Decide how stored KeyFinder results influence confidence and review flags.
+  - Candidate rules: raise confidence when KeyFinder agrees with librosa/Essentia, add a review reason when KeyFinder strongly disagrees with a high-confidence main decision, use KeyFinder as a tie-breaker only when internal engines disagree, or keep it report-only.
+  - Add tests proving the final key is only changed if a deliberate scoring rule is implemented.
+- V3.8 Multi-Library UX Polish
+  - Improve web-app/library filtering and mounted-drive clarity for multiple USB/SD indexes.
+  - Make it easy to see which libraries are searchable, playable, missing audio, or using source-vs-organised playback roots.
+- V3.9 Optional Backend Expansion
+  - Revisit Sonic Annotator/QM Vamp Plugins only if KeyFinder comparison does not provide enough harmonic evidence.
+  - Revisit aubio only for onset/tempo needs, not primary key detection.
 
 Later:
 
-- Deep harmonic backend experiments with KeyFinder or Sonic Annotator/QM Vamp Plugins.
+- Optional deep harmonic backend integration with KeyFinder or Sonic Annotator/QM Vamp Plugins, if the V3.6 checks prove useful.
+- Compare stored `analysis.external.keyfinder` results across multiple libraries before changing the final key decision. Use this to decide whether KeyFinder should increase confidence when it agrees with librosa/Essentia, add a review reason when it strongly disagrees, act only as a tie-breaker, or remain a report-only signal.
 - Optional aubio onset/tempo utility if tempo/onset quality needs a small-footprint boost.
 - Multi-USB UX polish.
 
@@ -300,6 +328,149 @@ Duration probe report:
   Unknown backend: 0 files
   Failed duration probes: 0 files
 ```
+
+V3.6 backend check against the SD 02 Trad failure set used:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --backend-check
+```
+
+Verified signal on this machine:
+
+```text
+Deep-review failure targets: 5 files
+Failure path families:
+  Indian Melodic / Flute: 2
+  Indian Melodic / Mandolin: 2
+  Indian Melodic / Sitar: 1
+KeyFinder CLI: available (/usr/local/bin/keyfinder-cli)
+Sonic Annotator: missing
+aubio: missing
+QM Vamp Plugins: missing
+```
+
+The first real V3.6 backend experiment uses KeyFinder CLI against the recorded deep failures before adding Sonic Annotator/QM or aubio integration.
+
+KeyFinder experiment command:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-json /tmp/v36_keyfinder_experiment.json
+```
+
+Verified result:
+
+```text
+Selected deep failures: 5 files
+Processed: 4 files
+Successes: 4 files
+Errors: 1 files
+Matches stored root: 2 files
+FlutePtn080 11.wav: Unable to resample audio into 16bit PCM data
+FltBhairavi115 01c.wav: Fm / F_minor, root match true
+MndMinLick080 01(lp5).wav: Bm / B_minor, root match false
+MndRatiPriya100 13(lp).wav: Bbm / A#_minor, root match true
+StrBhairaviAlap 01a.wav: E / E_major, root match false
+```
+
+Interpretation: KeyFinder can analyze most of the current crash set and gives useful comparison data, but it should not replace the current key decision yet. Treat it as an optional third opinion for deep-review failures until more libraries confirm whether its output improves confidence.
+
+Full-index KeyFinder experiment on the same selected folder:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-scope all \
+  --keyfinder-json /tmp/v36_keyfinder_all_sd_02_trad.json
+```
+
+Verified result:
+
+```text
+Selected samples: 4411 files
+Processed: 2452 files
+Successes: 2452 files
+Errors: 1959 files
+Matches stored key: 779 files
+Matches stored root: 1020 files
+All 1959 errors were: Unable to resample audio into 16bit PCM data
+Most errors were in Indian Percussion / WAV: 1447 files
+```
+
+Interpretation: KeyFinder is usable at pack scale, but nearly 44% of this pack fails due to its resampling path. It is more useful as a comparison/reporting backend than as the main key engine until a conversion retry path is tested.
+
+V3.6 conversion retry uses ffmpeg, which is installed at `/opt/homebrew/bin/ffmpeg` on this machine. The retry path converts only failed KeyFinder inputs to a temporary 16-bit PCM WAV (`pcm_s16le`), reruns KeyFinder, and removes the temp file when done.
+
+Full-index KeyFinder experiment with conversion retry:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --keyfinder-json /tmp/v36_keyfinder_all_sd_02_trad_convert_retry.json
+```
+
+Verified result:
+
+```text
+Selected samples: 4411 files
+Processed: 4411 files
+Successes: 4411 files
+Conversion attempts: 1959 files
+Conversion successes: 1959 files
+Conversion errors: 0 files
+Errors: 0 files
+Matches stored key: 1346 files
+Matches stored root: 2041 files
+```
+
+Interpretation: ffmpeg conversion fixes the KeyFinder resampling failure completely for this pack. KeyFinder still should not overwrite the main decision yet, but it is now viable as an optional comparison backend over full selected indexes.
+
+V3.6 now includes an opt-in metadata enrichment command that stores KeyFinder output under `analysis.external.keyfinder`, including raw key, normalized key, root, stored key/root match flags, conversion status, errors, path, command, scope, and update timestamp. It does not change `musical.key`, `musical.root`, `analysis.final_decision`, routing metadata, or copied files.
+
+Metadata enrichment command:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-enrich \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --keyfinder-json /tmp/v36_keyfinder_enrich_all.json
+```
+
+Result on SD 02 Trad:
+
+```text
+Selected samples: 4411 files
+Processed: 4411 files
+Successes: 4411 files
+Metadata updated: 4411 files
+Conversion attempts: 1959 files
+Conversion successes: 1959 files
+Conversion errors: 0 files
+Missing audio: 0 files
+Errors: 0 files
+Matches stored key: 1346 files
+Matches stored root: 2041 files
+```
+
+SQLite verification:
+
+```text
+total records: 4411
+analysis.external.keyfinder.status = success: 4411
+analysis.external.keyfinder.conversion_used = true: 1959
+```
+
+Interpretation: KeyFinder is ready as an optional external comparison signal. Keep it separate from the main key decision until more libraries have stored comparison data. Later decisions can use match/disagreement patterns across libraries to decide whether KeyFinder becomes part of deep profile consensus, stays report-only, or is used only when librosa/essentia disagree.
 
 ## Common Gotchas
 

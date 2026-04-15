@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
+import subprocess
+import tempfile
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -32,6 +35,42 @@ NON_HARMONIC_REVIEW_TEXT = (
     "duf",
     "daf",
 )
+DEEP_BACKEND_COMMANDS = (
+    {
+        "id": "keyfinder",
+        "label": "KeyFinder CLI",
+        "commands": ("keyfinder-cli", "keyfinder"),
+        "version_args": ("--version",),
+        "purpose": "External harmonic key detection.",
+    },
+    {
+        "id": "sonic_annotator",
+        "label": "Sonic Annotator",
+        "commands": ("sonic-annotator",),
+        "version_args": ("--version",),
+        "purpose": "Vamp plugin runner for QM key/chord plugins.",
+    },
+    {
+        "id": "aubio",
+        "label": "aubio",
+        "commands": ("aubio",),
+        "version_args": ("--version",),
+        "purpose": "Small-footprint onset/tempo utility, not a primary key backend.",
+    },
+)
+VAMP_PLUGIN_DIRS = (
+    Path("~/Library/Audio/Plug-Ins/Vamp").expanduser(),
+    Path("/Library/Audio/Plug-Ins/Vamp"),
+    Path("/opt/homebrew/lib/vamp"),
+    Path("/usr/local/lib/vamp"),
+)
+FLAT_TO_SHARP = {
+    "Db": "C#",
+    "Eb": "D#",
+    "Gb": "F#",
+    "Ab": "G#",
+    "Bb": "A#",
+}
 
 
 def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10) -> dict[str, Any]:
@@ -185,6 +224,274 @@ def build_deep_failure_report(records: list[dict[str, Any]], max_examples: int =
     }
 
 
+def build_backend_check_report(records: list[dict[str, Any]]) -> dict[str, Any]:
+    failure_report = build_deep_failure_report(records, max_examples=0)
+    return {
+        "deep_failure_targets": {
+            "total": failure_report["total"],
+            "by_reason": failure_report["by_reason"],
+            "by_format": failure_report["by_format"],
+            "by_duration": failure_report["by_duration"],
+            "by_path_family": failure_report["by_path_family"],
+            "triage_hints": failure_report["triage_hints"],
+        },
+        "backend_status": discover_deep_backends(),
+    }
+
+
+def build_keyfinder_experiment_report(
+    records: list[dict[str, Any]],
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+    limit: int = 0,
+    timeout: float = 15.0,
+    scope: str = "failures",
+    low_confidence: float = 0.35,
+    convert_retry: bool = False,
+) -> dict[str, Any]:
+    command = shutil.which("keyfinder-cli") or shutil.which("keyfinder")
+    ffmpeg_command = shutil.which("ffmpeg") if convert_retry else None
+    targets = keyfinder_targets(records, scope=scope, low_confidence=low_confidence)
+    if limit > 0:
+        targets = targets[:limit]
+    report: dict[str, Any] = {
+        "backend": "keyfinder",
+        "scope": scope,
+        "command": command,
+        "convert_retry": convert_retry,
+        "ffmpeg_command": ffmpeg_command,
+        "selected": len(targets),
+        "processed": 0,
+        "successes": 0,
+        "conversion_attempts": 0,
+        "conversion_successes": 0,
+        "conversion_errors": 0,
+        "missing_audio": 0,
+        "errors": 0,
+        "matches_stored_key": 0,
+        "matches_stored_root": 0,
+        "results": [],
+    }
+    if not command:
+        report["errors"] = len(targets)
+        report["backend_error"] = "keyfinder_not_found"
+        return report
+
+    for target in targets:
+        playable = Path(_playable_path(target, library_roots, destination_roots))
+        result = {
+            "name": target.get("name"),
+            "library_id": target.get("library_id"),
+            "relative_path": target.get("relative_path"),
+            "path": str(playable),
+            "stored_key": target.get("key"),
+            "stored_root": target.get("root_note"),
+            "confidence": target.get("confidence"),
+            "needs_review": target.get("needs_review"),
+            "path_family": target.get("path_family") or path_family(target.get("relative_path") or target.get("file_path")),
+        }
+        if not playable.exists():
+            result["status"] = "missing_audio"
+            result["error"] = "audio_not_found"
+            report["missing_audio"] += 1
+            report["results"].append(result)
+            continue
+        keyfinder_result = run_keyfinder(command, playable, timeout=timeout)
+        if keyfinder_result["status"] != "success" and convert_retry:
+            report["conversion_attempts"] += 1
+            retry_result = run_keyfinder_with_converted_wav(command, playable, ffmpeg_command, timeout=timeout)
+            if retry_result.get("conversion_status") == "success":
+                report["conversion_successes"] += 1
+            else:
+                report["conversion_errors"] += 1
+            if retry_result["status"] == "success":
+                keyfinder_result = retry_result
+            else:
+                keyfinder_result["conversion_status"] = retry_result.get("conversion_status")
+                keyfinder_result["conversion_error"] = retry_result.get("conversion_error")
+        result.update(keyfinder_result)
+        if keyfinder_result["status"] == "success":
+            report["processed"] += 1
+            report["successes"] += 1
+            if keys_match(result.get("normalized_key"), result.get("stored_key")):
+                result["matches_stored_key"] = True
+                report["matches_stored_key"] += 1
+            else:
+                result["matches_stored_key"] = False
+            if roots_match(result.get("root_note"), result.get("stored_root")):
+                result["matches_stored_root"] = True
+                report["matches_stored_root"] += 1
+            else:
+                result["matches_stored_root"] = False
+        else:
+            report["errors"] += 1
+        report["results"].append(result)
+    report["error_reasons"] = count_items([item for item in report["results"] if item.get("status") != "success"], "error")
+    report["success_by_path_family"] = count_items([item for item in report["results"] if item.get("status") == "success"], "path_family")
+    report["error_by_path_family"] = count_items([item for item in report["results"] if item.get("status") != "success"], "path_family")
+    return report
+
+
+def enrich_keyfinder_metadata(
+    index_path: Path,
+    records: list[dict[str, Any]],
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+    limit: int = 0,
+    timeout: float = 15.0,
+    scope: str = "failures",
+    low_confidence: float = 0.35,
+    convert_retry: bool = False,
+    dry_run: bool = False,
+    write_every: int = 25,
+    export_json: bool = True,
+) -> dict[str, Any]:
+    command = shutil.which("keyfinder-cli") or shutil.which("keyfinder")
+    ffmpeg_command = shutil.which("ffmpeg") if convert_retry else None
+    targets = keyfinder_targets(records, scope=scope, low_confidence=low_confidence)
+    if limit > 0:
+        targets = targets[:limit]
+    report: dict[str, Any] = {
+        "backend": "keyfinder",
+        "mode": "metadata_enrichment",
+        "scope": scope,
+        "command": command,
+        "convert_retry": convert_retry,
+        "ffmpeg_command": ffmpeg_command,
+        "selected": len(targets),
+        "processed": 0,
+        "successes": 0,
+        "updated": 0,
+        "conversion_attempts": 0,
+        "conversion_successes": 0,
+        "conversion_errors": 0,
+        "missing_audio": 0,
+        "errors": 0,
+        "matches_stored_key": 0,
+        "matches_stored_root": 0,
+        "dry_run": dry_run,
+        "results": [],
+    }
+    if not command:
+        report["errors"] = len(targets)
+        report["backend_error"] = "keyfinder_not_found"
+        return report
+
+    index = None if dry_run else open_writable_index(index_path)
+    try:
+        for target in targets:
+            playable = Path(_playable_path(target, library_roots, destination_roots))
+            result = {
+                "name": target.get("name"),
+                "library_id": target.get("library_id"),
+                "relative_path": target.get("relative_path"),
+                "path": str(playable),
+                "stored_key": target.get("key"),
+                "stored_root": target.get("root_note"),
+                "confidence": target.get("confidence"),
+                "needs_review": target.get("needs_review"),
+                "path_family": target.get("path_family") or path_family(target.get("relative_path") or target.get("file_path")),
+            }
+            if not playable.exists():
+                result["status"] = "missing_audio"
+                result["error"] = "audio_not_found"
+                report["missing_audio"] += 1
+                report["results"].append(result)
+                continue
+            keyfinder_result = run_keyfinder(command, playable, timeout=timeout)
+            if keyfinder_result["status"] != "success" and convert_retry:
+                report["conversion_attempts"] += 1
+                retry_result = run_keyfinder_with_converted_wav(command, playable, ffmpeg_command, timeout=timeout)
+                if retry_result.get("conversion_status") == "success":
+                    report["conversion_successes"] += 1
+                else:
+                    report["conversion_errors"] += 1
+                if retry_result["status"] == "success":
+                    keyfinder_result = retry_result
+                else:
+                    keyfinder_result["conversion_status"] = retry_result.get("conversion_status")
+                    keyfinder_result["conversion_error"] = retry_result.get("conversion_error")
+            result.update(keyfinder_result)
+            if keyfinder_result["status"] == "success":
+                report["processed"] += 1
+                report["successes"] += 1
+                result["matches_stored_key"] = keys_match(result.get("normalized_key"), result.get("stored_key"))
+                result["matches_stored_root"] = roots_match(result.get("root_note"), result.get("stored_root"))
+                if result["matches_stored_key"]:
+                    report["matches_stored_key"] += 1
+                if result["matches_stored_root"]:
+                    report["matches_stored_root"] += 1
+            else:
+                report["errors"] += 1
+            if not dry_run:
+                structured = target.get("structured")
+                if isinstance(structured, dict) and structured:
+                    updated_record = record_with_keyfinder_external(structured, result, command, scope)
+                    upsert_record(index, updated_record)
+                    report["updated"] += 1
+                    if report["updated"] % max(1, write_every) == 0:
+                        index.write()
+                else:
+                    report["errors"] += 1
+                    result["metadata_error"] = "missing_structured_record"
+            report["results"].append(result)
+        if index:
+            index.write()
+            if export_json and isinstance(index, SQLiteMetadataIndex):
+                index.export_json(index_path.with_suffix(".json"))
+    finally:
+        if index:
+            close_index(index)
+    report["error_reasons"] = count_items([item for item in report["results"] if item.get("status") != "success" or item.get("metadata_error")], "error")
+    report["success_by_path_family"] = count_items([item for item in report["results"] if item.get("status") == "success"], "path_family")
+    report["error_by_path_family"] = count_items([item for item in report["results"] if item.get("status") != "success"], "path_family")
+    return report
+
+
+def record_with_keyfinder_external(record: dict[str, Any], result: dict[str, Any], command: str | None, scope: str) -> dict[str, Any]:
+    updated = json.loads(json.dumps(record))
+    analysis = dict(updated.get("analysis") or {})
+    external = dict(analysis.get("external") or {})
+    external["keyfinder"] = {
+        "backend": "keyfinder",
+        "scope": scope,
+        "command": command,
+        "status": result.get("status"),
+        "raw_key": result.get("raw_key"),
+        "normalized_key": result.get("normalized_key"),
+        "root_note": result.get("root_note"),
+        "raw_output": result.get("raw_output"),
+        "error": result.get("error"),
+        "matches_stored_key": result.get("matches_stored_key"),
+        "matches_stored_root": result.get("matches_stored_root"),
+        "stored_key": result.get("stored_key"),
+        "stored_root": result.get("stored_root"),
+        "path": result.get("path"),
+        "conversion_used": result.get("conversion_status") == "success",
+        "conversion_status": result.get("conversion_status"),
+        "conversion_error": result.get("conversion_error"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    analysis["external"] = external
+    updated["analysis"] = analysis
+    return updated
+
+
+def keyfinder_targets(records: list[dict[str, Any]], scope: str, low_confidence: float = 0.35) -> list[dict[str, Any]]:
+    if scope == "failures":
+        samples = [_flatten_sample(record) for record in records]
+        failures = [sample for sample in samples if deep_review_failed(sample)]
+        failures.sort(key=lambda sample: (sample.get("deep_review", {}).get("reason") or "unknown", sample.get("library_id") or "", sample.get("relative_path") or sample.get("name") or ""))
+        return failures
+    if scope == "review":
+        return select_deep_review_candidates(records, low_confidence=low_confidence, retry_deep_failed=True)
+    if scope == "all":
+        samples = [_flatten_sample(record) for record in records]
+        samples.sort(key=lambda sample: (sample.get("relative_path") or sample.get("file_path") or sample.get("name") or ""))
+        return samples
+    raise ValueError(f"Unknown KeyFinder scope: {scope}")
+
+
 def deep_failure_item(sample: dict[str, Any]) -> dict[str, Any]:
     deep_review = sample.get("deep_review") or {}
     duration = sample.get("duration")
@@ -199,6 +506,8 @@ def deep_failure_item(sample: dict[str, Any]) -> dict[str, Any]:
         "duration": duration,
         "duration_bucket": duration_bucket(duration),
         "type": sample.get("type") or "Unknown",
+        "key": sample.get("key"),
+        "root_note": sample.get("root_note"),
         "confidence": sample.get("confidence"),
         "reason": deep_review.get("reason") or "unknown",
         "attempts": deep_review.get("attempts") or 0,
@@ -271,6 +580,188 @@ def deep_failure_triage_hints(failures: list[dict[str, Any]]) -> list[str]:
     return hints
 
 
+def run_keyfinder(command: str, path: Path, timeout: float = 15.0) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            [command, str(path)],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": "timeout", "raw_output": ""}
+    except OSError as exc:
+        return {"status": "error", "error": str(exc), "raw_output": ""}
+    raw_output = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
+    if completed.returncode != 0:
+        return {"status": "error", "error": raw_output or f"exit_{completed.returncode}", "raw_output": raw_output}
+    raw_key = raw_output.splitlines()[0].strip() if raw_output else ""
+    normalized_key, root_note = normalize_keyfinder_key(raw_key)
+    return {
+        "status": "success" if raw_key else "error",
+        "raw_key": raw_key or None,
+        "normalized_key": normalized_key,
+        "root_note": root_note,
+        "raw_output": raw_output,
+        "error": None if raw_key else "empty_output",
+    }
+
+
+def run_keyfinder_with_converted_wav(command: str, path: Path, ffmpeg_command: str | None, timeout: float = 15.0) -> dict[str, Any]:
+    if not ffmpeg_command:
+        return {"status": "error", "error": "ffmpeg_not_found", "raw_output": "", "conversion_status": "error", "conversion_error": "ffmpeg_not_found"}
+    with tempfile.TemporaryDirectory(prefix="sample-key-indexer-keyfinder-") as temp_dir:
+        converted = Path(temp_dir) / f"{path.stem}.keyfinder.wav"
+        conversion = convert_to_pcm16_wav(ffmpeg_command, path, converted, timeout=timeout)
+        if conversion["status"] != "success":
+            return {
+                "status": "error",
+                "error": conversion["error"],
+                "raw_output": conversion.get("raw_output", ""),
+                "conversion_status": "error",
+                "conversion_error": conversion["error"],
+            }
+        result = run_keyfinder(command, converted, timeout=timeout)
+        result["conversion_status"] = "success"
+        result["conversion_error"] = None
+        result["converted_path"] = str(converted)
+        return result
+
+
+def convert_to_pcm16_wav(ffmpeg_command: str, source: Path, destination: Path, timeout: float = 15.0) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            [
+                ffmpeg_command,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(source),
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                str(destination),
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": "ffmpeg_timeout", "raw_output": ""}
+    except OSError as exc:
+        return {"status": "error", "error": str(exc), "raw_output": ""}
+    raw_output = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
+    if completed.returncode != 0:
+        return {"status": "error", "error": raw_output or f"ffmpeg_exit_{completed.returncode}", "raw_output": raw_output}
+    if not destination.exists():
+        return {"status": "error", "error": "converted_file_missing", "raw_output": raw_output}
+    return {"status": "success", "error": None, "raw_output": raw_output}
+
+
+def normalize_keyfinder_key(raw_key: str | None) -> tuple[str | None, str | None]:
+    value = (raw_key or "").strip()
+    if not value:
+        return None, None
+    value = value.replace("♭", "b").replace("♯", "#")
+    if value.lower().endswith(" minor"):
+        root = value[:-6].strip()
+        mode = "minor"
+    elif value.lower().endswith(" major"):
+        root = value[:-6].strip()
+        mode = "major"
+    elif value.endswith("m") and len(value) > 1:
+        root = value[:-1]
+        mode = "minor"
+    else:
+        root = value
+        mode = "major"
+    root = FLAT_TO_SHARP.get(root, root)
+    return f"{root}_{mode}", root
+
+
+def keys_match(detected_key: Any, stored_key: Any) -> bool:
+    if not detected_key or not stored_key:
+        return False
+    detected = str(detected_key)
+    stored = str(stored_key)
+    if "_" not in stored:
+        return detected.startswith(f"{stored}_")
+    return detected == stored
+
+
+def roots_match(detected_root: Any, stored_root: Any) -> bool:
+    if not detected_root or not stored_root:
+        return False
+    return str(detected_root) == str(stored_root)
+
+
+def discover_deep_backends() -> dict[str, Any]:
+    return {
+        "commands": [discover_command_backend(spec) for spec in DEEP_BACKEND_COMMANDS],
+        "qm_vamp_plugins": discover_qm_vamp_plugins(),
+    }
+
+
+def discover_command_backend(spec: dict[str, Any]) -> dict[str, Any]:
+    for command in spec["commands"]:
+        path = shutil.which(command)
+        if path:
+            return {
+                "id": spec["id"],
+                "label": spec["label"],
+                "status": "available",
+                "command": command,
+                "path": path,
+                "version": command_version(path, spec["version_args"]),
+                "purpose": spec["purpose"],
+            }
+    return {
+        "id": spec["id"],
+        "label": spec["label"],
+        "status": "missing",
+        "command": None,
+        "path": None,
+        "version": None,
+        "purpose": spec["purpose"],
+    }
+
+
+def command_version(path: str, version_args: tuple[str, ...]) -> str | None:
+    try:
+        completed = subprocess.run(
+            [path, *version_args],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    output = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
+    return output.splitlines()[0] if output else None
+
+
+def discover_qm_vamp_plugins() -> dict[str, Any]:
+    matches: list[str] = []
+    searched: list[str] = []
+    for plugin_dir in VAMP_PLUGIN_DIRS:
+        searched.append(str(plugin_dir))
+        if not plugin_dir.exists():
+            continue
+        for path in plugin_dir.iterdir():
+            if "qm" in path.name.lower():
+                matches.append(str(path))
+    return {
+        "status": "available" if matches else "missing",
+        "matches": sorted(matches),
+        "searched": searched,
+    }
+
+
 def format_deep_failure_report(report: dict[str, Any]) -> str:
     lines = [f"Deep review failures: {report['total']} files"]
     for title, key in (
@@ -300,7 +791,112 @@ def format_deep_failure_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_backend_check_report(report: dict[str, Any]) -> str:
+    targets = report["deep_failure_targets"]
+    status = report["backend_status"]
+    lines = [
+        "Deep backend check:",
+        f"  Deep-review failure targets: {targets['total']} files",
+    ]
+    for title, key in (
+        ("Failure reasons", "by_reason"),
+        ("Failure formats", "by_format"),
+        ("Failure durations", "by_duration"),
+        ("Failure path families", "by_path_family"),
+    ):
+        if not targets[key]:
+            continue
+        lines.append(f"  {title}:")
+        for item in targets[key]:
+            lines.append(f"    - {item['value']}: {item['count']}")
+    if targets.get("triage_hints"):
+        lines.append("  Triage hints:")
+        for hint in targets["triage_hints"]:
+            lines.append(f"    - {hint}")
+    lines.append("")
+    lines.append("Candidate backends:")
+    for backend in status["commands"]:
+        detail = backend["path"] if backend["status"] == "available" else "not found on PATH"
+        lines.append(f"- {backend['label']}: {backend['status']} ({detail})")
+        if backend.get("version"):
+            lines.append(f"  Version: {backend['version']}")
+        lines.append(f"  Role: {backend['purpose']}")
+    qm_plugins = status["qm_vamp_plugins"]
+    lines.append(f"- QM Vamp Plugins: {qm_plugins['status']}")
+    if qm_plugins["matches"]:
+        for match in qm_plugins["matches"][:10]:
+            lines.append(f"  - {match}")
+    else:
+        lines.append("  No qm-named Vamp plugin files found in the standard macOS/Homebrew Vamp paths.")
+    lines.append("")
+    lines.append("Next experiment:")
+    lines.append("- If Sonic Annotator and QM Vamp Plugins are available, test them first against the recorded deep failures.")
+    lines.append("- If KeyFinder CLI is available, compare its key output against the same failure set.")
+    lines.append("- Keep aubio optional for tempo/onset checks rather than primary key detection.")
+    return "\n".join(lines)
+
+
+def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
+    is_enrichment = report.get("mode") == "metadata_enrichment"
+    lines = [
+        "KeyFinder metadata enrichment:" if is_enrichment else "KeyFinder experiment:",
+        f"  Scope: {report.get('scope') or 'failures'}",
+        f"  Command: {report.get('command') or 'not found'}",
+        f"  Conversion retry: {'on' if report.get('convert_retry') else 'off'}",
+        f"  ffmpeg: {report.get('ffmpeg_command') or 'not used'}",
+        f"  Selected samples: {report['selected']} files",
+        f"  Processed: {report['processed']} files",
+        f"  Successes: {report['successes']} files",
+        f"  Conversion attempts: {report.get('conversion_attempts', 0)} files",
+        f"  Conversion successes: {report.get('conversion_successes', 0)} files",
+        f"  Conversion errors: {report.get('conversion_errors', 0)} files",
+        f"  Missing audio: {report['missing_audio']} files",
+        f"  Errors: {report['errors']} files",
+        f"  Matches stored key: {report['matches_stored_key']} files",
+        f"  Matches stored root: {report['matches_stored_root']} files",
+    ]
+    if is_enrichment:
+        lines.insert(8, f"  Metadata updated: {report.get('updated', 0)} files")
+    if is_enrichment and report.get("dry_run"):
+        lines.append("  Dry run: no metadata was changed")
+    if report.get("backend_error"):
+        lines.append(f"  Backend error: {report['backend_error']}")
+    if report.get("error_reasons"):
+        lines.append("")
+        lines.append("Error reasons:")
+        for item in report["error_reasons"][:10]:
+            lines.append(f"- {item['value']}: {item['count']}")
+    if report.get("success_by_path_family"):
+        lines.append("")
+        lines.append("Successes by path family:")
+        for item in report["success_by_path_family"][:10]:
+            lines.append(f"- {item['value']}: {item['count']}")
+    if report.get("error_by_path_family"):
+        lines.append("")
+        lines.append("Errors by path family:")
+        for item in report["error_by_path_family"][:10]:
+            lines.append(f"- {item['value']}: {item['count']}")
+    if report["results"]:
+        lines.append("")
+        lines.append("Results:")
+        for item in report["results"][:20]:
+            if item["status"] == "success":
+                lines.append(
+                    f"- {item['name']} | KeyFinder {item.get('raw_key')} ({item.get('normalized_key')}) | "
+                    f"stored {item.get('stored_key') or item.get('stored_root')} | "
+                    f"key match {item.get('matches_stored_key')} | root match {item.get('matches_stored_root')}"
+                )
+            else:
+                lines.append(f"- {item['name']} | {item['status']} | {item.get('error')}")
+    return "\n".join(lines)
+
+
 def write_deep_failure_json(report: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_keyfinder_report(report: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -589,6 +1185,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deep-plan", action="store_true", help="Print the V3.3 deep-review candidate plan.")
     parser.add_argument("--deep-rerun", action="store_true", help="Rerun analysis only for deep-review candidates and update the index.")
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
+    parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
+    parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
+    parser.add_argument("--keyfinder-enrich", action="store_true", help="Run KeyFinder CLI and store its output under analysis.external.keyfinder without changing the main key decision.")
+    parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, or the full index.")
+    parser.add_argument("--keyfinder-convert-retry", action="store_true", help="Retry failed KeyFinder reads via a temporary ffmpeg 16-bit PCM WAV conversion.")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
@@ -602,6 +1203,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-every", type=int, default=25, help="Write metadata after this many rerun files.")
     parser.add_argument("--no-json-export", action="store_true", help="Do not export/update metadata_index.json after SQLite reruns.")
     parser.add_argument("--report-json", type=Path, default=None, help="Write a JSON rerun report with selected counts and failure examples.")
+    parser.add_argument("--keyfinder-json", type=Path, default=None, help="Write the KeyFinder experiment report to JSON.")
     parser.add_argument("--failures-json", type=Path, default=None, help="Write the deep-review failure report to JSON.")
     parser.add_argument("--failures-csv", type=Path, default=None, help="Write the deep-review failure list to CSV.")
     return parser
@@ -614,6 +1216,46 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Metadata index does not exist: {index_path}")
         return 2
     records = load_records(index_path)
+    if args.backend_check:
+        print(format_backend_check_report(build_backend_check_report(records)))
+        return 0
+    if args.keyfinder_experiment or args.keyfinder_enrich:
+        try:
+            library_roots = parse_library_roots(args.library_root)
+            destination_roots = parse_library_roots(args.destination_root, option_name="--destination-root")
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        if args.keyfinder_enrich:
+            report = enrich_keyfinder_metadata(
+                index_path,
+                records,
+                library_roots=library_roots,
+                destination_roots=destination_roots,
+                limit=args.limit,
+                scope=args.keyfinder_scope,
+                low_confidence=args.low_confidence,
+                convert_retry=args.keyfinder_convert_retry,
+                dry_run=args.dry_run,
+                write_every=args.write_every,
+                export_json=not args.no_json_export,
+            )
+        else:
+            report = build_keyfinder_experiment_report(
+                records,
+                library_roots=library_roots,
+                destination_roots=destination_roots,
+                limit=args.limit,
+                scope=args.keyfinder_scope,
+                low_confidence=args.low_confidence,
+                convert_retry=args.keyfinder_convert_retry,
+            )
+        print(format_keyfinder_experiment_report(report))
+        if args.keyfinder_json:
+            report_path = args.keyfinder_json.expanduser().resolve()
+            write_keyfinder_report(report, report_path)
+            print(f"KeyFinder report JSON: {report_path}")
+        return 0
     if args.deep_failures:
         report = build_deep_failure_report(records, max_examples=max(0, args.examples))
         print(format_deep_failure_report(report))

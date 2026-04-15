@@ -153,6 +153,42 @@ Real deep reruns analyze each selected file in an isolated worker process. If de
 Use `--report-json` to save missing-audio examples, analysis errors, worker crash failures, and fallback successes for follow-up.
 V3.4 records files that crash both the primary and fallback rerun in `analysis.deep_review` and skips those known failures by default. Pass `--retry-deep-failed` when you intentionally want to try them again after changing engines, dependencies, or analysis settings.
 
+Check optional deep backend availability before installing or wiring new engines:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite --backend-check
+```
+
+Run the first KeyFinder-only experiment against recorded deep-review failures:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-json /path/to/keyfinder_experiment.json
+```
+
+To run KeyFinder across a whole selected index instead of only deep-review failures:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --keyfinder-json /path/to/keyfinder_all.json
+```
+
+Store KeyFinder as an optional external comparison signal without changing the main key decision:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
+  --keyfinder-enrich \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --keyfinder-json /path/to/keyfinder_enrich_report.json
+```
+
+This writes KeyFinder details under `analysis.external.keyfinder`, including the raw key, normalized key, root, stored-key/root match flags, conversion status, errors, and update time. It does not overwrite `musical.key`, `musical.root`, `analysis.final_decision`, routing metadata, or copied files.
+
 If the console script has not been refreshed yet, run it as a module:
 
 ```bash
@@ -263,6 +299,24 @@ The web app can read both this structured schema and older flat records.
 - Failure reports summarize failed rerun files by reason, library, format, type, duration bucket, and path family.
 - Reports include lightweight triage hints when failures share a clear pattern, such as all files being short WAVs that crash the deep librosa+essentia path.
 - Use these reports to decide whether KeyFinder, Sonic Annotator/QM Vamp Plugins, aubio, or pre-conversion/probing work should come next.
+
+## V3.6 Deep Backend Experiments
+
+- `sample-key-indexer-review --backend-check` prints a read-only report of optional deep backend availability.
+- The check looks for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins in standard macOS/Homebrew Vamp paths, and aubio.
+- The report includes the current deep-review failure target summary so external backend experiments stay scoped to real failures.
+- `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures and reports successes, errors, and stored-key/root matches without changing metadata.
+- `--keyfinder-enrich` runs the same KeyFinder path and stores its output under `analysis.external.keyfinder` without changing the main key decision or routing.
+- `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or the full selected index.
+- `--keyfinder-convert-retry` retries KeyFinder failures by converting the source to a temporary 16-bit PCM WAV with ffmpeg.
+- Current SD 02 Trad result: KeyFinder processed 4 of 5 deep failures, failed 1 file with a resampling error, and matched the stored root on 2 files.
+- Full SD 02 Trad index result: KeyFinder processed 2,452 of 4,411 files, failed 1,959 files with the same resampling error, matched 779 stored keys, and matched 1,020 stored roots.
+- With `--keyfinder-convert-retry`, the same full index processed all 4,411 files, converted 1,959 files, had zero remaining errors, matched 1,346 stored keys, and matched 2,041 stored roots.
+- Full SD 02 Trad metadata enrichment result: 4,411 records updated under `analysis.external.keyfinder`, 1,959 conversion retries used, zero errors, 1,346 stored-key matches, and 2,041 stored-root matches.
+- KeyFinder is now an optional stored comparison backend. It should not replace the main key decision until more libraries are compared.
+- Later comparison TODO: use stored KeyFinder data across multiple libraries to decide whether it should raise confidence when engines agree, add review flags when it disagrees, act as a tie-breaker, or stay report-only.
+- Remaining V3.6 work: enrich at least one more real library, add a stored-KeyFinder comparison report grouped by library/type/confidence/match status, then use that evidence to design V3.7 scoring rules.
+- Likely next phases: V3.7 KeyFinder comparison scoring, V3.8 multi-library web/playback UX polish, and V3.9 optional Sonic Annotator/QM or aubio expansion only if the data says it is worth it.
 
 ## Troubleshooting
 
