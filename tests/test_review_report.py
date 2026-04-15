@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_review_summary, format_review_summary
+from sample_key_indexer.review_report import build_deep_review_plan, build_review_summary, format_deep_review_plan, format_review_summary, rerun_deep_review, select_deep_review_candidates
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -80,6 +84,128 @@ class ReviewReportTests(unittest.TestCase):
         self.assertIn("Needs review: 1 (100.0%)", report)
         self.assertIn("- engine_key_disagreement: 1", report)
         self.assertIn("loop.wav | B_major | confidence 0.5", report)
+
+    def test_select_deep_review_candidates_prioritizes_errors_and_disagreements(self) -> None:
+        records = [
+            AnalysisResult(
+                file_path="/samples/ok.wav",
+                root_note="C",
+                key="C_major",
+                confidence=0.9,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+            ).to_dict(),
+            AnalysisResult(
+                file_path="/samples/low.wav",
+                root_note=None,
+                key=None,
+                confidence=0.2,
+                category="OneShots",
+                type="FX",
+                duration=0.5,
+            ).to_dict(),
+            AnalysisResult(
+                file_path="/samples/disagree.wav",
+                root_note="D",
+                key="D_minor",
+                confidence=0.7,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+                needs_review=True,
+                review_reasons=["engine_root_disagreement"],
+            ).to_dict(),
+            AnalysisResult(
+                file_path="/samples/error.wav",
+                root_note=None,
+                key=None,
+                confidence=0.0,
+                category="OneShots",
+                type="FX",
+                duration=0.0,
+                error="decode failed",
+            ).to_dict(),
+        ]
+
+        candidates = select_deep_review_candidates(records)
+
+        self.assertEqual([candidate["name"] for candidate in candidates], ["error.wav", "disagree.wav", "low.wav"])
+        self.assertEqual(candidates[0]["deep_review_reasons"], ["low_confidence", "analysis_error"])
+        self.assertIn("key_or_root_disagreement", candidates[1]["deep_review_reasons"])
+
+    def test_build_and_format_deep_review_plan(self) -> None:
+        records = [
+            AnalysisResult(
+                file_path="/samples/loop.wav",
+                root_note="B",
+                key="B_major",
+                confidence=0.5,
+                category="Loops",
+                type="MelodyLoops",
+                duration=8.0,
+                needs_review=True,
+                review_reasons=["engine_key_disagreement"],
+            ).to_dict()
+        ]
+
+        plan = build_deep_review_plan(records, low_confidence=0.6)
+        report = format_deep_review_plan(plan)
+
+        self.assertEqual(plan["selected"], 1)
+        self.assertIn("Deep review candidates: 1", report)
+        self.assertIn("- low_confidence: 1", report)
+        self.assertIn("loop.wav | B_major | confidence 0.5", report)
+
+    def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "Samples" / "loop.wav"
+            audio_path.parent.mkdir()
+            audio_path.write_bytes(b"audio")
+            index_path = root / "metadata_index.sqlite"
+            original = AnalysisResult(
+                file_path=str(audio_path),
+                root_note="A",
+                key="A_minor",
+                confidence=0.2,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+                needs_review=True,
+                review_reasons=["engine_key_disagreement"],
+                relative_path="Samples/loop.wav",
+                library_id="sd_02",
+                library_name="SD 02",
+                library_root=str(root),
+            )
+            replacement = AnalysisResult(
+                file_path=str(audio_path),
+                root_note="A",
+                key="A_minor",
+                confidence=0.8,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+            )
+            index = SQLiteMetadataIndex(index_path)
+            try:
+                index.upsert(original)
+                index.write()
+            finally:
+                index.close()
+
+            candidates = select_deep_review_candidates(load_records(index_path))
+            with patch("sample_key_indexer.review_report.analyze_file", return_value=replacement):
+                summary = rerun_deep_review(index_path, candidates, dry_run=False)
+
+            records = load_records(index_path)
+
+        self.assertEqual(summary["processed"], 1)
+        self.assertEqual(summary["improved_confidence"], 1)
+        self.assertEqual(records[0]["classification"]["confidence"], 0.8)
+        self.assertEqual(records[0]["library"]["id"], "sd_02")
+        self.assertEqual(records[0]["file"]["relative_path"], "Samples/loop.wav")
 
 
 if __name__ == "__main__":

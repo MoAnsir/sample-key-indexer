@@ -132,6 +132,23 @@ Summarize files that need review:
 sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite
 ```
 
+Preview the V3.3 deep-review candidate queue:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite --deep-plan --limit 100
+```
+
+Rerun only selected low-confidence, warning, error, or disagreement records:
+
+```bash
+sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
+  --deep-rerun \
+  --library-root library_id=/Volumes/USB/source_samples \
+  --limit 500
+```
+
+Use `--dry-run` with `--deep-rerun` to preview counts without changing metadata.
+
 If the console script has not been refreshed yet, run it as a module:
 
 ```bash
@@ -219,6 +236,12 @@ The web app can read both this structured schema and older flat records.
 - Duration probing uses `ffprobe` first when available, with soundfile/librosa fallbacks in `auto` mode.
 - The CLI has a `--probe-backend auto|ffprobe|python` switch for testing skip decisions.
 - The final report includes a duration probe breakdown so failed probes and fallback use are visible.
+
+## V3.3 Deep Review Mode
+
+- `sample-key-indexer-review --deep-plan` selects records needing focused reanalysis.
+- `sample-key-indexer-review --deep-rerun` reprocesses only selected records and upserts them into the existing index.
+- Deep reruns preserve library IDs, relative paths, and existing routing destinations so removable-drive catalogs keep working.
 
 ## Troubleshooting
 

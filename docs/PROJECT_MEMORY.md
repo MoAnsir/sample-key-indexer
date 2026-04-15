@@ -172,7 +172,24 @@ The browser may cancel audio range requests when users click around. Broken pipe
 
 `sample_key_indexer/review_report.py` summarizes samples that need review. It currently counts review reasons/types and prints low-confidence examples.
 
-V3.3 will expand this area into deep review mode.
+V3.3 adds deep review mode to the review command. It selects records with low confidence, `needs_review`, key/root disagreements, analysis warnings, or analysis errors. It can print a plan, dry-run the rerun counts, or re-analyze only selected records and upsert them into the same metadata index.
+
+Plan command:
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite --deep-plan --limit 100
+```
+
+Rerun command:
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite \
+  --deep-rerun \
+  --library-root library_id=/Volumes/USB/source_samples \
+  --limit 500
+```
+
+Use `--destination-root` instead of `--library-root` when the mounted audio lives in an organised `Key/` and `Unsorted/` tree. Deep reruns preserve the existing library ID, relative path, library root, and routing destination so catalogs remain stable.
 
 ## V3 Roadmap
 
@@ -190,10 +207,11 @@ Completed:
 Active:
 
 - V3.3 Deep Review Mode
-  - Select only low-confidence, needs-review, disagreement, warning, and error records.
-  - Rerun selected candidates instead of reprocessing the whole library.
-  - Preserve existing SQLite metadata and library path metadata.
-  - Add dry-run preview, limit controls, and before/after summary.
+  - `--deep-plan` selects low-confidence, needs-review, disagreement, warning, and error records.
+  - `--deep-rerun` reprocesses selected candidates instead of reprocessing the whole library.
+  - Reruns preserve SQLite metadata identity, library path metadata, and routing destinations.
+  - `--dry-run`, `--limit`, and `--low-confidence` keep reruns controlled.
+  - Current before/after summary counts selected, processed, missing audio, improved confidence, still-needs-review, and errors.
 
 Later:
 
@@ -285,6 +303,7 @@ Run before committing feature work:
 .venv/bin/python -B -m unittest discover -s tests
 python3 -B -m unittest discover -s tests
 PYTHONPYCACHEPREFIX=/tmp/sample-key-indexer-pycache python3 -m py_compile sample_key_indexer/audio_analysis.py sample_key_indexer/cli.py
+PYTHONPYCACHEPREFIX=/tmp/sample-key-indexer-pycache python3 -m py_compile sample_key_indexer/review_report.py
 git diff --check
 ```
 
