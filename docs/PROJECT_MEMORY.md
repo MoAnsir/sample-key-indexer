@@ -234,6 +234,7 @@ Active:
   - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
   - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures, reports successes/errors and stored key/root matches, and can write `--keyfinder-json`.
   - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or every sample in the selected index.
+  - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
   - Keep this phase report-first until an external backend proves useful on the small failure set.
 
 Later:
@@ -381,6 +382,35 @@ Most errors were in Indian Percussion / WAV: 1447 files
 ```
 
 Interpretation: KeyFinder is usable at pack scale, but nearly 44% of this pack fails due to its resampling path. It is more useful as a comparison/reporting backend than as the main key engine until a conversion retry path is tested.
+
+V3.6 conversion retry uses ffmpeg, which is installed at `/opt/homebrew/bin/ffmpeg` on this machine. The retry path converts only failed KeyFinder inputs to a temporary 16-bit PCM WAV (`pcm_s16le`), reruns KeyFinder, and removes the temp file when done.
+
+Full-index KeyFinder experiment with conversion retry:
+
+```bash
+.venv/bin/python -B -m sample_key_indexer.review_report \
+  /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-experiment \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --keyfinder-json /tmp/v36_keyfinder_all_sd_02_trad_convert_retry.json
+```
+
+Verified result:
+
+```text
+Selected samples: 4411 files
+Processed: 4411 files
+Successes: 4411 files
+Conversion attempts: 1959 files
+Conversion successes: 1959 files
+Conversion errors: 0 files
+Errors: 0 files
+Matches stored key: 1346 files
+Matches stored root: 2041 files
+```
+
+Interpretation: ffmpeg conversion fixes the KeyFinder resampling failure completely for this pack. KeyFinder still should not overwrite the main decision yet, but it is now viable as an optional comparison backend over full selected indexes.
 
 ## Common Gotchas
 

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_backend_check_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_experiment_report, build_review_summary, format_backend_check_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_experiment_report, format_review_summary, rerun_deep_review, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
+from sample_key_indexer.review_report import build_backend_check_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_experiment_report, build_review_summary, format_backend_check_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_experiment_report, format_review_summary, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -461,6 +461,55 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(report["processed"], 2)
         self.assertEqual(report["matches_stored_key"], 2)
         self.assertEqual(report["matches_stored_root"], 2)
+
+    def test_keyfinder_experiment_can_retry_with_converted_wav(self) -> None:
+        failed_record = AnalysisResult(
+            file_path="/samples/a.wav",
+            root_note="C",
+            key="C_major",
+            confidence=0.2,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+            needs_review=True,
+        ).to_dict()
+        failed_record["analysis"]["deep_review"] = {"failed": True, "reason": "worker_crash:worker_crash"}
+
+        with patch("sample_key_indexer.review_report.shutil.which", side_effect=lambda command: f"/usr/local/bin/{command}"):
+            with patch("sample_key_indexer.review_report.Path.exists", return_value=True):
+                with patch("sample_key_indexer.review_report.run_keyfinder", return_value={
+                    "status": "error",
+                    "error": "Unable to resample audio into 16bit PCM data",
+                    "raw_output": "Unable to resample audio into 16bit PCM data",
+                }):
+                    with patch("sample_key_indexer.review_report.run_keyfinder_with_converted_wav", return_value={
+                        "status": "success",
+                        "raw_key": "C",
+                        "normalized_key": "C_major",
+                        "root_note": "C",
+                        "raw_output": "C",
+                        "error": None,
+                        "conversion_status": "success",
+                        "conversion_error": None,
+                    }):
+                        report = build_keyfinder_experiment_report([failed_record], convert_retry=True)
+        text = format_keyfinder_experiment_report(report)
+
+        self.assertTrue(report["convert_retry"])
+        self.assertEqual(report["conversion_attempts"], 1)
+        self.assertEqual(report["conversion_successes"], 1)
+        self.assertEqual(report["successes"], 1)
+        self.assertEqual(report["errors"], 0)
+        self.assertIn("Conversion retry: on", text)
+
+    def test_run_keyfinder_with_converted_wav_reports_ffmpeg_failure(self) -> None:
+        with patch("sample_key_indexer.review_report.convert_to_pcm16_wav", return_value={"status": "error", "error": "ffmpeg_failed", "raw_output": "bad file"}):
+            result = run_keyfinder_with_converted_wav("/usr/local/bin/keyfinder-cli", Path("/samples/a.wav"), "/opt/homebrew/bin/ffmpeg")
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["conversion_status"], "error")
+        self.assertEqual(result["conversion_error"], "ffmpeg_failed")
 
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:

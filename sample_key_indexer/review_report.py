@@ -5,6 +5,7 @@ import csv
 import json
 import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -246,8 +247,10 @@ def build_keyfinder_experiment_report(
     timeout: float = 15.0,
     scope: str = "failures",
     low_confidence: float = 0.35,
+    convert_retry: bool = False,
 ) -> dict[str, Any]:
     command = shutil.which("keyfinder-cli") or shutil.which("keyfinder")
+    ffmpeg_command = shutil.which("ffmpeg") if convert_retry else None
     targets = keyfinder_targets(records, scope=scope, low_confidence=low_confidence)
     if limit > 0:
         targets = targets[:limit]
@@ -255,9 +258,14 @@ def build_keyfinder_experiment_report(
         "backend": "keyfinder",
         "scope": scope,
         "command": command,
+        "convert_retry": convert_retry,
+        "ffmpeg_command": ffmpeg_command,
         "selected": len(targets),
         "processed": 0,
         "successes": 0,
+        "conversion_attempts": 0,
+        "conversion_successes": 0,
+        "conversion_errors": 0,
         "missing_audio": 0,
         "errors": 0,
         "matches_stored_key": 0,
@@ -289,6 +297,18 @@ def build_keyfinder_experiment_report(
             report["results"].append(result)
             continue
         keyfinder_result = run_keyfinder(command, playable, timeout=timeout)
+        if keyfinder_result["status"] != "success" and convert_retry:
+            report["conversion_attempts"] += 1
+            retry_result = run_keyfinder_with_converted_wav(command, playable, ffmpeg_command, timeout=timeout)
+            if retry_result.get("conversion_status") == "success":
+                report["conversion_successes"] += 1
+            else:
+                report["conversion_errors"] += 1
+            if retry_result["status"] == "success":
+                keyfinder_result = retry_result
+            else:
+                keyfinder_result["conversion_status"] = retry_result.get("conversion_status")
+                keyfinder_result["conversion_error"] = retry_result.get("conversion_error")
         result.update(keyfinder_result)
         if keyfinder_result["status"] == "success":
             report["processed"] += 1
@@ -438,6 +458,60 @@ def run_keyfinder(command: str, path: Path, timeout: float = 15.0) -> dict[str, 
         "raw_output": raw_output,
         "error": None if raw_key else "empty_output",
     }
+
+
+def run_keyfinder_with_converted_wav(command: str, path: Path, ffmpeg_command: str | None, timeout: float = 15.0) -> dict[str, Any]:
+    if not ffmpeg_command:
+        return {"status": "error", "error": "ffmpeg_not_found", "raw_output": "", "conversion_status": "error", "conversion_error": "ffmpeg_not_found"}
+    with tempfile.TemporaryDirectory(prefix="sample-key-indexer-keyfinder-") as temp_dir:
+        converted = Path(temp_dir) / f"{path.stem}.keyfinder.wav"
+        conversion = convert_to_pcm16_wav(ffmpeg_command, path, converted, timeout=timeout)
+        if conversion["status"] != "success":
+            return {
+                "status": "error",
+                "error": conversion["error"],
+                "raw_output": conversion.get("raw_output", ""),
+                "conversion_status": "error",
+                "conversion_error": conversion["error"],
+            }
+        result = run_keyfinder(command, converted, timeout=timeout)
+        result["conversion_status"] = "success"
+        result["conversion_error"] = None
+        result["converted_path"] = str(converted)
+        return result
+
+
+def convert_to_pcm16_wav(ffmpeg_command: str, source: Path, destination: Path, timeout: float = 15.0) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            [
+                ffmpeg_command,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(source),
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                str(destination),
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": "ffmpeg_timeout", "raw_output": ""}
+    except OSError as exc:
+        return {"status": "error", "error": str(exc), "raw_output": ""}
+    raw_output = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
+    if completed.returncode != 0:
+        return {"status": "error", "error": raw_output or f"ffmpeg_exit_{completed.returncode}", "raw_output": raw_output}
+    if not destination.exists():
+        return {"status": "error", "error": "converted_file_missing", "raw_output": raw_output}
+    return {"status": "success", "error": None, "raw_output": raw_output}
 
 
 def normalize_keyfinder_key(raw_key: str | None) -> tuple[str | None, str | None]:
@@ -619,9 +693,14 @@ def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
         "KeyFinder experiment:",
         f"  Scope: {report.get('scope') or 'failures'}",
         f"  Command: {report.get('command') or 'not found'}",
+        f"  Conversion retry: {'on' if report.get('convert_retry') else 'off'}",
+        f"  ffmpeg: {report.get('ffmpeg_command') or 'not used'}",
         f"  Selected samples: {report['selected']} files",
         f"  Processed: {report['processed']} files",
         f"  Successes: {report['successes']} files",
+        f"  Conversion attempts: {report.get('conversion_attempts', 0)} files",
+        f"  Conversion successes: {report.get('conversion_successes', 0)} files",
+        f"  Conversion errors: {report.get('conversion_errors', 0)} files",
         f"  Missing audio: {report['missing_audio']} files",
         f"  Errors: {report['errors']} files",
         f"  Matches stored key: {report['matches_stored_key']} files",
@@ -956,6 +1035,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
     parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
     parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, or the full index.")
+    parser.add_argument("--keyfinder-convert-retry", action="store_true", help="Retry failed KeyFinder reads via a temporary ffmpeg 16-bit PCM WAV conversion.")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
@@ -999,6 +1079,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             scope=args.keyfinder_scope,
             low_confidence=args.low_confidence,
+            convert_retry=args.keyfinder_convert_retry,
         )
         print(format_keyfinder_experiment_report(report))
         if args.keyfinder_json:

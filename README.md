@@ -173,6 +173,7 @@ To run KeyFinder across a whole selected index instead of only deep-review failu
 sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
   --keyfinder-experiment \
   --keyfinder-scope all \
+  --keyfinder-convert-retry \
   --keyfinder-json /path/to/keyfinder_all.json
 ```
 
@@ -294,8 +295,10 @@ The web app can read both this structured schema and older flat records.
 - The report includes the current deep-review failure target summary so external backend experiments stay scoped to real failures.
 - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures and reports successes, errors, and stored-key/root matches without changing metadata.
 - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or the full selected index.
+- `--keyfinder-convert-retry` retries KeyFinder failures by converting the source to a temporary 16-bit PCM WAV with ffmpeg.
 - Current SD 02 Trad result: KeyFinder processed 4 of 5 deep failures, failed 1 file with a resampling error, and matched the stored root on 2 files.
 - Full SD 02 Trad index result: KeyFinder processed 2,452 of 4,411 files, failed 1,959 files with the same resampling error, matched 779 stored keys, and matched 1,020 stored roots.
+- With `--keyfinder-convert-retry`, the same full index processed all 4,411 files, converted 1,959 files, had zero remaining errors, matched 1,346 stored keys, and matched 2,041 stored roots.
 - This phase does not install tools or reprocess files by default; it tells us what can be tested next.
 
 ## Troubleshooting
