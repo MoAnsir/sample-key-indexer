@@ -13,6 +13,22 @@ from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, l
 from sample_key_indexer.web_app import _flatten_sample, _playable_path, parse_library_roots
 
 NON_HARMONIC_REVIEW_TYPES = {"Kick", "Snare", "Hat", "Perc", "DrumLoops", "FX", "FXLoops"}
+NON_HARMONIC_REVIEW_TEXT = (
+    "indian percussion",
+    "percussion",
+    "dholak",
+    "khanjira",
+    "kanjira",
+    "idakka",
+    "udakai",
+    "tabla",
+    "dhol",
+    "mridangam",
+    "ghatam",
+    "duff",
+    "duf",
+    "daf",
+)
 
 
 def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10) -> dict[str, Any]:
@@ -85,7 +101,17 @@ def deep_review_reasons(sample: dict[str, Any], low_confidence: float, include_w
 
 
 def is_non_harmonic_review_sample(sample: dict[str, Any]) -> bool:
-    return (sample.get("type") or "") in NON_HARMONIC_REVIEW_TYPES
+    if (sample.get("type") or "") in NON_HARMONIC_REVIEW_TYPES:
+        return True
+    searchable_text = " ".join(
+        str(part or "").lower()
+        for part in (
+            sample.get("name"),
+            sample.get("relative_path"),
+            sample.get("file_path"),
+        )
+    )
+    return any(token in searchable_text for token in NON_HARMONIC_REVIEW_TEXT)
 
 
 def selection_priority(sample: dict[str, Any]) -> int:
