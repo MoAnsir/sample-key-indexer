@@ -11,11 +11,13 @@ The user workflow is based around multiple removable drives. Each USB or SD card
 ## Current Branch State
 
 - `dev` is the local integration branch.
-- `v3.3-deep-review` is the active feature branch for deep review mode.
+- `v3.5-failure-reporting-and-backend-triage` is the active feature branch, created from `dev` after V3.4 was merged.
 - There is currently no configured git remote in this checkout, so "push to dev" means commit locally on the `dev` branch unless a remote is added later.
 - Recent completed local dev commits:
   - `357a89b Start V3.1 bulk run quality`
   - `2b22882 Start V3.2 ffprobe duration probing`
+  - `602e884 Add deep review rerun diagnostics`
+  - `c374164 Start V3.4 deep review failure tracking`
 
 ## Core Commands
 
@@ -214,19 +216,24 @@ Completed:
   - `--dry-run`, `--limit`, and `--low-confidence` keep reruns controlled.
   - Current before/after summary counts selected, processed, missing audio, improved confidence, still-needs-review, errors, worker crashes, and fallback successes.
   - `--report-json` stores rerun diagnostics for missing files, analysis errors, crash failures, and fallback successes.
-
-Active:
-
 - V3.4 Deep Review Failure Management
   - Persist double-crash failures into `analysis.deep_review`.
   - Skip known deep-review failures by default.
   - `--retry-deep-failed` includes previously failed records for deliberate retesting.
 
+Active:
+
+- V3.5 Failure Reporting and Backend Triage
+  - Add a `--deep-failures` report to list/export previously failed deep-review files.
+  - Summarize failures by extension, duration bucket, codec/format, library, and reason.
+  - Add lightweight triage data so future engine choices are based on real failure patterns.
+  - Keep backend experiments scoped; do not add KeyFinder/Sonic Annotator until failure data tells us what to test first.
+
 Later:
 
-- V3.4 Deep harmonic backend experiments with KeyFinder or Sonic Annotator/QM Vamp Plugins.
+- Deep harmonic backend experiments with KeyFinder or Sonic Annotator/QM Vamp Plugins.
 - Optional aubio onset/tempo utility if tempo/onset quality needs a small-footprint boost.
-- V3.5 multi-USB UX polish.
+- Multi-USB UX polish.
 
 ## Known Real-World Workflows
 
