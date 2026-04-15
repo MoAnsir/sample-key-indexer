@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
@@ -164,6 +165,174 @@ def build_deep_review_plan(
         ],
         "candidates": candidates,
     }
+
+
+def build_deep_failure_report(records: list[dict[str, Any]], max_examples: int = 20) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    failures = [deep_failure_item(sample) for sample in samples if deep_review_failed(sample)]
+    failures.sort(key=lambda item: (item["reason"], item["library_id"] or "", item["relative_path"] or item["name"] or ""))
+    return {
+        "total": len(failures),
+        "by_reason": count_items(failures, "reason"),
+        "by_library": count_items(failures, "library_id"),
+        "by_format": count_items(failures, "format"),
+        "by_type": count_items(failures, "type"),
+        "by_duration": count_items(failures, "duration_bucket"),
+        "by_path_family": count_items(failures, "path_family"),
+        "triage_hints": deep_failure_triage_hints(failures),
+        "examples": failures[:max(0, max_examples)],
+        "failures": failures,
+    }
+
+
+def deep_failure_item(sample: dict[str, Any]) -> dict[str, Any]:
+    deep_review = sample.get("deep_review") or {}
+    duration = sample.get("duration")
+    return {
+        "name": sample.get("name"),
+        "library_id": sample.get("library_id"),
+        "library_name": sample.get("library_name"),
+        "relative_path": sample.get("relative_path"),
+        "file_path": sample.get("file_path"),
+        "path_family": path_family(sample.get("relative_path") or sample.get("file_path")),
+        "format": sample.get("format") or Path(str(sample.get("file_path") or "")).suffix.lower().lstrip(".") or "unknown",
+        "duration": duration,
+        "duration_bucket": duration_bucket(duration),
+        "type": sample.get("type") or "Unknown",
+        "confidence": sample.get("confidence"),
+        "reason": deep_review.get("reason") or "unknown",
+        "attempts": deep_review.get("attempts") or 0,
+        "last_attempt_at": deep_review.get("last_attempt_at"),
+        "profile": deep_review.get("profile"),
+        "engines": deep_review.get("engines") or [],
+        "deep_review_path": deep_review.get("path"),
+    }
+
+
+def count_items(items: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    counts = Counter(str(item.get(key) or "unknown") for item in items)
+    return [{"value": value, "count": count} for value, count in counts.most_common()]
+
+
+def duration_bucket(duration: Any) -> str:
+    if duration is None:
+        return "unknown"
+    try:
+        value = float(duration)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value < 2:
+        return "<2s"
+    if value < 5:
+        return "2-5s"
+    if value < 10:
+        return "5-10s"
+    if value < 30:
+        return "10-30s"
+    return "30s+"
+
+
+def path_family(path_value: Any, depth: int = 2) -> str:
+    parts = [part for part in Path(str(path_value or "")).parts if part not in {"/", ""}]
+    if not parts:
+        return "unknown"
+    if Path(parts[-1]).suffix:
+        parts = parts[:-1]
+    if not parts:
+        return "unknown"
+    if parts[0] == "Users" and len(parts) > 5:
+        for marker in ("Indian Melodic", "Indian Percussion", "SAMPLES", "Key", "Unsorted"):
+            if marker in parts:
+                marker_index = parts.index(marker)
+                parts = parts[marker_index:] if marker.startswith("Indian ") else parts[marker_index + 1 :]
+                break
+    if len(parts) <= 1:
+        return parts[0]
+    return " / ".join(parts[:depth])
+
+
+def deep_failure_triage_hints(failures: list[dict[str, Any]]) -> list[str]:
+    if not failures:
+        return ["No deep-review failures are currently recorded."]
+    hints: list[str] = []
+    formats = {item.get("format") for item in failures}
+    reasons = {item.get("reason") for item in failures}
+    profiles = {item.get("profile") for item in failures}
+    engine_sets = {tuple(item.get("engines") or []) for item in failures}
+    duration_buckets = {item.get("duration_bucket") for item in failures}
+    if len(formats) == 1:
+        hints.append(f"All failures are {next(iter(formats))} files, so this does not look like broad unsupported-format handling.")
+    if reasons == {"worker_crash:worker_crash"}:
+        hints.append("All failures crashed both the primary worker and fallback worker; treat these as backend stability cases.")
+    if duration_buckets and duration_buckets <= {"<2s", "2-5s", "5-10s"}:
+        hints.append("Failures are all under 10 seconds, so short melodic phrases should be tested separately from long loops.")
+    if profiles == {"deep"} and engine_sets == {("librosa", "essentia")}:
+        hints.append("Failures happened under the deep librosa+essentia path; next backend test should compare fast/librosa-only or an external harmonic engine.")
+    return hints
+
+
+def format_deep_failure_report(report: dict[str, Any]) -> str:
+    lines = [f"Deep review failures: {report['total']} files"]
+    for title, key in (
+        ("Reasons", "by_reason"),
+        ("Libraries", "by_library"),
+        ("Formats", "by_format"),
+        ("Types", "by_type"),
+        ("Durations", "by_duration"),
+        ("Path families", "by_path_family"),
+    ):
+        if not report[key]:
+            continue
+        lines.append("")
+        lines.append(f"{title}:")
+        for item in report[key]:
+            lines.append(f"- {item['value']}: {item['count']}")
+    if report.get("triage_hints"):
+        lines.append("")
+        lines.append("Triage hints:")
+        for hint in report["triage_hints"]:
+            lines.append(f"- {hint}")
+    if report["examples"]:
+        lines.append("")
+        lines.append("Examples:")
+        for item in report["examples"]:
+            lines.append(f"- {item['name']} | {item['reason']} | {item['duration_bucket']} | attempts {item['attempts']}")
+    return "\n".join(lines)
+
+
+def write_deep_failure_json(report: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_deep_failure_csv(report: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields = [
+        "name",
+        "library_id",
+        "library_name",
+        "relative_path",
+        "file_path",
+        "path_family",
+        "format",
+        "duration",
+        "duration_bucket",
+        "type",
+        "confidence",
+        "reason",
+        "attempts",
+        "last_attempt_at",
+        "profile",
+        "engines",
+        "deep_review_path",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for item in report["failures"]:
+            row = dict(item)
+            row["engines"] = ",".join(row.get("engines") or [])
+            writer.writerow({field: row.get(field) for field in fields})
 
 
 def format_review_summary(summary: dict[str, Any]) -> str:
@@ -419,6 +588,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--examples", type=int, default=10, help="Number of lowest-confidence review examples to print.")
     parser.add_argument("--deep-plan", action="store_true", help="Print the V3.3 deep-review candidate plan.")
     parser.add_argument("--deep-rerun", action="store_true", help="Rerun analysis only for deep-review candidates and update the index.")
+    parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
@@ -432,6 +602,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-every", type=int, default=25, help="Write metadata after this many rerun files.")
     parser.add_argument("--no-json-export", action="store_true", help="Do not export/update metadata_index.json after SQLite reruns.")
     parser.add_argument("--report-json", type=Path, default=None, help="Write a JSON rerun report with selected counts and failure examples.")
+    parser.add_argument("--failures-json", type=Path, default=None, help="Write the deep-review failure report to JSON.")
+    parser.add_argument("--failures-csv", type=Path, default=None, help="Write the deep-review failure list to CSV.")
     return parser
 
 
@@ -442,6 +614,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Metadata index does not exist: {index_path}")
         return 2
     records = load_records(index_path)
+    if args.deep_failures:
+        report = build_deep_failure_report(records, max_examples=max(0, args.examples))
+        print(format_deep_failure_report(report))
+        if args.failures_json:
+            json_path = args.failures_json.expanduser().resolve()
+            write_deep_failure_json(report, json_path)
+            print(f"Deep failure report JSON: {json_path}")
+        if args.failures_csv:
+            csv_path = args.failures_csv.expanduser().resolve()
+            write_deep_failure_csv(report, csv_path)
+            print(f"Deep failure report CSV: {csv_path}")
+        return 0
     if args.deep_plan or args.deep_rerun:
         try:
             library_roots = parse_library_roots(args.library_root)

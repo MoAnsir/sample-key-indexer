@@ -250,6 +250,20 @@ The web app can read both this structured schema and older flat records.
 - Deep reruns isolate each selected file in a worker process and retry crashes with a `fast`/`librosa` fallback.
 - `--report-json` writes a deep-review rerun report with counts and examples for missing audio, analysis errors, worker crash failures, and fallback successes.
 
+## V3.4 Deep Review Failure Management
+
+- Files that crash both the primary and fallback deep-review rerun are marked in `analysis.deep_review`.
+- Normal deep-review plans skip known failed files so reruns do not keep getting stuck at the same candidates.
+- `--retry-deep-failed` includes previously failed records when retesting after engine, dependency, or analysis setting changes.
+
+## V3.5 Failure Reporting and Backend Triage
+
+- `sample-key-indexer-review --deep-failures` prints a summary of files marked `analysis.deep_review.failed`.
+- `--failures-json` and `--failures-csv` export deep-review failures for spreadsheet or later backend analysis.
+- Failure reports summarize failed rerun files by reason, library, format, type, duration bucket, and path family.
+- Reports include lightweight triage hints when failures share a clear pattern, such as all files being short WAVs that crash the deep librosa+essentia path.
+- Use these reports to decide whether KeyFinder, Sonic Annotator/QM Vamp Plugins, aubio, or pre-conversion/probing work should come next.
+
 ## Troubleshooting
 
 If every metadata entry has `root_note: null`, `key: null`, `type: FX`, `duration: 0.0`, and an error like `No module named '_lzma'`, the audio backend did not load. On macOS with pyenv, install XZ/LZMA support and recreate the virtualenv:

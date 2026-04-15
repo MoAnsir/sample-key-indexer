@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_deep_review_plan, build_review_summary, format_deep_review_plan, format_deep_review_result, format_review_summary, rerun_deep_review, select_deep_review_candidates, write_deep_review_report
+from sample_key_indexer.review_report import build_deep_failure_report, build_deep_review_plan, build_review_summary, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_review_summary, rerun_deep_review, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -251,6 +251,72 @@ class ReviewReportTests(unittest.TestCase):
         self.assertIn("Skipped previous deep-review failures: 1", format_deep_review_plan(plan))
         self.assertEqual([candidate["name"] for candidate in retry_plan["candidates"]], ["failed.wav", "new.wav"])
         self.assertTrue(retry_plan["retry_deep_failed"])
+
+    def test_build_and_export_deep_failure_report(self) -> None:
+        failed_record = AnalysisResult(
+            file_path="/samples/Flute/failed.wav",
+            root_note=None,
+            key=None,
+            confidence=0.2,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+            format="wav",
+            needs_review=True,
+            review_reasons=["engine_key_disagreement"],
+            relative_path="Flute/failed.wav",
+            library_id="sd_02",
+            library_name="SD 02",
+        ).to_dict()
+        failed_record["analysis"]["deep_review"] = {
+            "failed": True,
+            "reason": "worker_crash:worker_crash",
+            "attempts": 2,
+            "last_attempt_at": "2026-04-15T12:00:00+00:00",
+            "profile": "deep",
+            "engines": ["librosa", "essentia"],
+            "path": "/mounted/Flute/failed.wav",
+        }
+        ok_record = AnalysisResult(
+            file_path="/samples/ok.wav",
+            root_note="C",
+            key="C_major",
+            confidence=0.9,
+            category="Loops",
+            type="MelodyLoops",
+            duration=12.0,
+        ).to_dict()
+
+        with TemporaryDirectory() as tmp:
+            json_path = Path(tmp) / "failures.json"
+            csv_path = Path(tmp) / "failures.csv"
+            report = build_deep_failure_report([failed_record, ok_record])
+            text = format_deep_failure_report(report)
+            write_deep_failure_json(report, json_path)
+            write_deep_failure_csv(report, csv_path)
+
+            self.assertEqual(report["total"], 1)
+            self.assertEqual(report["by_reason"], [{"value": "worker_crash:worker_crash", "count": 1}])
+            self.assertEqual(report["by_library"], [{"value": "sd_02", "count": 1}])
+            self.assertEqual(report["by_duration"], [{"value": "2-5s", "count": 1}])
+            self.assertEqual(report["by_path_family"], [{"value": "Flute", "count": 1}])
+            self.assertEqual(report["triage_hints"], [
+                "All failures are wav files, so this does not look like broad unsupported-format handling.",
+                "All failures crashed both the primary worker and fallback worker; treat these as backend stability cases.",
+                "Failures are all under 10 seconds, so short melodic phrases should be tested separately from long loops.",
+                "Failures happened under the deep librosa+essentia path; next backend test should compare fast/librosa-only or an external harmonic engine.",
+            ])
+            self.assertIn("Deep review failures: 1 files", text)
+            self.assertIn("Path families:", text)
+            self.assertIn("- Flute: 1", text)
+            self.assertIn("Triage hints:", text)
+            self.assertIn("failed.wav | worker_crash:worker_crash | 2-5s | attempts 2", text)
+            json_text = json_path.read_text(encoding="utf-8")
+            self.assertIn('"total": 1', json_text)
+            self.assertIn('"path_family": "Flute"', json_text)
+            csv_text = csv_path.read_text(encoding="utf-8")
+            self.assertIn("name,library_id,library_name,relative_path,file_path,path_family", csv_text)
+            self.assertIn("failed.wav,sd_02,SD 02,Flute/failed.wav,/samples/Flute/failed.wav,Flute", csv_text)
 
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:
