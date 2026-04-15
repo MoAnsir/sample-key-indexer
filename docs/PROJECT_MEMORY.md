@@ -238,6 +238,25 @@ Active:
   - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
   - KeyFinder is now an optional stored comparison signal, not the main key decision.
 
+Remaining before V3.6 is complete:
+
+- Run `--keyfinder-enrich --keyfinder-scope all --keyfinder-convert-retry` on at least one more real library so KeyFinder agreement/disagreement can be compared beyond SD 02 Trad.
+- Add a small comparison report over stored `analysis.external.keyfinder` values, grouped by library, sample type, confidence bucket, and match/disagreement status.
+- Keep the main key decision unchanged during V3.6. V3.6 is complete when the stored comparison data and comparison report are good enough to inform the next scoring decision.
+
+Likely next phases:
+
+- V3.7 KeyFinder Comparison Scoring
+  - Decide how stored KeyFinder results influence confidence and review flags.
+  - Candidate rules: raise confidence when KeyFinder agrees with librosa/Essentia, add a review reason when KeyFinder strongly disagrees with a high-confidence main decision, use KeyFinder as a tie-breaker only when internal engines disagree, or keep it report-only.
+  - Add tests proving the final key is only changed if a deliberate scoring rule is implemented.
+- V3.8 Multi-Library UX Polish
+  - Improve web-app/library filtering and mounted-drive clarity for multiple USB/SD indexes.
+  - Make it easy to see which libraries are searchable, playable, missing audio, or using source-vs-organised playback roots.
+- V3.9 Optional Backend Expansion
+  - Revisit Sonic Annotator/QM Vamp Plugins only if KeyFinder comparison does not provide enough harmonic evidence.
+  - Revisit aubio only for onset/tempo needs, not primary key detection.
+
 Later:
 
 - Optional deep harmonic backend integration with KeyFinder or Sonic Annotator/QM Vamp Plugins, if the V3.6 checks prove useful.

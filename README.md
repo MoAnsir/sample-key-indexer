@@ -315,7 +315,8 @@ The web app can read both this structured schema and older flat records.
 - Full SD 02 Trad metadata enrichment result: 4,411 records updated under `analysis.external.keyfinder`, 1,959 conversion retries used, zero errors, 1,346 stored-key matches, and 2,041 stored-root matches.
 - KeyFinder is now an optional stored comparison backend. It should not replace the main key decision until more libraries are compared.
 - Later comparison TODO: use stored KeyFinder data across multiple libraries to decide whether it should raise confidence when engines agree, add review flags when it disagrees, act as a tie-breaker, or stay report-only.
-- This phase does not install tools or update sample metadata by default; it tells us what can be tested next.
+- Remaining V3.6 work: enrich at least one more real library, add a stored-KeyFinder comparison report grouped by library/type/confidence/match status, then use that evidence to design V3.7 scoring rules.
+- Likely next phases: V3.7 KeyFinder comparison scoring, V3.8 multi-library web/playback UX polish, and V3.9 optional Sonic Annotator/QM or aubio expansion only if the data says it is worth it.
 
 ## Troubleshooting
 
