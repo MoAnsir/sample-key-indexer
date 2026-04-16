@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 import warnings
 
-from sample_key_indexer.audio_analysis import _normalise_bpm, _normalise_bpm_with_reason, choose_consensus_key, detect_filename_bpm, detect_filename_key, ffprobe_audio_file, probe_audio_file, summarize_warnings, tiny_audio_reason
+from sample_key_indexer.audio_analysis import _normalise_bpm, _normalise_bpm_with_reason, choose_consensus_key, detect_bpm_with_review, detect_filename_bpm, detect_filename_key, ffprobe_audio_file, probe_audio_file, summarize_warnings, tiny_audio_reason
 
 
 class AudioAnalysisV2Tests(unittest.TestCase):
@@ -36,6 +36,17 @@ class AudioAnalysisV2Tests(unittest.TestCase):
 
         self.assertEqual(bpm, 140)
         self.assertEqual(reason, "filename_bpm_anchor")
+
+    @unittest.skipUnless(importlib.util.find_spec("numpy"), "numpy is required for audio array tests")
+    def test_detect_bpm_with_review_uses_onset_strength_and_feature_tempo(self) -> None:
+        import numpy as np
+
+        with patch("sample_key_indexer.audio_analysis.librosa.onset.onset_strength", return_value=np.array([0.1, 0.2, 0.3])):
+            with patch("sample_key_indexer.audio_analysis.librosa.feature.tempo", return_value=np.array([69.84])):
+                bpm, reason = detect_bpm_with_review(np.ones(44100), 22050, 4.0, expected_bpm=140.0)
+
+        self.assertEqual(bpm, 140.0)
+        self.assertEqual(reason, [])
 
     def test_essentia_key_confidence_lifts_when_librosa_root_supports_it(self) -> None:
         key, root, confidence, review_reasons = choose_consensus_key(

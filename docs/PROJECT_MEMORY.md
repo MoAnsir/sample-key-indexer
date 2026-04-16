@@ -126,6 +126,7 @@ Important analysis behavior:
 - Very short or near-silent audio gets a lightweight result with review flags rather than full harmonic analysis.
 - Final key/root decisions come from a consensus layer that compares librosa, Essentia, and filename key hints.
 - Review reasons are stored in metadata for later filtering and reruns.
+- BPM detection now uses `librosa.onset.onset_strength` plus `librosa.feature.tempo` instead of `librosa.beat.beat_track`, because real-world USB test files were hard-crashing worker processes inside the older beat-tracking path.
 
 ### Classification And Routing
 

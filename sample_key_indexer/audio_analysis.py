@@ -596,7 +596,8 @@ def detect_bpm_with_review(y: np.ndarray, sr: int, duration: float, expected_bpm
         import librosa
         import numpy as np
 
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
         value = float(np.asarray(tempo).reshape(-1)[0])
         if value <= 0:
             return None, []
