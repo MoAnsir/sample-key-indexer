@@ -7,10 +7,162 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_backend_check_report, build_classification_audit_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_classification_audit_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_classification_audit_csv, write_classification_audit_json, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
+from sample_key_indexer.review_report import apply_keyfinder_review_policy, build_backend_check_report, build_classification_audit_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_keyfinder_review_policy_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_classification_audit_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_keyfinder_review_policy_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_classification_audit_csv, write_classification_audit_json, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
+    def test_keyfinder_review_policy_selects_high_confidence_disagreements_only(self) -> None:
+        disagree = AnalysisResult(
+            file_path="/samples/disagree.wav",
+            root_note="A",
+            key="A_minor",
+            confidence=0.91,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+        ).to_dict()
+        disagree = self._with_keyfinder(disagree, "C_major", "C")
+        low_confidence_disagree = AnalysisResult(
+            file_path="/samples/low.wav",
+            root_note="A",
+            key="A_minor",
+            confidence=0.3,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+        ).to_dict()
+        low_confidence_disagree = self._with_keyfinder(low_confidence_disagree, "C_major", "C")
+        match = AnalysisResult(
+            file_path="/samples/match.wav",
+            root_note="A",
+            key="A_minor",
+            confidence=0.92,
+            category="Loops",
+            type="MelodyLoops",
+            duration=4.0,
+        ).to_dict()
+        match = self._with_keyfinder(match, "A_minor", "A")
+
+        report = build_keyfinder_review_policy_report([disagree, low_confidence_disagree, match], high_confidence=0.75)
+
+        self.assertEqual(report["mode"], "review_only")
+        self.assertEqual(report["with_keyfinder"], 3)
+        self.assertEqual(report["review_flags_needed"], 1)
+        self.assertTrue(report["unchanged_final_decisions"])
+        self.assertEqual(report["examples"][0]["name"], "disagree.wav")
+        self.assertEqual(report["examples"][0]["reason"], "keyfinder_high_confidence_disagreement")
+
+    def test_apply_keyfinder_review_policy_adds_review_reason_without_changing_final_key(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "disagree.wav"
+            audio_path.write_bytes(b"audio")
+            index_path = root / "metadata_index.sqlite"
+            record = AnalysisResult(
+                file_path=str(audio_path),
+                root_note="A",
+                key="A_minor",
+                confidence=0.91,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+            ).to_dict()
+            record = self._with_keyfinder(record, "C_major", "C")
+            index = SQLiteMetadataIndex(index_path)
+            try:
+                index.upsert_record(record)
+                index.write()
+            finally:
+                index.close()
+
+            report = apply_keyfinder_review_policy(index_path, load_records(index_path), high_confidence=0.75, write_every=1)
+            records = load_records(index_path)
+
+        analysis = records[0]["analysis"]
+        self.assertEqual(report["updated"], 1)
+        self.assertEqual(records[0]["musical"]["key"], "A_minor")
+        self.assertEqual(records[0]["analysis"]["final_decision"]["key"], "A_minor")
+        self.assertTrue(analysis["review"]["needs_review"])
+        self.assertIn("keyfinder_high_confidence_disagreement", analysis["review"]["reasons"])
+        self.assertEqual(analysis["external"]["keyfinder"]["policy"]["mode"], "review_only")
+
+    def test_keyfinder_review_policy_dry_run_does_not_update_index(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio_path = root / "disagree.wav"
+            audio_path.write_bytes(b"audio")
+            index_path = root / "metadata_index.sqlite"
+            record = AnalysisResult(
+                file_path=str(audio_path),
+                root_note="A",
+                key="A_minor",
+                confidence=0.91,
+                category="Loops",
+                type="MelodyLoops",
+                duration=4.0,
+            ).to_dict()
+            record = self._with_keyfinder(record, "C_major", "C")
+            index = SQLiteMetadataIndex(index_path)
+            try:
+                index.upsert_record(record)
+                index.write()
+            finally:
+                index.close()
+
+            report = apply_keyfinder_review_policy(index_path, load_records(index_path), high_confidence=0.75, dry_run=True)
+            records = load_records(index_path)
+
+        self.assertTrue(report["dry_run"])
+        self.assertEqual(report["updated"], 0)
+        self.assertFalse(records[0]["analysis"]["review"]["needs_review"])
+
+    def test_format_keyfinder_review_policy_prints_decision(self) -> None:
+        report = {
+            "mode": "review_only",
+            "total": 1,
+            "with_keyfinder": 1,
+            "successes": 1,
+            "high_confidence_threshold": 0.75,
+            "review_flags_needed": 1,
+            "updated": 1,
+            "by_decision": [{"value": "key_and_root_disagree", "count": 1}],
+            "by_action": [{"value": "add_review", "count": 1}],
+            "by_library": [{"value": "usb_01", "count": 1}],
+            "by_type": [{"value": "MelodyLoops", "count": 1}],
+            "examples": [
+                {
+                    "name": "loop.wav",
+                    "confidence": 0.9,
+                    "stored_key": "A_minor",
+                    "stored_root": "A",
+                    "keyfinder_key": "C_major",
+                    "keyfinder_root": "C",
+                    "reason": "keyfinder_high_confidence_disagreement",
+                }
+            ],
+        }
+
+        output = format_keyfinder_review_policy_report(report)
+
+        self.assertIn("KeyFinder review policy:", output)
+        self.assertIn("Final key/root/confidence/routing changed: no", output)
+        self.assertIn("loop.wav | confidence 0.9", output)
+
+    def _with_keyfinder(self, record: dict, normalized_key: str, root_note: str) -> dict:
+        updated = dict(record)
+        analysis = dict(updated.get("analysis") or {})
+        external = dict(analysis.get("external") or {})
+        external["keyfinder"] = {
+            "status": "success",
+            "normalized_key": normalized_key,
+            "root_note": root_note,
+            "matches_stored_key": False,
+            "matches_stored_root": False,
+        }
+        analysis["external"] = external
+        updated["analysis"] = analysis
+        return updated
+
     def test_classification_audit_flags_suspicious_filename_type_mismatches(self) -> None:
         records = [
             AnalysisResult(

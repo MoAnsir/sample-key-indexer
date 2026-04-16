@@ -327,6 +327,123 @@ def build_classification_audit_report(records: list[dict[str, Any]], max_example
     }
 
 
+def build_keyfinder_review_policy_report(records: list[dict[str, Any]], high_confidence: float = 0.75, max_examples: int = 20) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    items = [keyfinder_review_policy_item(sample, high_confidence) for sample in samples]
+    enriched = [item for item in items if item["has_keyfinder"]]
+    successes = [item for item in enriched if item["status"] == "success"]
+    action_items = [item for item in successes if item["action"] == "add_review"]
+    return {
+        "mode": "review_only",
+        "total": len(samples),
+        "with_keyfinder": len(enriched),
+        "successes": len(successes),
+        "high_confidence_threshold": high_confidence,
+        "review_flags_needed": len(action_items),
+        "unchanged_final_decisions": True,
+        "by_decision": count_items(successes, "decision"),
+        "by_action": count_items(successes, "action"),
+        "by_library": count_items(action_items, "library_id"),
+        "by_type": count_items(action_items, "type"),
+        "examples": action_items[:max(0, max_examples)],
+        "items": action_items,
+    }
+
+
+def keyfinder_review_policy_item(sample: dict[str, Any], high_confidence: float = 0.75) -> dict[str, Any]:
+    comparison = keyfinder_comparison_item(sample)
+    confidence = comparison.get("confidence")
+    try:
+        confidence_value = float(confidence or 0.0)
+    except (TypeError, ValueError):
+        confidence_value = 0.0
+    action = "none"
+    reason = None
+    if comparison["status"] == "success" and comparison["decision"] == "key_and_root_disagree" and confidence_value >= high_confidence:
+        action = "add_review"
+        reason = "keyfinder_high_confidence_disagreement"
+    return {
+        "name": comparison.get("name"),
+        "library_id": comparison.get("library_id"),
+        "library_name": comparison.get("library_name"),
+        "relative_path": comparison.get("relative_path"),
+        "type": comparison.get("type"),
+        "confidence": confidence,
+        "stored_key": comparison.get("stored_key"),
+        "stored_root": comparison.get("stored_root"),
+        "keyfinder_key": comparison.get("keyfinder_key"),
+        "keyfinder_root": comparison.get("keyfinder_root"),
+        "has_keyfinder": comparison.get("has_keyfinder"),
+        "status": comparison.get("status"),
+        "decision": comparison.get("decision"),
+        "action": action,
+        "reason": reason,
+    }
+
+
+def apply_keyfinder_review_policy(
+    index_path: Path,
+    records: list[dict[str, Any]],
+    high_confidence: float = 0.75,
+    dry_run: bool = False,
+    write_every: int = 100,
+    export_json: bool = True,
+    max_examples: int = 20,
+) -> dict[str, Any]:
+    report = build_keyfinder_review_policy_report(records, high_confidence=high_confidence, max_examples=max_examples)
+    report["dry_run"] = dry_run
+    report["updated"] = 0
+    if dry_run or not report["items"]:
+        return report
+
+    index = open_writable_index(index_path)
+    try:
+        for record in records:
+            sample = _flatten_sample(record)
+            item = keyfinder_review_policy_item(sample, high_confidence)
+            if item["action"] != "add_review":
+                continue
+            updated_record = record_with_keyfinder_review_policy(record, item, high_confidence)
+            upsert_record(index, updated_record)
+            report["updated"] += 1
+            if report["updated"] % max(1, write_every) == 0:
+                index.write()
+        index.write()
+        if export_json and isinstance(index, SQLiteMetadataIndex):
+            index.export_json(index_path.with_suffix(".json"))
+    finally:
+        close_index(index)
+    return report
+
+
+def record_with_keyfinder_review_policy(record: dict[str, Any], item: dict[str, Any], high_confidence: float) -> dict[str, Any]:
+    updated = json.loads(json.dumps(record))
+    analysis = dict(updated.get("analysis") or {})
+    review = dict(analysis.get("review") or {})
+    reasons = list(review.get("reasons") or [])
+    reason = item.get("reason")
+    if reason and reason not in reasons:
+        reasons.append(reason)
+    review["needs_review"] = True
+    review["reasons"] = reasons
+
+    external = dict(analysis.get("external") or {})
+    keyfinder = dict(external.get("keyfinder") or {})
+    keyfinder["policy"] = {
+        "mode": "review_only",
+        "action": item.get("action"),
+        "reason": reason,
+        "decision": item.get("decision"),
+        "high_confidence_threshold": high_confidence,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    external["keyfinder"] = keyfinder
+    analysis["external"] = external
+    analysis["review"] = review
+    updated["analysis"] = analysis
+    return updated
+
+
 def classification_audit_item(sample: dict[str, Any]) -> dict[str, Any]:
     relative_path = sample.get("relative_path") or ""
     file_path = sample.get("file_path") or ""
@@ -1220,6 +1337,44 @@ def format_classification_audit_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_keyfinder_review_policy_report(report: dict[str, Any]) -> str:
+    lines = [
+        "KeyFinder review policy:",
+        f"  Mode: {report['mode']}",
+        f"  Total samples: {report['total']} files",
+        f"  With KeyFinder metadata: {report['with_keyfinder']} files",
+        f"  Successful KeyFinder results: {report['successes']} files",
+        f"  High-confidence threshold: {report['high_confidence_threshold']}",
+        f"  Review flags needed: {report['review_flags_needed']} files",
+        f"  Metadata updated: {report.get('updated', 0)} files",
+        "  Final key/root/confidence/routing changed: no",
+    ]
+    if report.get("dry_run"):
+        lines.append("  Dry run: no metadata was changed")
+    for title, key in (
+        ("By decision", "by_decision"),
+        ("By action", "by_action"),
+        ("Review libraries", "by_library"),
+        ("Review types", "by_type"),
+    ):
+        rows = report.get(key) or []
+        if not rows:
+            continue
+        lines.append("")
+        lines.append(f"{title}:")
+        for row in rows[:12]:
+            lines.append(f"- {row['value']}: {row['count']}")
+    if report.get("examples"):
+        lines.append("")
+        lines.append("Review flag examples:")
+        for item in report["examples"][:20]:
+            lines.append(
+                f"- {item['name']} | confidence {item['confidence']} | stored {item.get('stored_key') or item.get('stored_root')} | "
+                f"KeyFinder {item.get('keyfinder_key') or item.get('keyfinder_root')} | {item.get('reason')}"
+            )
+    return "\n".join(lines)
+
+
 def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
     is_enrichment = report.get("mode") == "metadata_enrichment"
     lines = [
@@ -1603,6 +1758,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
     parser.add_argument("--classification-audit", action="store_true", help="Print suspicious category/type classifications before rebuilding organised audio folders.")
     parser.add_argument("--keyfinder-compare", action="store_true", help="Compare stored analysis.external.keyfinder metadata against the current stored key/root decisions.")
+    parser.add_argument("--keyfinder-apply-review", action="store_true", help="Apply the V3.6 KeyFinder review-only policy without changing final keys or routing.")
     parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
     parser.add_argument("--keyfinder-enrich", action="store_true", help="Run KeyFinder CLI and store its output under analysis.external.keyfinder without changing the main key decision.")
     parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, or the full index.")
@@ -1610,6 +1766,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
+    parser.add_argument("--keyfinder-review-threshold", type=float, default=0.75, help="Minimum stored confidence for KeyFinder disagreement to add a review flag.")
     parser.add_argument("--retry-deep-failed", action="store_true", help="Include records already marked as failed by a previous deep-review rerun.")
     parser.add_argument("--library-root", action="append", default=[], help="Playback/source root override as LIBRARY_ID=/Volumes/USB/Samples. Can be passed more than once.")
     parser.add_argument("--destination-root", action="append", default=[], help="Organized Key/Unsorted root override as LIBRARY_ID=/Volumes/USB/SAMPLEZ. Can be passed more than once.")
@@ -1645,6 +1802,22 @@ def main(argv: list[str] | None = None) -> int:
             report_path = args.keyfinder_json.expanduser().resolve()
             write_keyfinder_report(report, report_path)
             print(f"KeyFinder comparison JSON: {report_path}")
+        return 0
+    if args.keyfinder_apply_review:
+        report = apply_keyfinder_review_policy(
+            index_path,
+            records,
+            high_confidence=args.keyfinder_review_threshold,
+            dry_run=args.dry_run,
+            write_every=args.write_every,
+            export_json=not args.no_json_export,
+            max_examples=max(0, args.examples),
+        )
+        print(format_keyfinder_review_policy_report(report))
+        if args.keyfinder_json:
+            report_path = args.keyfinder_json.expanduser().resolve()
+            write_keyfinder_report(report, report_path)
+            print(f"KeyFinder review policy JSON: {report_path}")
         return 0
     if args.classification_audit:
         report = build_classification_audit_report(records, max_examples=max(0, args.examples))

@@ -247,34 +247,30 @@ Active:
   - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures, reports successes/errors and stored key/root matches, and can write `--keyfinder-json`.
   - `--keyfinder-enrich` stores KeyFinder output under `analysis.external.keyfinder` without changing `musical.key`, `musical.root`, `analysis.final_decision`, routing, or copied files.
   - `--keyfinder-compare` prints a read-only report over stored `analysis.external.keyfinder`, grouped by library, sample type, confidence bucket, status, and match/disagreement decision.
+  - `--keyfinder-apply-review` applies the V3.6 review-only policy: add `keyfinder_high_confidence_disagreement` to review reasons when a successful KeyFinder result strongly disagrees with a high-confidence stored key/root. It does not change final key/root/confidence/routing.
   - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or every sample in the selected index.
   - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
-  - KeyFinder is now an optional stored comparison signal, not the main key decision.
+  - KeyFinder is now an optional stored comparison/review signal, not the main key decision.
 
-Remaining before V3.6 resumes:
+Parked until more devices are available:
 
 - Run `--keyfinder-enrich --keyfinder-scope all --keyfinder-convert-retry` on at least one more real library so KeyFinder agreement/disagreement can be compared beyond SD 02 Trad.
 - Run the comparison report against at least one more real library after enrichment so match/disagreement behavior can be compared across libraries.
-- Keep the main key decision unchanged during V3.6. V3.6 is complete when stored comparison data from more than one library is good enough to inform the next scoring decision.
-- The second-library KeyFinder verification is deliberately parked while V3.6 classification/routing quality discovered during the physical USB 01 MPC test is addressed.
+- Keep the main key decision unchanged during V3.6 and revisit cross-library KeyFinder scoring after more physical devices have been indexed.
 
 Likely next phases:
 
-- V3.8 KeyFinder Comparison Scoring
-  - Decide how stored KeyFinder results influence confidence and review flags.
-  - Candidate rules: raise confidence when KeyFinder agrees with librosa/Essentia, add a review reason when KeyFinder strongly disagrees with a high-confidence main decision, use KeyFinder as a tie-breaker only when internal engines disagree, or keep it report-only.
-  - Add tests proving the final key is only changed if a deliberate scoring rule is implemented.
-- V3.9 Multi-Library UX Polish
+- V3.7 Multi-Library UX Polish
   - Improve web-app/library filtering and mounted-drive clarity for multiple USB/SD indexes.
   - Make it easy to see which libraries are searchable, playable, missing audio, or using source-vs-organised playback roots.
-- V3.9 Optional Backend Expansion
+- V3.8 Optional Backend Expansion
   - Revisit Sonic Annotator/QM Vamp Plugins only if KeyFinder comparison does not provide enough harmonic evidence.
   - Revisit aubio only for onset/tempo needs, not primary key detection.
 
 Later:
 
 - Optional deep harmonic backend integration with KeyFinder or Sonic Annotator/QM Vamp Plugins, if the V3.6 checks prove useful.
-- Compare stored `analysis.external.keyfinder` results across multiple libraries before changing the final key decision. Use this to decide whether KeyFinder should increase confidence when it agrees with librosa/Essentia, add a review reason when it strongly disagrees, act only as a tie-breaker, or remain a report-only signal.
+- Compare stored `analysis.external.keyfinder` results across more physical devices when they exist. Do not change final key scoring unless a later phase deliberately reopens the V3.6 review-only policy.
 - Optional aubio onset/tempo utility if tempo/onset quality needs a small-footprint boost.
 - Multi-USB UX polish.
 
@@ -484,7 +480,7 @@ analysis.external.keyfinder.status = success: 4411
 analysis.external.keyfinder.conversion_used = true: 1959
 ```
 
-Interpretation: KeyFinder is ready as an optional external comparison signal. Keep it separate from the main key decision until more libraries have stored comparison data. Later decisions can use match/disagreement patterns across libraries to decide whether KeyFinder becomes part of deep profile consensus, stays report-only, or is used only when librosa/essentia disagree.
+Interpretation: KeyFinder is ready as an optional external comparison signal. V3.6 policy keeps it separate from the main key decision and permits only review-only influence through `--keyfinder-apply-review`.
 
 V3.6 stored comparison report command:
 
@@ -519,7 +515,7 @@ key_match: 1346
 root_match_key_diff: 695
 ```
 
-Interpretation: SD 02 alone is not enough to change scoring rules. The next V3.6 validation step is to enrich another real library and compare whether these disagreement rates are similar, library-specific, or concentrated in certain sample types/confidence buckets.
+Interpretation: SD 02 is enough to justify a conservative review-only policy, not enough to change final key scoring. Additional device comparisons are parked until more physical libraries are available.
 
 ## V3.6 Classification Quality Notes
 
@@ -534,6 +530,24 @@ sample-key-indexer-review /Users/mohammedansir/Desktop/SampleIndexes/usb_01/meta
   --classification-json /tmp/usb_01_classification_audit.json \
   --classification-csv /tmp/usb_01_classification_audit.csv
 ```
+
+KeyFinder policy decision: V3.6 does not let KeyFinder replace, boost, or tie-break the final key. It remains external metadata and can optionally add review flags only:
+
+```bash
+sample-key-indexer-review /Users/mohammedansir/Desktop/SampleIndexes/sd_02_trad_v32_probe/metadata_index.sqlite \
+  --keyfinder-apply-review \
+  --keyfinder-review-threshold 0.75 \
+  --keyfinder-json /tmp/sd_02_keyfinder_review_policy.json
+```
+
+V3.6 verification on temporary copies:
+
+- `sd_02_trad_v32_probe`: `--keyfinder-compare` found 4,411 KeyFinder records, 1,346 stored-key matches, 2,041 stored-root matches, 695 root-only matches, and 2,370 key/root disagreements.
+- `sd_02_trad_v32_probe`: `--keyfinder-apply-review --dry-run` selected 445 high-confidence disagreements for review-only flags. A non-dry-run on a temp copy updated 445 records and preserved `musical.key` and `analysis.final_decision.key`.
+- `sd_02_trad_v32_probe`: `--classification-audit` found 1,845 suspicious classifications.
+- `usb_01`: `--keyfinder-compare` found no KeyFinder metadata yet, as expected because USB 01 audio is not currently local.
+- `usb_01`: `--keyfinder-apply-review --dry-run` selected 0 records, as expected without KeyFinder metadata.
+- `usb_01`: `--classification-audit` found 9,758 suspicious classifications, including 412 `fullmix`/`full mix` files already present in the old index.
 
 ## Common Gotchas
 

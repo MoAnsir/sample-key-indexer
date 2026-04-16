@@ -200,6 +200,17 @@ sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
 
 This report is read-only. It summarizes stored KeyFinder metadata by library, sample type, confidence bucket, status, and match/disagreement decision.
 
+Apply the V3.6 KeyFinder review-only policy:
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite \
+  --keyfinder-apply-review \
+  --keyfinder-review-threshold 0.75 \
+  --keyfinder-json /path/to/keyfinder_review_policy.json
+```
+
+This does not change `musical.key`, `musical.root`, `analysis.final_decision`, confidence, routing, or copied files. It only adds a review reason for high-confidence stored key/root decisions that strongly disagree with successful KeyFinder metadata.
+
 If the console script has not been refreshed yet, run it as a module:
 
 ```bash
@@ -327,8 +338,8 @@ The web app can read both this structured schema and older flat records.
 - Full SD 02 Trad metadata enrichment result: 4,411 records updated under `analysis.external.keyfinder`, 1,959 conversion retries used, zero errors, 1,346 stored-key matches, and 2,041 stored-root matches.
 - Full SD 02 Trad comparison result: 4,411 records with KeyFinder metadata, 0 missing, 4,411 successes, 1,346 stored-key matches, 2,041 stored-root matches, 695 root-only matches, and 2,370 key/root disagreements.
 - KeyFinder is now an optional stored comparison backend. It should not replace the main key decision until more libraries are compared.
-- Later comparison TODO: use stored KeyFinder data across multiple libraries to decide whether it should raise confidence when engines agree, add review flags when it disagrees, act as a tie-breaker, or stay report-only.
-- Parked V3.6 KeyFinder verification work: enrich at least one more real library, run the comparison report across it, then use that evidence to design later KeyFinder scoring rules.
+- V3.6 KeyFinder policy: keep KeyFinder out of the final key/root/confidence/routing decision. Use it only as a stored comparison signal and, with `--keyfinder-apply-review`, as a review-only flag for high-confidence disagreements.
+- Parked until more devices exist: enrich another real library and compare KeyFinder behavior across libraries.
 - Current V3.6 focus: classification quality, prompted by USB 01 physical-device testing where misleading folders and weak type detection put drum fills, hats, beats, and loops into the wrong routed folders.
 
 ## V3.6 Classification Quality
