@@ -11,6 +11,8 @@ from sample_key_indexer.discovery import SUPPORTED_EXTENSIONS, discover_audio_fi
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex
 from sample_key_indexer.routing import route_file
 
+DEFAULT_IGNORED_NAME_PATTERNS: tuple[str, ...] = ("fullmix", "full mix")
+
 
 @dataclass
 class FileTypeSummary:
@@ -60,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-every", type=int, default=100, help="Write metadata after this many processed files.")
     parser.add_argument("--max-duration", type=float, default=60.0, help="Skip files longer than this many seconds. Use 0 with --include-long-files to disable.")
     parser.add_argument("--include-long-files", action="store_true", help="Do not skip long files by duration.")
+    parser.add_argument("--include-ignored-files", action="store_true", help="Analyze files that normally match ignored-name patterns such as fullmix/full mix.")
     parser.add_argument("--probe-backend", choices=("auto", "ffprobe", "python"), default="auto", help="Duration probe backend for skip decisions. auto uses ffprobe when available, then Python fallbacks.")
     parser.add_argument("--doctor", action="store_true", help="Check the local audio-analysis environment and exit.")
     return parser
@@ -107,9 +110,14 @@ def main(argv: list[str] | None = None) -> int:
 
     unsupported_by_type = summarize_unsupported_files(input_root)
     files = discover_audio_files(input_root)
+    if args.include_ignored_files:
+        discovered_processable = files
+        skipped_ignored: list[Path] = []
+    else:
+        discovered_processable, skipped_ignored = split_ignored_files(files)
     pending: list[Path] = []
     already_indexed: list[Path] = []
-    for path in files:
+    for path in discovered_processable:
         if index.should_skip(path, force=args.force):
             already_indexed.append(path)
         else:
@@ -121,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         processable, skipped_long, probe_summary = split_long_files(pending, args.max_duration, args.probe_backend)
     unsupported_count = sum(summary.count for summary in unsupported_by_type.values())
-    print(f"Discovered {len(files)} supported audio files; {unsupported_count} unsupported files; {len(pending)} pending; {len(skipped_long)} skipped as long files.")
+    print(f"Discovered {len(files)} supported audio files; {unsupported_count} unsupported files; {len(pending)} pending; {len(skipped_ignored)} ignored by filename; {len(skipped_long)} skipped as long files.")
     print(f"Analysis profile: {args.analysis_profile}; engines: {', '.join(selected_engines)}")
     for warning in backend_warnings:
         print(f"Warning: {warning}")
@@ -154,8 +162,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Metadata JSON export: {index_path}")
     else:
         print(f"Indexed {processed} files. Metadata: {index_path}")
-    print_copy_report(processed, already_indexed, skipped_long, unsupported_by_type, analysis_summary, probe_summary)
+    print_copy_report(processed, already_indexed, skipped_ignored, skipped_long, unsupported_by_type, analysis_summary, probe_summary)
     return 0
+
+
+def split_ignored_files(files: list[Path], patterns: tuple[str, ...] = DEFAULT_IGNORED_NAME_PATTERNS) -> tuple[list[Path], list[Path]]:
+    processable: list[Path] = []
+    skipped: list[Path] = []
+    normalized_patterns = tuple(normalized_name_text(Path(pattern)) for pattern in patterns)
+    for path in files:
+        name = normalized_name_text(path)
+        if any(pattern and pattern in name for pattern in normalized_patterns):
+            skipped.append(path)
+        else:
+            processable.append(path)
+    return processable, skipped
 
 
 def split_long_files(files: list[Path], max_duration: float, probe_backend: str = "auto") -> tuple[list[Path], list[Path], ProbeRunSummary]:
@@ -240,6 +261,10 @@ def normalized_extension(path: Path) -> str:
     return suffix if suffix else "[no extension]"
 
 
+def normalized_name_text(path: Path) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[_\-./()]+", " ", path.stem.lower())).strip()
+
+
 def file_size(path: Path) -> int:
     try:
         return path.stat().st_size
@@ -250,6 +275,7 @@ def file_size(path: Path) -> int:
 def print_copy_report(
     processed: int,
     already_indexed: list[Path],
+    skipped_ignored: list[Path],
     skipped_long: list[Path],
     unsupported_by_type: dict[str, FileTypeSummary],
     analysis_summary: AnalysisRunSummary | None = None,
@@ -259,6 +285,9 @@ def print_copy_report(
     print("Copy report:")
     print(f"  Processed this run: {processed} files")
     print(f"  Already indexed/resumed: {len(already_indexed)} files ({format_gb(sum(file_size(path) for path in already_indexed))})")
+    print(f"  Not copied - ignored filename patterns: {len(skipped_ignored)} files ({format_gb(sum(file_size(path) for path in skipped_ignored))})")
+    for extension, summary in sorted(summarize_paths_by_extension(skipped_ignored).items(), key=lambda item: item[1].bytes, reverse=True):
+        print(f"    {extension}: {summary.count} files ({format_gb(summary.bytes)})")
     print(f"  Not copied - long files: {len(skipped_long)} files ({format_gb(sum(file_size(path) for path in skipped_long))})")
     for extension, summary in sorted(summarize_paths_by_extension(skipped_long).items(), key=lambda item: item[1].bytes, reverse=True):
         print(f"    {extension}: {summary.count} files ({format_gb(summary.bytes)})")

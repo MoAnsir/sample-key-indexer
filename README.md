@@ -328,8 +328,28 @@ The web app can read both this structured schema and older flat records.
 - Full SD 02 Trad comparison result: 4,411 records with KeyFinder metadata, 0 missing, 4,411 successes, 1,346 stored-key matches, 2,041 stored-root matches, 695 root-only matches, and 2,370 key/root disagreements.
 - KeyFinder is now an optional stored comparison backend. It should not replace the main key decision until more libraries are compared.
 - Later comparison TODO: use stored KeyFinder data across multiple libraries to decide whether it should raise confidence when engines agree, add review flags when it disagrees, act as a tie-breaker, or stay report-only.
-- Remaining V3.6 work: enrich at least one more real library, run the comparison report across it, then use that evidence to design V3.7 scoring rules.
-- Likely next phases: V3.7 KeyFinder comparison scoring, V3.8 multi-library web/playback UX polish, and V3.9 optional Sonic Annotator/QM or aubio expansion only if the data says it is worth it.
+- Parked V3.6 KeyFinder verification work: enrich at least one more real library, run the comparison report across it, then use that evidence to design later KeyFinder scoring rules.
+- Current V3.6 focus: classification quality, prompted by USB 01 physical-device testing where misleading folders and weak type detection put drum fills, hats, beats, and loops into the wrong routed folders.
+
+## V3.6 Classification Quality
+
+- Filename evidence is weighted higher than folder evidence when deciding sample type, because real pack paths and previous sorted folders can be misleading.
+- Folder evidence is still used as a weaker hint when the filename is vague.
+- Loop-like filename tokens such as `fill`, `beat`, `bpm`, `loop`, `ptn`, and `riff` can keep short drum material in `Loops` instead of `OneShots`.
+- Drum indicators such as `drum`, `beat`, `fill`, `roll`, `hat`, `kick`, and `snare` help keep drum material out of misleading melodic, lead, and FX buckets.
+- Full arrangement files named `fullmix` or `full mix` are ignored by default, reported under `Not copied - ignored filename patterns`, and can be included with `--include-ignored-files`.
+- `sample-key-indexer-review --classification-audit` scans an existing metadata index for suspicious stored category/type decisions before rebuilding organised audio folders.
+- Key analysis and KeyFinder comparison are unchanged by this classification pass.
+
+Example:
+
+```bash
+sample-key-indexer-review /Users/mohammedansir/Desktop/SampleIndexes/usb_01/metadata_index.sqlite \
+  --classification-audit \
+  --examples 50 \
+  --classification-json /tmp/usb_01_classification_audit.json \
+  --classification-csv /tmp/usb_01_classification_audit.csv
+```
 
 ## Troubleshooting
 

@@ -6,11 +6,23 @@ import unittest
 from unittest.mock import patch
 
 from sample_key_indexer.audio_analysis import AudioProbe
-from sample_key_indexer.cli import AnalysisRunSummary, attach_library_metadata, format_gb, slugify, summarize_paths_by_extension, summarize_unsupported_files, split_long_files, update_analysis_summary
+from sample_key_indexer.cli import AnalysisRunSummary, attach_library_metadata, format_gb, slugify, split_ignored_files, summarize_paths_by_extension, summarize_unsupported_files, split_long_files, update_analysis_summary
 from sample_key_indexer.models import AnalysisResult
 
 
 class CliTests(unittest.TestCase):
+    def test_split_ignored_files_skips_fullmix_names(self) -> None:
+        paths = [
+            Path("Loops/PL_pack_FullMix_128_C.wav"),
+            Path("Loops/PL pack full mix master.wav"),
+            Path("Loops/drum_loop_128.wav"),
+        ]
+
+        processable, skipped = split_ignored_files(paths)
+
+        self.assertEqual(processable, [Path("Loops/drum_loop_128.wav")])
+        self.assertEqual(skipped, [Path("Loops/PL_pack_FullMix_128_C.wav"), Path("Loops/PL pack full mix master.wav")])
+
     def test_split_long_files_skips_above_threshold(self) -> None:
         paths = [Path("short.wav"), Path("song.wav"), Path("unknown.wav")]
         probes = {

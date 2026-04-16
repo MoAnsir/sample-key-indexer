@@ -124,6 +124,10 @@ Important analysis behavior:
 
 Classification lives in `sample_key_indexer/classify.py`.
 
+Classification uses filename evidence, nearby folder evidence, and audio features. Filename tokens are weighted higher than folder tokens because real sample packs often contain misleading folders after earlier sorting, while the filename usually carries the strongest clues: drum/fill/beat/hat/kick/snare, BPM, section, key, pack, artist, and index. Loop-like filename tokens such as `fill`, `beat`, `bpm`, `loop`, `ptn`, and `riff` can force even short files into `Loops` instead of `OneShots`.
+
+The CLI skips supported audio whose filename indicates a full arrangement/demo mix via `fullmix` or `full mix`. These files are usually full songs rather than reusable samples. They are reported as `Not copied - ignored filename patterns` and can be included deliberately with `--include-ignored-files`.
+
 Routing lives in `sample_key_indexer/routing.py`. Samples with usable key/root are routed under `Key/<key>/...`. Samples with no usable root/key go under `Unsorted/...`.
 
 Use `--catalog-only` for removable-drive workflows when the goal is metadata only and no audio copying. Use normal runs when building an organised output tree.
@@ -229,6 +233,14 @@ Completed:
 
 Active:
 
+- V3.6 Classification Quality
+  - Improve sample type/category routing by combining filename tokens, folder context, and audio features.
+  - Filename evidence should beat conflicting folder evidence, for example `HH_Open_01.wav` inside a `Kicks` folder should classify as `Hat`.
+  - Drum loop indicators such as `drum`, `beat`, `fill`, `roll`, and `bpm` should keep drum material out of misleading `MelodyLoops`, `Leads`, and `FXLoops` buckets.
+  - Full arrangement files named `fullmix` or `full mix` are ignored by default so they are not copied into organised sample folders.
+  - `--classification-audit` scans an existing index for suspicious category/type decisions before rebuilding an organised physical device.
+  - Keep key analysis and KeyFinder comparison unchanged while improving type routing.
+
 - V3.6 Deep Backend Experiments
   - `--backend-check` prints local availability for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins, and aubio.
   - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
@@ -239,19 +251,20 @@ Active:
   - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
   - KeyFinder is now an optional stored comparison signal, not the main key decision.
 
-Remaining before V3.6 is complete:
+Remaining before V3.6 resumes:
 
 - Run `--keyfinder-enrich --keyfinder-scope all --keyfinder-convert-retry` on at least one more real library so KeyFinder agreement/disagreement can be compared beyond SD 02 Trad.
 - Run the comparison report against at least one more real library after enrichment so match/disagreement behavior can be compared across libraries.
 - Keep the main key decision unchanged during V3.6. V3.6 is complete when stored comparison data from more than one library is good enough to inform the next scoring decision.
+- The second-library KeyFinder verification is deliberately parked while V3.6 classification/routing quality discovered during the physical USB 01 MPC test is addressed.
 
 Likely next phases:
 
-- V3.7 KeyFinder Comparison Scoring
+- V3.8 KeyFinder Comparison Scoring
   - Decide how stored KeyFinder results influence confidence and review flags.
   - Candidate rules: raise confidence when KeyFinder agrees with librosa/Essentia, add a review reason when KeyFinder strongly disagrees with a high-confidence main decision, use KeyFinder as a tie-breaker only when internal engines disagree, or keep it report-only.
   - Add tests proving the final key is only changed if a deliberate scoring rule is implemented.
-- V3.8 Multi-Library UX Polish
+- V3.9 Multi-Library UX Polish
   - Improve web-app/library filtering and mounted-drive clarity for multiple USB/SD indexes.
   - Make it easy to see which libraries are searchable, playable, missing audio, or using source-vs-organised playback roots.
 - V3.9 Optional Backend Expansion
@@ -507,6 +520,20 @@ root_match_key_diff: 695
 ```
 
 Interpretation: SD 02 alone is not enough to change scoring rules. The next V3.6 validation step is to enrich another real library and compare whether these disagreement rates are similar, library-specific, or concentrated in certain sample types/confidence buckets.
+
+## V3.6 Classification Quality Notes
+
+The USB 01 physical-device test exposed type-routing problems in the organised folders: drum fills under one-shot leads, hi-hats in kick folders, drum loops in melodies, and drum beats/fills in FX. It also showed many `fullmix`/`full mix` files in loop folders; these are full songs and should not be copied by default. The V3.6 classification fix keeps filename and folder evidence separate, scores filename evidence more strongly, treats obvious loop/fill/beat tokens as loop indicators, skips full-mix filename patterns before analysis/copying, and adds `sample-key-indexer-review --classification-audit` so existing indexes can be scanned before re-copying a physical device.
+
+Classification audit command:
+
+```bash
+sample-key-indexer-review /Users/mohammedansir/Desktop/SampleIndexes/usb_01/metadata_index.sqlite \
+  --classification-audit \
+  --examples 50 \
+  --classification-json /tmp/usb_01_classification_audit.json \
+  --classification-csv /tmp/usb_01_classification_audit.csv
+```
 
 ## Common Gotchas
 

@@ -25,6 +25,26 @@ class ClassificationAndRoutingTests(unittest.TestCase):
         self.assertEqual(category, "Loops")
         self.assertEqual(sample_type, "BassLoops")
 
+    def test_filename_hat_beats_misleading_kick_folder(self) -> None:
+        category, sample_type = classify_sample(Path("Kicks/HH_Open_01.wav"), 0.4)
+        self.assertEqual(category, "OneShots")
+        self.assertEqual(sample_type, "Hat")
+
+    def test_drum_fill_name_routes_to_drum_loops_even_in_fx_folder(self) -> None:
+        category, sample_type = classify_sample(Path("FX/Drum Fill 120bpm A.wav"), 3.0)
+        self.assertEqual(category, "Loops")
+        self.assertEqual(sample_type, "DrumLoops")
+
+    def test_short_fill_name_routes_as_loop_not_lead_oneshot(self) -> None:
+        category, sample_type = classify_sample(Path("Leads/snare_roll_fill_128.wav"), 1.4)
+        self.assertEqual(category, "Loops")
+        self.assertEqual(sample_type, "DrumLoops")
+
+    def test_drum_beat_name_beats_misleading_melody_folder(self) -> None:
+        category, sample_type = classify_sample(Path("Melodies/Drum_Beat_90.wav"), 8.0)
+        self.assertEqual(category, "Loops")
+        self.assertEqual(sample_type, "DrumLoops")
+
     def test_named_melodic_instrument_rescues_bright_fx_feature_guess(self) -> None:
         with patch("sample_key_indexer.classify._feature_type", return_value="FXLoops"):
             category, sample_type = classify_sample(

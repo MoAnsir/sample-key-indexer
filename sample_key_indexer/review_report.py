@@ -71,6 +71,31 @@ FLAT_TO_SHARP = {
     "Ab": "G#",
     "Bb": "A#",
 }
+AUDIT_DRUM_LOOP_TOKENS = ("drum", "beat", "beats", "fill", "fills", "roll", "breakbeat", "break")
+AUDIT_LOOP_TOKENS = ("loop", "loops", "bpm", "ptn", "pattern", "phrase", "riff", "groove", "beat", "beats", "fill", "fills", "roll")
+AUDIT_ONESHOT_TOKENS = ("one shot", "oneshot", "hit", "single")
+AUDIT_TYPE_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Kick", ("kick", "kicks", "bd", "bass drum", "bassdrum", "kik")),
+    ("Snare", ("snare", "snares", "sd", "rim", "clap")),
+    ("Hat", ("hat", "hats", "hihat", "hi hat", "hh", "closed hat", "closedhat", "open hat", "openhat", "cymbal", "ride", "crash")),
+    ("Perc", ("perc", "percussion", "conga", "bongo", "tom", "shaker", "clave", "cowbell")),
+    ("Bass", ("bass", "808", "sub")),
+    ("Chords", ("chord", "stab", "keys", "piano", "organ", "rhodes")),
+    ("Leads", ("lead", "melody", "melodic", "synth")),
+    ("Pads", ("pad", "atmo", "atmos", "drone", "texture")),
+    ("Plucks", ("pluck", "arp", "arpeggio")),
+    ("Vocals", ("vocal", "vox", "voice", "chant", "choir")),
+    ("FX", ("fx", "sfx", "riser", "downlifter", "impact", "sweep", "noise")),
+)
+AUDIT_TYPE_TO_LOOP_TYPE = {
+    "Kick": "DrumLoops",
+    "Snare": "DrumLoops",
+    "Hat": "DrumLoops",
+    "Perc": "DrumLoops",
+    "Bass": "BassLoops",
+    "Vocals": "VocalLoops",
+    "FX": "FXLoops",
+}
 
 
 def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10) -> dict[str, Any]:
@@ -283,6 +308,132 @@ def build_keyfinder_comparison_report(records: list[dict[str, Any]], max_example
             if not keyfinder_external(sample)
         ][:max(0, max_examples)],
     }
+
+
+def build_classification_audit_report(records: list[dict[str, Any]], max_examples: int = 20) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    items = [classification_audit_item(sample) for sample in samples]
+    suspicious = [item for item in items if item["reasons"]]
+    suspicious.sort(key=lambda item: (-len(item["reasons"]), item["library_id"], item["relative_path"] or item["name"] or ""))
+    return {
+        "total": len(samples),
+        "suspicious": len(suspicious),
+        "by_reason": count_reason_items(suspicious),
+        "by_library": count_items(suspicious, "library_id"),
+        "by_type": count_items(suspicious, "stored_type"),
+        "by_path_family": count_items(suspicious, "path_family"),
+        "examples": suspicious[:max(0, max_examples)],
+        "items": suspicious,
+    }
+
+
+def classification_audit_item(sample: dict[str, Any]) -> dict[str, Any]:
+    relative_path = sample.get("relative_path") or ""
+    file_path = sample.get("file_path") or ""
+    name = sample.get("name") or Path(str(file_path)).name
+    stored_category = sample.get("category") or "Unknown"
+    stored_type = sample.get("type") or "Unknown"
+    stem_text = normalized_audit_text(Path(str(name)).stem)
+    folder_text = normalized_audit_text(" ".join(Path(str(relative_path or file_path)).parts[:-1]))
+    reasons: list[str] = []
+    suggested_category: str | None = None
+    suggested_type: str | None = None
+
+    if audit_text_has(stem_text, "fullmix") or audit_text_has(stem_text, "full mix"):
+        reasons.append("ignored_fullmix_present")
+
+    loop_score = audit_score(stem_text, folder_text, AUDIT_LOOP_TOKENS)
+    oneshot_score = audit_score(stem_text, folder_text, AUDIT_ONESHOT_TOKENS)
+    if loop_score > oneshot_score:
+        suggested_category = "Loops"
+    elif oneshot_score > loop_score:
+        suggested_category = "OneShots"
+    if suggested_category and stored_category != suggested_category:
+        reasons.append("category_mismatch_from_filename")
+
+    drum_loop_score = audit_score(stem_text, "", AUDIT_DRUM_LOOP_TOKENS)
+    if (suggested_category == "Loops" or stored_category == "Loops") and drum_loop_score > 0:
+        suggested_type = "DrumLoops"
+        if stored_type != "DrumLoops":
+            reasons.append("drum_loop_misclassified")
+
+    hinted_type, hint_score = best_audit_type_hint(stem_text, folder_text)
+    if hinted_type and (suggested_category != "Loops" or suggested_type != "DrumLoops"):
+        suggested_type = type_for_category(suggested_category or stored_category, hinted_type)
+        if suggested_type != stored_type:
+            reasons.append("type_mismatch_from_filename")
+
+    folder_type, folder_score = best_audit_type_hint("", folder_text)
+    filename_type, filename_score = best_audit_type_hint(stem_text, "")
+    if filename_type and folder_type and filename_type != folder_type and filename_score >= 4 and folder_score > 0:
+        reasons.append("filename_folder_type_conflict")
+
+    return {
+        "name": name,
+        "library_id": sample.get("library_id") or "unknown",
+        "library_name": sample.get("library_name"),
+        "relative_path": relative_path,
+        "file_path": file_path,
+        "path_family": path_family(relative_path or file_path),
+        "stored_category": stored_category,
+        "stored_type": stored_type,
+        "suggested_category": suggested_category,
+        "suggested_type": suggested_type,
+        "confidence": sample.get("confidence"),
+        "duration": sample.get("duration"),
+        "reasons": reasons,
+    }
+
+
+def type_for_category(category: str, hinted_type: str) -> str:
+    if category == "Loops":
+        return AUDIT_TYPE_TO_LOOP_TYPE.get(hinted_type, "MelodyLoops")
+    return hinted_type
+
+
+def best_audit_type_hint(stem_text: str, folder_text: str) -> tuple[str | None, int]:
+    best_type: str | None = None
+    best_score = 0
+    for sample_type, patterns in AUDIT_TYPE_HINTS:
+        score = audit_score(stem_text, folder_text, patterns)
+        if score > best_score:
+            best_type = sample_type
+            best_score = score
+    return best_type, best_score
+
+
+def audit_score(stem_text: str, folder_text: str, patterns: tuple[str, ...]) -> int:
+    stem_tokens = set(stem_text.split())
+    folder_tokens = set(folder_text.split())
+    score = 0
+    for pattern in patterns:
+        if audit_matches(stem_text, stem_tokens, pattern):
+            score += 4
+        if audit_matches(folder_text, folder_tokens, pattern):
+            score += 1
+    return score
+
+
+def audit_matches(text: str, tokens: set[str], pattern: str) -> bool:
+    pattern = normalized_audit_text(pattern)
+    if not pattern:
+        return False
+    if " " in pattern:
+        return pattern in text
+    return pattern in tokens
+
+
+def audit_text_has(text: str, pattern: str) -> bool:
+    return audit_matches(text, set(text.split()), pattern)
+
+
+def normalized_audit_text(value: str) -> str:
+    return " ".join(Path(value).as_posix().replace("_", " ").replace("-", " ").replace(".", " ").replace("(", " ").replace(")", " ").lower().split())
+
+
+def count_reason_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts = Counter(reason for item in items for reason in item.get("reasons", []))
+    return [{"value": value, "count": count} for value, count in counts.most_common()]
 
 
 def keyfinder_comparison_item(sample: dict[str, Any]) -> dict[str, Any]:
@@ -1037,6 +1188,38 @@ def format_keyfinder_comparison_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_classification_audit_report(report: dict[str, Any]) -> str:
+    lines = [
+        "Classification audit:",
+        f"  Total samples: {report['total']} files",
+        f"  Suspicious classifications: {report['suspicious']} files",
+    ]
+    for title, key in (
+        ("Reasons", "by_reason"),
+        ("Libraries", "by_library"),
+        ("Stored types", "by_type"),
+        ("Path families", "by_path_family"),
+    ):
+        rows = report.get(key) or []
+        if not rows:
+            continue
+        lines.append("")
+        lines.append(f"{title}:")
+        for row in rows[:12]:
+            lines.append(f"- {row['value']}: {row['count']}")
+    if report.get("examples"):
+        lines.append("")
+        lines.append("Examples:")
+        for item in report["examples"][:20]:
+            suggestion = item.get("suggested_type") or item.get("suggested_category") or "review"
+            reasons = ", ".join(item.get("reasons") or [])
+            lines.append(
+                f"- {item['name']} | stored {item['stored_category']}/{item['stored_type']} | "
+                f"suggested {item.get('suggested_category') or '?'} / {suggestion} | {reasons}"
+            )
+    return "\n".join(lines)
+
+
 def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
     is_enrichment = report.get("mode") == "metadata_enrichment"
     lines = [
@@ -1100,6 +1283,37 @@ def write_deep_failure_json(report: dict[str, Any], path: Path) -> None:
 def write_keyfinder_report(report: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_classification_audit_json(report: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_classification_audit_csv(report: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields = [
+        "name",
+        "library_id",
+        "library_name",
+        "relative_path",
+        "file_path",
+        "path_family",
+        "stored_category",
+        "stored_type",
+        "suggested_category",
+        "suggested_type",
+        "confidence",
+        "duration",
+        "reasons",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for item in report["items"]:
+            row = dict(item)
+            row["reasons"] = ",".join(row.get("reasons") or [])
+            writer.writerow({field: row.get(field) for field in fields})
 
 
 def write_deep_failure_csv(report: dict[str, Any], path: Path) -> None:
@@ -1387,6 +1601,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deep-rerun", action="store_true", help="Rerun analysis only for deep-review candidates and update the index.")
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
     parser.add_argument("--backend-check", action="store_true", help="Print the V3.6 optional deep-backend availability report.")
+    parser.add_argument("--classification-audit", action="store_true", help="Print suspicious category/type classifications before rebuilding organised audio folders.")
     parser.add_argument("--keyfinder-compare", action="store_true", help="Compare stored analysis.external.keyfinder metadata against the current stored key/root decisions.")
     parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
     parser.add_argument("--keyfinder-enrich", action="store_true", help="Run KeyFinder CLI and store its output under analysis.external.keyfinder without changing the main key decision.")
@@ -1406,6 +1621,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-json-export", action="store_true", help="Do not export/update metadata_index.json after SQLite reruns.")
     parser.add_argument("--report-json", type=Path, default=None, help="Write a JSON rerun report with selected counts and failure examples.")
     parser.add_argument("--keyfinder-json", type=Path, default=None, help="Write the KeyFinder experiment report to JSON.")
+    parser.add_argument("--classification-json", type=Path, default=None, help="Write the classification audit report to JSON.")
+    parser.add_argument("--classification-csv", type=Path, default=None, help="Write suspicious classification items to CSV.")
     parser.add_argument("--failures-json", type=Path, default=None, help="Write the deep-review failure report to JSON.")
     parser.add_argument("--failures-csv", type=Path, default=None, help="Write the deep-review failure list to CSV.")
     return parser
@@ -1428,6 +1645,18 @@ def main(argv: list[str] | None = None) -> int:
             report_path = args.keyfinder_json.expanduser().resolve()
             write_keyfinder_report(report, report_path)
             print(f"KeyFinder comparison JSON: {report_path}")
+        return 0
+    if args.classification_audit:
+        report = build_classification_audit_report(records, max_examples=max(0, args.examples))
+        print(format_classification_audit_report(report))
+        if args.classification_json:
+            report_path = args.classification_json.expanduser().resolve()
+            write_classification_audit_json(report, report_path)
+            print(f"Classification audit JSON: {report_path}")
+        if args.classification_csv:
+            report_path = args.classification_csv.expanduser().resolve()
+            write_classification_audit_csv(report, report_path)
+            print(f"Classification audit CSV: {report_path}")
         return 0
     if args.keyfinder_experiment or args.keyfinder_enrich:
         try:

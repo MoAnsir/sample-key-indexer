@@ -7,10 +7,132 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import build_backend_check_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
+from sample_key_indexer.review_report import build_backend_check_report, build_classification_audit_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_classification_audit_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_classification_audit_csv, write_classification_audit_json, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
+    def test_classification_audit_flags_suspicious_filename_type_mismatches(self) -> None:
+        records = [
+            AnalysisResult(
+                file_path="/samples/Melodies/Drum_Beat_90.wav",
+                root_note=None,
+                key=None,
+                confidence=0.5,
+                relative_path="Melodies/Drum_Beat_90.wav",
+                category="Loops",
+                type="MelodyLoops",
+                duration=8.0,
+            ).to_dict(),
+            AnalysisResult(
+                file_path="/samples/Kicks/HH_Open_01.wav",
+                root_note=None,
+                key=None,
+                confidence=0.5,
+                relative_path="Kicks/HH_Open_01.wav",
+                category="OneShots",
+                type="Kick",
+                duration=0.4,
+            ).to_dict(),
+            AnalysisResult(
+                file_path="/samples/Loops/Pack_FullMix_128.wav",
+                root_note=None,
+                key=None,
+                confidence=0.5,
+                relative_path="Loops/Pack_FullMix_128.wav",
+                category="Loops",
+                type="MelodyLoops",
+                duration=90.0,
+            ).to_dict(),
+            AnalysisResult(
+                file_path="/samples/Kicks/Hard_Kick_01.wav",
+                root_note=None,
+                key=None,
+                confidence=0.5,
+                relative_path="Kicks/Hard_Kick_01.wav",
+                category="OneShots",
+                type="Kick",
+                duration=0.4,
+            ).to_dict(),
+        ]
+
+        report = build_classification_audit_report(records, max_examples=10)
+
+        self.assertEqual(report["total"], 4)
+        self.assertEqual(report["suspicious"], 3)
+        reasons = {item["value"]: item["count"] for item in report["by_reason"]}
+        self.assertEqual(reasons["drum_loop_misclassified"], 1)
+        self.assertEqual(reasons["type_mismatch_from_filename"], 1)
+        self.assertEqual(reasons["ignored_fullmix_present"], 1)
+        names = {item["name"] for item in report["examples"]}
+        self.assertIn("Drum_Beat_90.wav", names)
+        self.assertIn("HH_Open_01.wav", names)
+        self.assertIn("Pack_FullMix_128.wav", names)
+        self.assertNotIn("Hard_Kick_01.wav", names)
+
+    def test_format_classification_audit_prints_human_report(self) -> None:
+        report = {
+            "total": 1,
+            "suspicious": 1,
+            "by_reason": [{"value": "drum_loop_misclassified", "count": 1}],
+            "by_library": [{"value": "usb_01", "count": 1}],
+            "by_type": [{"value": "MelodyLoops", "count": 1}],
+            "by_path_family": [{"value": "SAMPLEZ / Pack", "count": 1}],
+            "examples": [
+                {
+                    "name": "Drum_Beat_90.wav",
+                    "stored_category": "Loops",
+                    "stored_type": "MelodyLoops",
+                    "suggested_category": "Loops",
+                    "suggested_type": "DrumLoops",
+                    "reasons": ["drum_loop_misclassified"],
+                }
+            ],
+        }
+
+        output = format_classification_audit_report(report)
+
+        self.assertIn("Classification audit:", output)
+        self.assertIn("Suspicious classifications: 1 files", output)
+        self.assertIn("- drum_loop_misclassified: 1", output)
+        self.assertIn("Drum_Beat_90.wav | stored Loops/MelodyLoops", output)
+
+    def test_write_classification_audit_exports_json_and_csv(self) -> None:
+        report = {
+            "total": 1,
+            "suspicious": 1,
+            "by_reason": [],
+            "by_library": [],
+            "by_type": [],
+            "by_path_family": [],
+            "examples": [],
+            "items": [
+                {
+                    "name": "Pack_FullMix_128.wav",
+                    "library_id": "usb_01",
+                    "library_name": "USB 01",
+                    "relative_path": "Loops/Pack_FullMix_128.wav",
+                    "file_path": "/samples/Loops/Pack_FullMix_128.wav",
+                    "path_family": "Loops",
+                    "stored_category": "Loops",
+                    "stored_type": "MelodyLoops",
+                    "suggested_category": None,
+                    "suggested_type": None,
+                    "confidence": 0.8,
+                    "duration": 90.0,
+                    "reasons": ["ignored_fullmix_present"],
+                }
+            ],
+        }
+        with TemporaryDirectory() as tmp:
+            json_path = Path(tmp) / "classification.json"
+            csv_path = Path(tmp) / "classification.csv"
+
+            write_classification_audit_json(report, json_path)
+            write_classification_audit_csv(report, csv_path)
+
+            self.assertIn("ignored_fullmix_present", json_path.read_text())
+            self.assertIn("Pack_FullMix_128.wav", csv_path.read_text())
+
     def test_build_review_summary_counts_reasons_and_examples(self) -> None:
         records = [
             AnalysisResult(
