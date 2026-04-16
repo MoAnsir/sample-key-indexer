@@ -8,7 +8,7 @@ This file is the long-lived project context for humans and AI agents. Read it be
 
 The user workflow is based around multiple removable drives. Each USB or SD card should be indexed as a separate library so the web app can search metadata even when the drive is not mounted. Audio playback should become available again when the matching source or organised drive is mounted and passed to the web app.
 
-The short one-page daily command guide lives in `docs/DAILY_COMMANDS.md`. The fuller command reference lives in `docs/COMMAND_CHEATSHEET.md`. Keep both updated when a feature adds or changes a command the user is likely to reuse.
+The short one-page daily command guide lives in `docs/DAILY_COMMANDS.md`. The fuller command reference lives in `docs/COMMAND_CHEATSHEET.md`. Keep both updated when a feature adds or changes a command the user is likely to reuse. The daily guide should include both catalog-only indexing and organising/copying into `Key/` and `Unsorted/` for moving onto USB/SD devices.
 
 ## Current Branch State
 

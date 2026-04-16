@@ -76,6 +76,23 @@ Replace:
 - `LIBRARY_ID` with a stable ID like `usb_02` or `sd_03_trad`
 - `Human Library Name` with the name you want shown in the browser
 
+Use this when you want to create `Key/` and `Unsorted/` folders that you can move onto a USB or SD card:
+
+```bash
+caffeinate -dimsu sample-key-indexer \
+  /Users/mohammedansir/Desktop/Samples_to_detect \
+  /Users/mohammedansir/Desktop/Samples_organised/LIBRARY_ID \
+  --library-id LIBRARY_ID \
+  --library-name "Human Library Name" \
+  --analysis-profile balanced \
+  --engines librosa,essentia \
+  --workers 4 \
+  --write-every 25 \
+  --probe-backend auto
+```
+
+The output folder will contain `Key/`, `Unsorted/`, `metadata_index.sqlite`, and `metadata_index.json`. Move the `Key/` and `Unsorted/` folders to the physical USB or SD card, and keep the metadata index on the Mac under `SampleIndexes`.
+
 ## Rerun Specific Analysis
 
 Preview what would be selected for deep rerun:
