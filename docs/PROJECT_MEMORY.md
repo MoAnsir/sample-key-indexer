@@ -8,10 +8,13 @@ This file is the long-lived project context for humans and AI agents. Read it be
 
 The user workflow is based around multiple removable drives. Each USB or SD card should be indexed as a separate library so the web app can search metadata even when the drive is not mounted. Audio playback should become available again when the matching source or organised drive is mounted and passed to the web app.
 
+Day-to-day command examples live in `docs/COMMAND_CHEATSHEET.md`. Keep that file updated whenever a feature adds or changes a command the user is likely to reuse.
+
 ## Current Branch State
 
 - `dev` is the local integration branch.
-- `v3.6-deep-backend-experiments` is the active feature branch, created from `dev` after V3.5 was merged.
+- `dev` includes completed V3.7 multi-library browser work.
+- No V3.8 branch has been created yet.
 - There is currently no configured git remote in this checkout, so "push to dev" means commit locally on the `dev` branch unless a remote is added later.
 - Recent completed local dev commits:
   - `357a89b Start V3.1 bulk run quality`
@@ -19,6 +22,9 @@ The user workflow is based around multiple removable drives. Each USB or SD card
   - `602e884 Add deep review rerun diagnostics`
   - `c374164 Start V3.4 deep review failure tracking`
   - `18009fb Complete V3.5 failure triage reporting`
+  - `d6eef47 Add V3.6 KeyFinder review policy`
+  - `f40173a Start V3.7 multi-library browser UX`
+  - `794a4b1 Document V3.7 multi-library verification`
 
 ## Core Commands
 
