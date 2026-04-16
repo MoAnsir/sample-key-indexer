@@ -516,7 +516,7 @@ Interpretation: SD 02 alone is not enough to change scoring rules. The next V3.6
 - Use `--library-root` for original unorganised source folders.
 - The web app can search metadata without the USB mounted, but audio playback requires the source or organised audio files to exist at a resolvable path.
 - Native decoder messages from external C libraries may still appear even when Python warnings are captured.
-- `BrokenPipeError` during web audio streaming usually means the browser cancelled an audio request and should not be treated as a failed sample.
+- `BrokenPipeError` during web JSON/static/audio responses usually means the browser cancelled a request or refreshed while loading a large index. It should not be treated as a failed sample.
 - `zsh: unknown file attribute: V` is usually shell parsing from unquoted parentheses/globs, not an indexer error.
 
 ## Verification Commands
