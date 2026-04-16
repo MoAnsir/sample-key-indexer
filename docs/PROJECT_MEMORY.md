@@ -264,6 +264,7 @@ Likely next phases:
   - Improve web-app/library filtering and mounted-drive clarity for multiple USB/SD indexes.
   - Make it easy to see which libraries are searchable, playable, missing audio, or using source-vs-organised playback roots.
   - Started on branch `v3.7-multi-library-ux`: web API returns library summaries, each sample now carries `playback_source`, and the browser shows library cards plus Library/Playback filters.
+  - Verified with `sd_02_trad_v32_probe` plus `usb_01` loaded together: the browser showed 72,757 total samples across 2 libraries, the USB library became playable when mounted at `/Volumes/SSK Drive/SAMPLEZ`, and playback resolved from the mounted organised USB tree.
 - V3.8 Optional Backend Expansion
   - Revisit Sonic Annotator/QM Vamp Plugins only if KeyFinder comparison does not provide enough harmonic evidence.
   - Revisit aubio only for onset/tempo needs, not primary key detection.
