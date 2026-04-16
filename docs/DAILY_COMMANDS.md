@@ -12,6 +12,8 @@ If the commands are missing after code changes:
 pip install -e .
 ```
 
+This installs the normal analysis stack, including Essentia.
+
 ## Start The Browser
 
 Metadata only, audio not mounted:
@@ -92,6 +94,23 @@ caffeinate -dimsu sample-key-indexer \
 ```
 
 The output folder will contain `Key/`, `Unsorted/`, `metadata_index.sqlite`, and `metadata_index.json`. Move the `Key/` and `Unsorted/` folders to the physical USB or SD card, and keep the metadata index on the Mac under `SampleIndexes`.
+
+Kitchen sink: analyse from the Mac, organise into `Key/` and `Unsorted/`, use balanced Librosa + Essentia, skip long/fullmix material by default, probe with ffprobe when available, and write metadata as it goes:
+
+```bash
+caffeinate -dimsu sample-key-indexer \
+  /Users/mohammedansir/Desktop/Samples_to_detect \
+  /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID \
+  --library-id LIBRARY_ID \
+  --library-name "Human Library Name" \
+  --analysis-profile balanced \
+  --engines librosa,essentia \
+  --workers 4 \
+  --write-every 25 \
+  --probe-backend auto
+```
+
+After it finishes, move `/Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/Key` and `/Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/Unsorted` to the USB/SD device. Keep `metadata_index.sqlite` and `metadata_index.json` on the Mac so the browser can search the library without the device mounted.
 
 ## Rerun Specific Analysis
 

@@ -80,14 +80,11 @@ sample-key-indexer-web \
 
 Required Python packages:
 
+- `essentia`: harmonic/key analysis backend used by the normal balanced/deep workflows.
 - `librosa`: baseline audio loading, chroma, tempo, and feature analysis.
 - `numpy`: numeric/audio arrays.
 - `soundfile`: fast WAV/AIFF metadata and loading support.
 - `tqdm`: progress bars.
-
-Optional Python package:
-
-- `essentia`: extra harmonic/key analysis backend used by the balanced/deep profiles when installed.
 
 External tools and future options:
 
@@ -117,13 +114,13 @@ The CLI option is:
 
 Analysis lives in `sample_key_indexer/audio_analysis.py`.
 
-The baseline engine is librosa. The balanced and deep profiles include `essentia` in the selected engine list, but the code must keep working when Essentia is not installed.
+The baseline engine is librosa. The balanced and deep profiles include `essentia` in the selected engine list. Essentia is a required Python dependency because the normal user workflow runs `--engines librosa,essentia`.
 
 Important analysis behavior:
 
 - Python warnings are captured into `analysis.warnings` instead of flooding the terminal.
 - Very short or near-silent audio gets a lightweight result with review flags rather than full harmonic analysis.
-- Final key/root decisions come from a consensus layer that compares librosa, optional Essentia, and filename key hints.
+- Final key/root decisions come from a consensus layer that compares librosa, Essentia, and filename key hints.
 - Review reasons are stored in metadata for later filtering and reruns.
 
 ### Classification And Routing

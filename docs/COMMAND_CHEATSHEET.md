@@ -12,6 +12,8 @@ After code changes, reinstall the editable package:
 pip install -e .
 ```
 
+This installs the normal analysis stack, including Essentia.
+
 ## Check The Setup
 
 Check the audio analysis environment:
@@ -42,6 +44,21 @@ caffeinate -dimsu sample-key-indexer \
   /Users/mohammedansir/Desktop/Samples_to_detect \
   /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID \
   --catalog-only \
+  --library-id LIBRARY_ID \
+  --library-name "Human Library Name" \
+  --analysis-profile balanced \
+  --engines librosa,essentia \
+  --workers 4 \
+  --write-every 25 \
+  --probe-backend auto
+```
+
+Kitchen sink, creating `Key/` and `Unsorted/` plus metadata for a physical USB/SD:
+
+```bash
+caffeinate -dimsu sample-key-indexer \
+  /Users/mohammedansir/Desktop/Samples_to_detect \
+  /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID \
   --library-id LIBRARY_ID \
   --library-name "Human Library Name" \
   --analysis-profile balanced \

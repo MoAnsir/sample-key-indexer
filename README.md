@@ -13,15 +13,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-`librosa` handles the baseline pitch and chroma analysis. `soundfile` is included for WAV/AIFF support; MP3 support depends on the audio backend available to librosa/audioread on your machine.
-
-V2 can compare against Essentia when it is installed:
-
-```bash
-pip install -e ".[v2]"
-```
-
-You can also install it directly with `pip install essentia`. If Essentia is not installed, the balanced V2 profile still runs and records a warning in the analysis metadata.
+`librosa` handles the baseline pitch and chroma analysis. `essentia` is installed as a required dependency because the normal balanced workflow uses `--engines librosa,essentia`. `soundfile` is included for WAV/AIFF support; MP3 support depends on the audio backend available to librosa/audioread on your machine.
 
 ## Run
 
@@ -49,7 +41,7 @@ Build a searchable catalog without copying audio into `Key/` or `Unsorted`:
 sample-key-indexer /path/to/SampleLibrary /path/to/SampleIndexes/USB_01 --catalog-only --library-id usb_01 --library-name "USB 01"
 ```
 
-V2 uses the balanced analysis profile by default. It keeps the librosa baseline, tries optional Essentia key analysis when available, writes a SQLite working index, and exports the JSON metadata used by the browser:
+V2 uses the balanced analysis profile by default. It keeps the librosa baseline, uses Essentia key analysis, writes a SQLite working index, and exports the JSON metadata used by the browser:
 
 ```text
 Samples_Organised/metadata_index.sqlite
@@ -286,7 +278,7 @@ New records use a structured V1 feature schema with:
 - `musical`: root, key, scale confidence, notes, simple chord hints, BPM
 - `audio_features`: loudness, frequency, timbre buckets, MFCC averages
 - `classification`: category, type, subtype, source, confidence
-- `analysis`: raw librosa decisions, optional Essentia decisions, selected engines, warnings, and the final decision used for routing
+- `analysis`: raw librosa decisions, Essentia decisions, selected engines, warnings, and the final decision used for routing
 
 The web app can read both this structured schema and older flat records.
 
