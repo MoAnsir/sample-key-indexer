@@ -99,7 +99,9 @@ caffeinate -dimsu sample-key-indexer \
 
 The output folder will contain `Key/`, `Unsorted/`, `metadata_index.sqlite`, and `metadata_index.json`. Move the `Key/` and `Unsorted/` folders to the physical USB or SD card, and keep the metadata index on the Mac under `SampleIndexes`.
 
-Kitchen sink: analyse from the Mac, organise into `Key/` and `Unsorted/`, use balanced Librosa + Essentia, skip long/fullmix material by default, probe with ffprobe when available, and write metadata as it goes:
+Kitchen sink: analyse from the Mac, organise into `Key/` and `Unsorted/`, use balanced Librosa + Essentia, skip long/fullmix material by default, probe with ffprobe when available, write metadata as it goes, then add required KeyFinder comparison metadata.
+
+Step 1: analyse and organise:
 
 ```bash
 caffeinate -dimsu sample-key-indexer \
@@ -112,6 +114,18 @@ caffeinate -dimsu sample-key-indexer \
   --workers 4 \
   --write-every 25 \
   --probe-backend auto
+```
+
+Step 2: enrich the finished index with KeyFinder:
+
+```bash
+sample-key-indexer-review \
+  /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/metadata_index.sqlite \
+  --keyfinder-enrich \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --write-every 25 \
+  --keyfinder-json /tmp/LIBRARY_ID_keyfinder_enrich.json
 ```
 
 After it finishes, move `/Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/Key` and `/Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/Unsorted` to the USB/SD device. Keep `metadata_index.sqlite` and `metadata_index.json` on the Mac so the browser can search the library without the device mounted.

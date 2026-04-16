@@ -55,6 +55,8 @@ caffeinate -dimsu sample-key-indexer \
 
 Kitchen sink, creating `Key/` and `Unsorted/` plus metadata for a physical USB/SD:
 
+Step 1: analyse and organise:
+
 ```bash
 caffeinate -dimsu sample-key-indexer \
   /Users/mohammedansir/Desktop/Samples_to_detect \
@@ -66,6 +68,18 @@ caffeinate -dimsu sample-key-indexer \
   --workers 4 \
   --write-every 25 \
   --probe-backend auto
+```
+
+Step 2: add required KeyFinder comparison metadata:
+
+```bash
+sample-key-indexer-review \
+  /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/metadata_index.sqlite \
+  --keyfinder-enrich \
+  --keyfinder-scope all \
+  --keyfinder-convert-retry \
+  --write-every 25 \
+  --keyfinder-json /tmp/LIBRARY_ID_keyfinder_enrich.json
 ```
 
 Example for the SD 02 Trad test library:

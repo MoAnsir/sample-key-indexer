@@ -258,6 +258,7 @@ Active:
   - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or every sample in the selected index.
   - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
   - KeyFinder is now the required stored comparison/review signal, not the main key decision.
+  - Daily and full cheat-sheet "kitchen sink" workflows are two-step: run `sample-key-indexer` to analyze/organize, then run `sample-key-indexer-review --keyfinder-enrich --keyfinder-scope all --keyfinder-convert-retry` against the finished SQLite index.
 
 Parked until more devices are available:
 
