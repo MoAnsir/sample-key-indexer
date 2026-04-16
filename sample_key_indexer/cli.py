@@ -6,10 +6,13 @@ import os
 import re
 import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
+from sample_key_indexer.classify import classify_sample
 from sample_key_indexer.discovery import SUPPORTED_EXTENSIONS, discover_audio_files
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex
+from sample_key_indexer.models import AnalysisResult, file_signature
 from sample_key_indexer.routing import route_file
 
 DEFAULT_IGNORED_NAME_PATTERNS: tuple[str, ...] = ("fullmix", "full mix")
@@ -152,14 +155,43 @@ def main(argv: list[str] | None = None) -> int:
                 for path in processable
             }
             for future in tqdm(as_completed(futures), total=len(futures), unit="file"):
-                result = future.result()
-                routed = route_file(result, output_root, move=args.move, dry_run=args.dry_run or args.catalog_only)
-                routed = attach_library_metadata(routed, input_root, library_id, library_name)
-                index.upsert(routed)
-                update_analysis_summary(analysis_summary, routed)
-                processed += 1
-                if processed % max(1, args.write_every) == 0:
-                    index.write()
+                path = futures[future]
+                try:
+                    result = future.result()
+                except BrokenProcessPool:
+                    remaining = [pending_path for pending_future, pending_path in futures.items() if pending_future is future or not pending_future.done()]
+                    print(f"Warning: worker process crashed while analyzing {path.name}. Retrying {len(remaining)} remaining files in isolated mode.")
+                    for isolated_path in tqdm(remaining, total=len(remaining), unit="file"):
+                        isolated_result = analyze_file_isolated(isolated_path, args.analysis_duration, args.sample_rate, args.analysis_profile, selected_engines)
+                        processed = store_indexed_result(
+                            isolated_result,
+                            output_root,
+                            input_root,
+                            library_id,
+                            library_name,
+                            index,
+                            analysis_summary,
+                            processed,
+                            args.write_every,
+                            move=args.move,
+                            dry_run=args.dry_run or args.catalog_only,
+                        )
+                    break
+                except Exception as exc:
+                    result = worker_crash_result(path, args.analysis_profile, selected_engines, f"{type(exc).__name__}: {exc}")
+                processed = store_indexed_result(
+                    result,
+                    output_root,
+                    input_root,
+                    library_id,
+                    library_name,
+                    index,
+                    analysis_summary,
+                    processed,
+                    args.write_every,
+                    move=args.move,
+                    dry_run=args.dry_run or args.catalog_only,
+                )
 
     index.write()
     if isinstance(index, SQLiteMetadataIndex):
@@ -348,6 +380,78 @@ def _parse_engines(value: str | None) -> tuple[str, ...] | None:
     if not value:
         return None
     return tuple(engine.strip() for engine in value.split(",") if engine.strip())
+
+
+def analyze_file_isolated(
+    path: Path,
+    analysis_duration: float,
+    sample_rate: int,
+    analysis_profile: str,
+    selected_engines: tuple[str, ...],
+) -> AnalysisResult:
+    from sample_key_indexer.audio_analysis import analyze_file
+
+    try:
+        with ProcessPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(analyze_file, path, analysis_duration, sample_rate, analysis_profile, selected_engines)
+            return future.result()
+    except BrokenProcessPool:
+        return worker_crash_result(path, analysis_profile, selected_engines, "worker_crash")
+    except Exception as exc:
+        return worker_crash_result(path, analysis_profile, selected_engines, f"{type(exc).__name__}: {exc}")
+
+
+def worker_crash_result(
+    path: Path,
+    analysis_profile: str,
+    selected_engines: tuple[str, ...],
+    reason: str,
+) -> AnalysisResult:
+    category, sample_type = classify_sample(path, 0.0, None, None)
+    signature = file_signature(path)
+    return AnalysisResult(
+        file_path=str(path),
+        root_note=None,
+        key=None,
+        confidence=0.0,
+        category=category,
+        type=sample_type,
+        duration=0.0,
+        sample_rate=None,
+        format=path.suffix.lower().lstrip("."),
+        analysis_profile=analysis_profile,
+        analysis_engines=list(selected_engines),
+        analysis_warnings=["worker_crash"],
+        needs_review=True,
+        review_reasons=["worker_crash"],
+        error=reason,
+        size=int(signature["size"]),
+        mtime=float(signature["mtime"]),
+    )
+
+
+def store_indexed_result(
+    result: AnalysisResult,
+    output_root: Path,
+    input_root: Path,
+    library_id: str,
+    library_name: str,
+    index,
+    analysis_summary: AnalysisRunSummary,
+    processed: int,
+    write_every: int,
+    *,
+    move: bool,
+    dry_run: bool,
+) -> int:
+    routed = route_file(result, output_root, move=move, dry_run=dry_run)
+    routed = attach_library_metadata(routed, input_root, library_id, library_name)
+    index.upsert(routed)
+    update_analysis_summary(analysis_summary, routed)
+    processed += 1
+    if processed % max(1, write_every) == 0:
+        index.write()
+    return processed
 
 
 def missing_required_external_tools() -> list[tuple[str, ...]]:

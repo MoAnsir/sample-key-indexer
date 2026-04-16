@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from concurrent.futures.process import BrokenProcessPool
 from unittest.mock import patch
 
 from sample_key_indexer.audio_analysis import AudioProbe
-from sample_key_indexer.cli import AnalysisRunSummary, attach_library_metadata, format_gb, missing_required_external_tools, slugify, split_ignored_files, summarize_paths_by_extension, summarize_unsupported_files, split_long_files, update_analysis_summary
+from sample_key_indexer.cli import AnalysisRunSummary, analyze_file_isolated, attach_library_metadata, format_gb, missing_required_external_tools, slugify, split_ignored_files, summarize_paths_by_extension, summarize_unsupported_files, split_long_files, update_analysis_summary, worker_crash_result
 from sample_key_indexer.models import AnalysisResult
 
 
@@ -139,6 +140,33 @@ class CliTests(unittest.TestCase):
         self.assertEqual(summary.decoder_fallbacks, 1)
         self.assertEqual(summary.tiny_audio, 1)
         self.assertEqual(summary.warning_records, 1)
+
+    def test_worker_crash_result_marks_file_for_review(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "kick_loop.wav"
+            path.write_bytes(b"audio")
+
+            result = worker_crash_result(path, "balanced", ("librosa", "essentia"), "worker_crash")
+
+        self.assertEqual(result.file_path, str(path))
+        self.assertTrue(result.needs_review)
+        self.assertEqual(result.review_reasons, ["worker_crash"])
+        self.assertEqual(result.error, "worker_crash")
+        self.assertEqual(result.analysis_warnings, ["worker_crash"])
+
+    def test_analyze_file_isolated_returns_worker_crash_result_when_pool_breaks(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "broken.wav"
+            path.write_bytes(b"audio")
+
+            with patch("sample_key_indexer.cli.ProcessPoolExecutor") as executor_cls:
+                executor = executor_cls.return_value.__enter__.return_value
+                executor.submit.return_value.result.side_effect = BrokenProcessPool("boom")
+
+                result = analyze_file_isolated(path, 30.0, 22050, "balanced", ("librosa", "essentia"))
+
+        self.assertTrue(result.needs_review)
+        self.assertEqual(result.error, "worker_crash")
 
 
 if __name__ == "__main__":
