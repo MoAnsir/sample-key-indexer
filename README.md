@@ -2,7 +2,7 @@
 
 A practical V1 local CLI for scanning large sample libraries, estimating root notes and keys, classifying samples, and organising them primarily by musical key.
 
-For durable project context, architecture notes, workflows, branch state, and AI-agent memory, read [`docs/PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md). For day-to-day commands, use [`docs/COMMAND_CHEATSHEET.md`](docs/COMMAND_CHEATSHEET.md).
+For durable project context, architecture notes, workflows, branch state, and AI-agent memory, read [`docs/PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md). For the short daily one-pager, use [`docs/DAILY_COMMANDS.md`](docs/DAILY_COMMANDS.md). For the full command reference, use [`docs/COMMAND_CHEATSHEET.md`](docs/COMMAND_CHEATSHEET.md).
 
 ## Install
 
