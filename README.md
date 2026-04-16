@@ -126,6 +126,16 @@ You can also open multiple catalogs at once:
 sample-key-indexer-web /path/to/SampleIndexes/USB_01/metadata_index.sqlite /path/to/SampleIndexes/USB_02/metadata_index.sqlite
 ```
 
+For multi-device browsing, pass the mounted source or organised roots for any devices that are currently plugged in. The browser shows each loaded library, how much audio is playable or missing, and filters for Library and Playback:
+
+```bash
+sample-key-indexer-web \
+  /path/to/SampleIndexes/USB_01/metadata_index.sqlite \
+  /path/to/SampleIndexes/SD_02/metadata_index.sqlite \
+  --destination-root usb_01=/Volumes/USB_01/SAMPLEZ \
+  --library-root sd_02=/Volumes/SD_02/Samples
+```
+
 Summarize files that need review:
 
 ```bash
@@ -361,6 +371,12 @@ sample-key-indexer-review /Users/mohammedansir/Desktop/SampleIndexes/usb_01/meta
   --classification-json /tmp/usb_01_classification_audit.json \
   --classification-csv /tmp/usb_01_classification_audit.csv
 ```
+
+## V3.7 Multi-Library Browser
+
+- The web app API returns per-library summaries with total, playable, missing, and playback-source counts.
+- The browser has library cards plus Library and Playback filters so multiple USB/SD indexes can be loaded together while still showing which device audio is currently mounted.
+- Playback metadata distinguishes stored source paths, mounted source roots, stored organised paths, mounted organised roots, and missing audio.
 
 ## Troubleshooting
 

@@ -29,10 +29,30 @@
         </div>
       </section>
 
+      <section class="library-overview" aria-label="Loaded libraries">
+        <div>
+          <p class="eyebrow">Libraries</p>
+          <strong id="librarySummary">0 libraries loaded</strong>
+        </div>
+        <div id="libraryCards" class="library-cards"></div>
+      </section>
+
       <section class="filters" aria-label="Sample filters">
         <label>
           Search
           <input id="searchInput" type="search" placeholder="Name, key, path, type">
+        </label>
+        <label>
+          Library
+          <select id="libraryFilter"></select>
+        </label>
+        <label>
+          Playback
+          <select id="playbackFilter">
+            <option value="">All playback</option>
+            <option value="available">Playable</option>
+            <option value="missing">Missing audio</option>
+          </select>
         </label>
         <label>
           Category

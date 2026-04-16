@@ -43,6 +43,53 @@ def summarize_by_type(samples: list[dict]) -> list[dict]:
     ]
 
 
+def summarize_libraries(samples: list[dict]) -> list[dict]:
+    libraries: dict[str, dict] = {}
+    for sample in samples:
+        library_id = sample.get("library_id") or "unknown"
+        library = libraries.setdefault(
+            library_id,
+            {
+                "id": library_id,
+                "name": sample.get("library_name") or library_id,
+                "total": 0,
+                "available": 0,
+                "missing": 0,
+                "sources": {},
+                "index_paths": set(),
+            },
+        )
+        library["total"] += 1
+        if sample.get("playback_status") == "available":
+            library["available"] += 1
+        else:
+            library["missing"] += 1
+        source = sample.get("playback_source") or "unknown"
+        library["sources"][source] = library["sources"].get(source, 0) + 1
+        if sample.get("index_path"):
+            library["index_paths"].add(sample["index_path"])
+
+    summaries = []
+    for library in libraries.values():
+        total = max(1, library["total"])
+        summaries.append(
+            {
+                "id": library["id"],
+                "name": library["name"],
+                "total": library["total"],
+                "available": library["available"],
+                "missing": library["missing"],
+                "available_percentage": round((library["available"] / total) * 100, 2),
+                "sources": [
+                    {"source": source, "count": count}
+                    for source, count in sorted(library["sources"].items(), key=lambda item: (-item[1], item[0]))
+                ],
+                "index_paths": sorted(library["index_paths"]),
+            }
+        )
+    return sorted(summaries, key=lambda item: (item["name"], item["id"]))
+
+
 def build_app(
     index_paths: Path | list[Path],
     library_roots: dict[str, Path] | None = None,
@@ -65,7 +112,15 @@ def build_app(
                 self._send_static(parsed.path.lstrip("/"))
             elif parsed.path == "/api/samples":
                 current_samples = [_with_playback_info(sample, library_roots, destination_roots) for sample in samples]
-                self._send_json({"index_paths": [str(path) for path in paths], "total": len(current_samples), "samples": current_samples, "stats": stats})
+                self._send_json(
+                    {
+                        "index_paths": [str(path) for path in paths],
+                        "total": len(current_samples),
+                        "samples": current_samples,
+                        "stats": stats,
+                        "libraries": summarize_libraries(current_samples),
+                    }
+                )
             elif parsed.path == "/api/audio":
                 self._send_audio(parsed.query)
             else:
@@ -264,9 +319,17 @@ def _playable_path(
     library_roots: dict[str, Path] | None = None,
     destination_roots: dict[str, Path] | None = None,
 ) -> str:
+    return _playback_info(sample, library_roots, destination_roots)["path"]
+
+
+def _playback_info(
+    sample: dict,
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+) -> dict:
     destination = sample.get("destination")
     if destination and Path(destination).exists():
-        return destination
+        return {"path": destination, "status": "available", "source": "organized_stored_path"}
 
     library_id = sample.get("library_id")
     destination_relative_path = organized_relative_path(destination)
@@ -279,11 +342,11 @@ def _playable_path(
         for root in roots:
             candidate = root / destination_relative_path
             if candidate.exists():
-                return str(candidate)
+                return {"path": str(candidate), "status": "available", "source": "organized_mounted_root"}
 
     file_path = sample.get("file_path")
     if file_path and Path(file_path).exists():
-        return file_path
+        return {"path": file_path, "status": "available", "source": "source_stored_path"}
 
     relative_path = sample.get("relative_path")
     if relative_path:
@@ -299,8 +362,9 @@ def _playable_path(
         for root in roots:
             candidate = root / relative_path
             if candidate.exists():
-                return str(candidate)
-    return sample.get("destination") or sample.get("file_path") or ""
+                source = "source_stored_library_root" if str(root) == str(sample.get("library_root")) else "source_mounted_root"
+                return {"path": str(candidate), "status": "available", "source": source}
+    return {"path": sample.get("destination") or sample.get("file_path") or "", "status": "missing", "source": "missing"}
 
 
 def organized_relative_path(destination: str | None) -> Path | None:
@@ -320,9 +384,10 @@ def _with_playback_info(
     destination_roots: dict[str, Path] | None = None,
 ) -> dict:
     enriched = dict(sample)
-    playable_path = _playable_path(enriched, library_roots, destination_roots)
-    enriched["playable_path"] = playable_path
-    enriched["playback_status"] = "available" if playable_path and Path(playable_path).exists() else "missing"
+    playback = _playback_info(enriched, library_roots, destination_roots)
+    enriched["playable_path"] = playback["path"]
+    enriched["playback_status"] = playback["status"]
+    enriched["playback_source"] = playback["source"]
     return enriched
 
 

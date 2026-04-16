@@ -32,6 +32,7 @@ body {
 .toolbar,
 .filters,
 .analytics,
+.library-overview,
 .player-bar {
   display: grid;
   gap: 16px;
@@ -102,8 +103,68 @@ h1 {
   display: none;
 }
 
+.library-overview {
+  grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
+  align-items: stretch;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.library-overview strong {
+  display: block;
+  font-size: 22px;
+}
+
+.library-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.library-card {
+  display: grid;
+  gap: 4px;
+  min-height: 96px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--wash);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: 0;
+  padding: 10px;
+  text-align: left;
+}
+
+.library-card span,
+.library-card strong,
+.library-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.library-card strong {
+  font-size: 16px;
+}
+
+.library-card small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .filters {
-  grid-template-columns: 1.5fr repeat(6, minmax(110px, 1fr)) minmax(190px, 1fr) auto;
+  grid-template-columns: 1.5fr repeat(8, minmax(110px, 1fr)) minmax(190px, 1fr) auto;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -709,6 +770,7 @@ audio {
   .toolbar,
   .filters,
   .analytics,
+  .library-overview,
   .player-bar,
   .review-overview,
   .review-grid {

@@ -2,6 +2,7 @@ const state = {
   samples: [],
   filtered: [],
   stats: [],
+  libraries: [],
   sortKey: "name",
   sortDirection: "asc",
   activeTab: "browse",
@@ -15,6 +16,8 @@ const els = {
   browseTab: document.querySelector("#browseTab"),
   reviewTab: document.querySelector("#reviewTab"),
   search: document.querySelector("#searchInput"),
+  library: document.querySelector("#libraryFilter"),
+  playback: document.querySelector("#playbackFilter"),
   category: document.querySelector("#categoryFilter"),
   type: document.querySelector("#typeFilter"),
   key: document.querySelector("#keyFilter"),
@@ -33,6 +36,8 @@ const els = {
   chart: document.querySelector("#typeChart"),
   pieChart: document.querySelector("#pieChart"),
   pieLegend: document.querySelector("#pieLegend"),
+  librarySummary: document.querySelector("#librarySummary"),
+  libraryCards: document.querySelector("#libraryCards"),
   player: document.querySelector("#audioPlayer"),
   waveform: document.querySelector("#waveformCanvas"),
   frequency: document.querySelector("#frequencyCanvas"),
@@ -64,13 +69,14 @@ async function boot() {
   const data = await response.json();
   state.samples = data.samples;
   state.stats = data.stats;
+  state.libraries = data.libraries || [];
   populateFilters();
   bindEvents();
   applyFilters();
 }
 
 function bindEvents() {
-  [els.search, els.category, els.type, els.key, els.source, els.brightness, els.warmth, els.bpmMin, els.bpmMax, els.confidence, els.unsortedOnly].forEach((element) => {
+  [els.search, els.library, els.playback, els.category, els.type, els.key, els.source, els.brightness, els.warmth, els.bpmMin, els.bpmMax, els.confidence, els.unsortedOnly].forEach((element) => {
     element.addEventListener("input", applyFilters);
   });
   document.querySelectorAll("[data-sort]").forEach((button) => {
@@ -89,6 +95,7 @@ function bindEvents() {
 }
 
 function populateFilters() {
+  setOptions(els.library, ["All libraries", ...libraryOptions()]);
   setOptions(els.category, ["All categories", ...uniqueValues("category")]);
   setOptions(els.type, ["All types", ...uniqueValues("type")]);
   setOptions(els.key, ["All keys", ...uniqueKeys()]);
@@ -113,6 +120,20 @@ function uniqueValues(key) {
 
 function uniqueKeys() {
   return [...new Set(state.samples.map((sample) => sample.key || sample.root_note || "Unsorted"))].sort();
+}
+
+function libraryOptions() {
+  return state.libraries.map((library) => libraryOptionValue(library));
+}
+
+function libraryOptionValue(library) {
+  return `${library.name || library.id} (${library.id})`;
+}
+
+function sampleLibraryOption(sample) {
+  const libraryId = sample.library_id || "unknown";
+  const library = state.libraries.find((item) => item.id === libraryId);
+  return library ? libraryOptionValue(library) : `${sample.library_name || libraryId} (${libraryId})`;
 }
 
 function applyFilters() {
@@ -147,6 +168,8 @@ function applyFilters() {
     const bpmMatches = !sample.bpm ? !els.bpmMin.value && !els.bpmMax.value : bpm >= bpmMin && bpm <= bpmMax;
 
     return (!search || haystack.includes(search)) &&
+      (!els.library.value || sampleLibraryOption(sample) === els.library.value) &&
+      (!els.playback.value || sample.playback_status === els.playback.value) &&
       (!els.category.value || (sample.category || "Unknown") === els.category.value) &&
       (!els.type.value || (sample.type || "Unknown") === els.type.value) &&
       (!els.key.value || keyOrRoot === els.key.value) &&
@@ -201,9 +224,53 @@ function render() {
   els.totalCount.textContent = `of ${state.samples.length.toLocaleString()} samples`;
   renderChart();
   renderPieChart();
+  renderLibraries();
   renderSortHeaders();
   renderList();
   renderReview();
+}
+
+function renderLibraries() {
+  els.librarySummary.textContent = `${state.libraries.length.toLocaleString()} ${state.libraries.length === 1 ? "library" : "libraries"} loaded`;
+  if (!state.libraries.length) {
+    els.libraryCards.innerHTML = `<p class="empty-state">No libraries loaded.</p>`;
+    return;
+  }
+
+  const visibleByLibrary = new Map(countsFor(state.filtered.map((sample) => sample.library_id || "unknown")));
+  els.libraryCards.innerHTML = state.libraries.map((library) => {
+    const visible = visibleByLibrary.get(library.id) || 0;
+    const status = library.available ? `${library.available.toLocaleString()} playable` : "metadata only";
+    const missing = library.missing ? `${library.missing.toLocaleString()} missing` : "none missing";
+    const sources = (library.sources || []).slice(0, 2).map((item) => `${sourceLabel(item.source)} ${item.count.toLocaleString()}`).join(" / ");
+    return `
+      <button class="library-card" type="button" data-library="${escapeHtml(libraryOptionValue(library))}" title="${escapeHtml((library.index_paths || []).join("\n"))}">
+        <span>${escapeHtml(library.name || library.id)}</span>
+        <strong>${visible.toLocaleString()} visible / ${library.total.toLocaleString()} total</strong>
+        <small>${escapeHtml(status)} · ${escapeHtml(missing)}</small>
+        <small>${escapeHtml(sources || "No playback roots")}</small>
+      </button>
+    `;
+  }).join("");
+
+  els.libraryCards.querySelectorAll("[data-library]").forEach((button) => {
+    button.addEventListener("click", () => {
+      els.library.value = button.dataset.library || "";
+      applyFilters();
+    });
+  });
+}
+
+function sourceLabel(source) {
+  const labels = {
+    organized_stored_path: "organised path",
+    organized_mounted_root: "organised mount",
+    source_stored_path: "source path",
+    source_stored_library_root: "stored source root",
+    source_mounted_root: "source mount",
+    missing: "missing",
+  };
+  return labels[source] || source || "unknown";
 }
 
 function setActiveTab(tab) {
@@ -341,11 +408,12 @@ function renderList() {
     const isPlayable = sample.playback_status === "available";
     const library = sample.library_name || sample.library_id || "-";
     const status = isPlayable ? "Playable" : "Missing";
+    const playbackSource = sourceLabel(sample.playback_source);
     row.innerHTML = `
       <button class="play-button" type="button" ${isPlayable ? "" : "disabled"}>${isPlayable ? "Play" : "Missing"}</button>
       <span class="sample-name" title="${escapeHtml(fileName(sample))}">${escapeHtml(fileName(sample))}</span>
       <span class="sample-cell" title="${escapeHtml(library)}">${escapeHtml(library)}</span>
-      <span class="sample-cell ${isPlayable ? "" : "missing"}" title="${escapeHtml(status)}">${escapeHtml(status)}</span>
+      <span class="sample-cell ${isPlayable ? "" : "missing"}" title="${escapeHtml(playbackSource)}">${escapeHtml(status)}</span>
       <span class="sample-path sample-meta" title="${escapeHtml(playablePath)}">${escapeHtml(playablePath)}</span>
       <span class="sample-cell" title="${escapeHtml(keyOrRoot)}">${escapeHtml(keyOrRoot)}</span>
       <span class="sample-cell" title="${escapeHtml(sample.category || "Unknown")}">${escapeHtml(sample.category || "Unknown")}</span>
@@ -472,7 +540,7 @@ function renderNowPlayingDetails(sample) {
     ["Timbre", [sample.brightness, sample.warmth, sample.roughness].filter(Boolean).join(" / ") || "-"],
     ["Source", sample.source || "-"],
     ["Library", sample.library_name || sample.library_id || "-"],
-    ["Playback", sample.playback_status === "available" ? "Available" : "Missing"],
+    ["Playback", sample.playback_status === "available" ? `Available / ${sourceLabel(sample.playback_source)}` : "Missing"],
     ["Confidence", hasValue(sample.confidence) ? Number(sample.confidence).toFixed(2) : "-"],
   ];
 

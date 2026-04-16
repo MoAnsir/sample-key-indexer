@@ -263,6 +263,7 @@ Likely next phases:
 - V3.7 Multi-Library UX Polish
   - Improve web-app/library filtering and mounted-drive clarity for multiple USB/SD indexes.
   - Make it easy to see which libraries are searchable, playable, missing audio, or using source-vs-organised playback roots.
+  - Started on branch `v3.7-multi-library-ux`: web API returns library summaries, each sample now carries `playback_source`, and the browser shows library cards plus Library/Playback filters.
 - V3.8 Optional Backend Expansion
   - Revisit Sonic Annotator/QM Vamp Plugins only if KeyFinder comparison does not provide enough harmonic evidence.
   - Revisit aubio only for onset/tempo needs, not primary key detection.

@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.web_app import _flatten_sample, _playable_path, _with_playback_info, organized_relative_path, parse_library_roots, summarize_by_type
+from sample_key_indexer.web_app import _flatten_sample, _playable_path, _with_playback_info, organized_relative_path, parse_library_roots, summarize_by_type, summarize_libraries
 
 
 class WebAppTests(unittest.TestCase):
@@ -22,6 +22,20 @@ class WebAppTests(unittest.TestCase):
             {"type": "Bass", "count": 1, "percentage": 25.0},
             {"type": "Snare", "count": 1, "percentage": 25.0},
         ])
+
+    def test_summarize_libraries_counts_playback_state(self) -> None:
+        libraries = summarize_libraries([
+            {"library_id": "usb_01", "library_name": "USB 01", "playback_status": "available", "playback_source": "organized_mounted_root", "index_path": "/indexes/usb.sqlite"},
+            {"library_id": "usb_01", "library_name": "USB 01", "playback_status": "missing", "playback_source": "missing", "index_path": "/indexes/usb.sqlite"},
+            {"library_id": "sd_02", "library_name": "SD 02", "playback_status": "available", "playback_source": "source_mounted_root", "index_path": "/indexes/sd.sqlite"},
+        ])
+
+        self.assertEqual(libraries[0]["id"], "sd_02")
+        self.assertEqual(libraries[0]["available"], 1)
+        self.assertEqual(libraries[1]["id"], "usb_01")
+        self.assertEqual(libraries[1]["total"], 2)
+        self.assertEqual(libraries[1]["missing"], 1)
+        self.assertEqual(libraries[1]["sources"][0], {"source": "missing", "count": 1})
 
     def test_structured_result_flattens_for_browser(self) -> None:
         result = AnalysisResult(
@@ -153,7 +167,9 @@ class WebAppTests(unittest.TestCase):
             available = _with_playback_info(sample, {"usb_01": root})
 
         self.assertEqual(missing["playback_status"], "missing")
+        self.assertEqual(missing["playback_source"], "missing")
         self.assertEqual(available["playback_status"], "available")
+        self.assertEqual(available["playback_source"], "source_mounted_root")
         self.assertEqual(available["playable_path"], str(audio_path))
 
     def test_parse_library_roots_requires_library_id(self) -> None:
