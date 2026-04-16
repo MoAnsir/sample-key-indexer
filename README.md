@@ -15,6 +15,8 @@ pip install -e .
 
 `librosa` handles the baseline pitch and chroma analysis. `essentia` is installed as a required dependency because the normal balanced workflow uses `--engines librosa,essentia`. `soundfile` is included for WAV/AIFF support; MP3 support depends on the audio backend available to librosa/audioread on your machine.
 
+KeyFinder CLI is also required. It is an external command-line tool, so `pip install -e .` cannot install it from Python packaging metadata. Install it separately and make sure either `keyfinder-cli` or `keyfinder` is on `PATH`; `--doctor` and `--backend-check` fail when it is missing.
+
 ## Run
 
 Dry run first:
@@ -155,7 +157,7 @@ Real deep reruns analyze each selected file in an isolated worker process. If de
 Use `--report-json` to save missing-audio examples, analysis errors, worker crash failures, and fallback successes for follow-up.
 V3.4 records files that crash both the primary and fallback rerun in `analysis.deep_review` and skips those known failures by default. Pass `--retry-deep-failed` when you intentionally want to try them again after changing engines, dependencies, or analysis settings.
 
-Check optional deep backend availability before installing or wiring new engines:
+Check required KeyFinder and optional deep backend availability before installing or wiring new engines:
 
 ```bash
 sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite --backend-check
@@ -179,7 +181,7 @@ sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
   --keyfinder-json /path/to/keyfinder_all.json
 ```
 
-Store KeyFinder as an optional external comparison signal without changing the main key decision:
+Store KeyFinder as the required external comparison signal without changing the main key decision:
 
 ```bash
 sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
@@ -285,7 +287,8 @@ The web app can read both this structured schema and older flat records.
 ## V3 Ideas
 
 - Add `ffprobe` for better file probing and skip decisions before loading audio into the analysis engines.
-- Consider KeyFinder or Sonic Annotator with QM Vamp Plugins as a deep harmonic analysis backend.
+- Use KeyFinder CLI as the required external key-comparison backend.
+- Consider Sonic Annotator with QM Vamp Plugins as a later optional deep harmonic analysis backend.
 - Consider `aubio` for better onset and tempo utilities if we want a small dependency footprint.
 - Add a deep review mode that reruns only low-confidence or disagreement cases instead of reprocessing the whole library.
 
@@ -322,12 +325,12 @@ The web app can read both this structured schema and older flat records.
 - `--failures-json` and `--failures-csv` export deep-review failures for spreadsheet or later backend analysis.
 - Failure reports summarize failed rerun files by reason, library, format, type, duration bucket, and path family.
 - Reports include lightweight triage hints when failures share a clear pattern, such as all files being short WAVs that crash the deep librosa+essentia path.
-- Use these reports to decide whether KeyFinder, Sonic Annotator/QM Vamp Plugins, aubio, or pre-conversion/probing work should come next.
+- Use these reports to decide whether Sonic Annotator/QM Vamp Plugins, aubio, or pre-conversion/probing work should come next.
 
 ## V3.6 Deep Backend Experiments
 
-- `sample-key-indexer-review --backend-check` prints a read-only report of optional deep backend availability.
-- The check looks for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins in standard macOS/Homebrew Vamp paths, and aubio.
+- `sample-key-indexer-review --backend-check` prints a read-only report of required KeyFinder availability and optional deep backend availability.
+- The check requires KeyFinder CLI and also looks for Sonic Annotator, QM Vamp Plugins in standard macOS/Homebrew Vamp paths, and aubio.
 - The report includes the current deep-review failure target summary so external backend experiments stay scoped to real failures.
 - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures and reports successes, errors, and stored-key/root matches without changing metadata.
 - `--keyfinder-enrich` runs the same KeyFinder path and stores its output under `analysis.external.keyfinder` without changing the main key decision or routing.
@@ -339,7 +342,7 @@ The web app can read both this structured schema and older flat records.
 - With `--keyfinder-convert-retry`, the same full index processed all 4,411 files, converted 1,959 files, had zero remaining errors, matched 1,346 stored keys, and matched 2,041 stored roots.
 - Full SD 02 Trad metadata enrichment result: 4,411 records updated under `analysis.external.keyfinder`, 1,959 conversion retries used, zero errors, 1,346 stored-key matches, and 2,041 stored-root matches.
 - Full SD 02 Trad comparison result: 4,411 records with KeyFinder metadata, 0 missing, 4,411 successes, 1,346 stored-key matches, 2,041 stored-root matches, 695 root-only matches, and 2,370 key/root disagreements.
-- KeyFinder is now an optional stored comparison backend. It should not replace the main key decision until more libraries are compared.
+- KeyFinder is now the required stored comparison backend. It should not replace the main key decision until more libraries are compared.
 - V3.6 KeyFinder policy: keep KeyFinder out of the final key/root/confidence/routing decision. Use it only as a stored comparison signal and, with `--keyfinder-apply-review`, as a review-only flag for high-confidence disagreements.
 - Parked until more devices exist: enrich another real library and compare KeyFinder behavior across libraries.
 - Current V3.6 focus: classification quality, prompted by USB 01 physical-device testing where misleading folders and weak type detection put drum fills, hats, beats, and loops into the wrong routed folders.

@@ -86,10 +86,14 @@ Required Python packages:
 - `soundfile`: fast WAV/AIFF metadata and loading support.
 - `tqdm`: progress bars.
 
-External tools and future options:
+Required external tools:
+
+- `keyfinder-cli` or `keyfinder`: required external key-comparison backend. Python packaging cannot install this binary, so it must be installed separately and available on `PATH`.
+
+Optional external tools and future options:
 
 - `ffprobe`: V3.2 uses it first, when available, for duration probing and long-file skip decisions.
-- KeyFinder or Sonic Annotator with QM Vamp Plugins: candidate "deep harmonic analysis" backends for later V3 work.
+- Sonic Annotator with QM Vamp Plugins: possible later deep harmonic analysis backend if KeyFinder comparison is not enough.
 - `aubio`: possible small-footprint onset/tempo utility, only if better onset/tempo becomes useful without adding a large dependency.
 
 ## Major Features
@@ -245,7 +249,7 @@ Active:
   - Keep key analysis and KeyFinder comparison unchanged while improving type routing.
 
 - V3.6 Deep Backend Experiments
-  - `--backend-check` prints local availability for KeyFinder CLI, Sonic Annotator, QM Vamp Plugins, and aubio.
+  - `--backend-check` prints local availability for required KeyFinder CLI plus optional Sonic Annotator, QM Vamp Plugins, and aubio.
   - The backend check also summarizes recorded deep-review failures so backend experiments stay focused on real crash patterns.
   - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures, reports successes/errors and stored key/root matches, and can write `--keyfinder-json`.
   - `--keyfinder-enrich` stores KeyFinder output under `analysis.external.keyfinder` without changing `musical.key`, `musical.root`, `analysis.final_decision`, routing, or copied files.
@@ -253,7 +257,7 @@ Active:
   - `--keyfinder-apply-review` applies the V3.6 review-only policy: add `keyfinder_high_confidence_disagreement` to review reasons when a successful KeyFinder result strongly disagrees with a high-confidence stored key/root. It does not change final key/root/confidence/routing.
   - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or every sample in the selected index.
   - `--keyfinder-convert-retry` retries KeyFinder failures via temporary ffmpeg conversion to 16-bit PCM WAV.
-  - KeyFinder is now an optional stored comparison/review signal, not the main key decision.
+  - KeyFinder is now the required stored comparison/review signal, not the main key decision.
 
 Parked until more devices are available:
 
@@ -274,7 +278,7 @@ Likely next phases:
 
 Later:
 
-- Optional deep harmonic backend integration with KeyFinder or Sonic Annotator/QM Vamp Plugins, if the V3.6 checks prove useful.
+- Optional deep harmonic backend integration with Sonic Annotator/QM Vamp Plugins, if the V3.6 checks prove useful.
 - Compare stored `analysis.external.keyfinder` results across more physical devices when they exist. Do not change final key scoring unless a later phase deliberately reopens the V3.6 review-only policy.
 - Optional aubio onset/tempo utility if tempo/onset quality needs a small-footprint boost.
 - Multi-USB UX polish.
@@ -360,9 +364,9 @@ Failure path families:
   Indian Melodic / Flute: 2
   Indian Melodic / Mandolin: 2
   Indian Melodic / Sitar: 1
-KeyFinder CLI: available (/usr/local/bin/keyfinder-cli)
-Sonic Annotator: missing
-aubio: missing
+KeyFinder CLI: available (/usr/local/bin/keyfinder-cli) [required]
+Sonic Annotator: missing [optional]
+aubio: missing [optional]
 QM Vamp Plugins: missing
 ```
 
@@ -392,7 +396,7 @@ MndRatiPriya100 13(lp).wav: Bbm / A#_minor, root match true
 StrBhairaviAlap 01a.wav: E / E_major, root match false
 ```
 
-Interpretation: KeyFinder can analyze most of the current crash set and gives useful comparison data, but it should not replace the current key decision yet. Treat it as an optional third opinion for deep-review failures until more libraries confirm whether its output improves confidence.
+Interpretation: KeyFinder can analyze most of the current crash set and gives useful comparison data, but it should not replace the current key decision yet. Treat it as the required external comparison signal until more libraries confirm whether its output should influence confidence.
 
 Full-index KeyFinder experiment on the same selected folder:
 
@@ -446,7 +450,7 @@ Matches stored key: 1346 files
 Matches stored root: 2041 files
 ```
 
-Interpretation: ffmpeg conversion fixes the KeyFinder resampling failure completely for this pack. KeyFinder still should not overwrite the main decision yet, but it is now viable as an optional comparison backend over full selected indexes.
+Interpretation: ffmpeg conversion fixes the KeyFinder resampling failure completely for this pack. KeyFinder still should not overwrite the main decision yet, but it is now viable as the required comparison backend over full selected indexes.
 
 V3.6 now includes an opt-in metadata enrichment command that stores KeyFinder output under `analysis.external.keyfinder`, including raw key, normalized key, root, stored key/root match flags, conversion status, errors, path, command, scope, and update timestamp. It does not change `musical.key`, `musical.root`, `analysis.final_decision`, routing metadata, or copied files.
 
@@ -485,7 +489,7 @@ analysis.external.keyfinder.status = success: 4411
 analysis.external.keyfinder.conversion_used = true: 1959
 ```
 
-Interpretation: KeyFinder is ready as an optional external comparison signal. V3.6 policy keeps it separate from the main key decision and permits only review-only influence through `--keyfinder-apply-review`.
+Interpretation: KeyFinder is ready as the required external comparison signal. V3.6 policy keeps it separate from the main key decision and permits only review-only influence through `--keyfinder-apply-review`.
 
 V3.6 stored comparison report command:
 

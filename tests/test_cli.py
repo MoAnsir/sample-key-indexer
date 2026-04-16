@@ -6,11 +6,18 @@ import unittest
 from unittest.mock import patch
 
 from sample_key_indexer.audio_analysis import AudioProbe
-from sample_key_indexer.cli import AnalysisRunSummary, attach_library_metadata, format_gb, slugify, split_ignored_files, summarize_paths_by_extension, summarize_unsupported_files, split_long_files, update_analysis_summary
+from sample_key_indexer.cli import AnalysisRunSummary, attach_library_metadata, format_gb, missing_required_external_tools, slugify, split_ignored_files, summarize_paths_by_extension, summarize_unsupported_files, split_long_files, update_analysis_summary
 from sample_key_indexer.models import AnalysisResult
 
 
 class CliTests(unittest.TestCase):
+    def test_missing_required_external_tools_checks_keyfinder(self) -> None:
+        with patch("sample_key_indexer.cli.shutil.which", return_value=None):
+            self.assertEqual(missing_required_external_tools(), [("keyfinder-cli", "keyfinder")])
+
+        with patch("sample_key_indexer.cli.shutil.which", side_effect=lambda command: "/usr/local/bin/keyfinder-cli" if command == "keyfinder-cli" else None):
+            self.assertEqual(missing_required_external_tools(), [])
+
     def test_split_ignored_files_skips_fullmix_names(self) -> None:
         paths = [
             Path("Loops/PL_pack_FullMix_128_C.wav"),

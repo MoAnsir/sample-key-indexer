@@ -42,6 +42,7 @@ DEEP_BACKEND_COMMANDS = (
         "commands": ("keyfinder-cli", "keyfinder"),
         "version_args": ("--version",),
         "purpose": "External harmonic key detection.",
+        "required": True,
     },
     {
         "id": "sonic_annotator",
@@ -49,6 +50,7 @@ DEEP_BACKEND_COMMANDS = (
         "commands": ("sonic-annotator",),
         "version_args": ("--version",),
         "purpose": "Vamp plugin runner for QM key/chord plugins.",
+        "required": False,
     },
     {
         "id": "aubio",
@@ -56,6 +58,7 @@ DEEP_BACKEND_COMMANDS = (
         "commands": ("aubio",),
         "version_args": ("--version",),
         "purpose": "Small-footprint onset/tempo utility, not a primary key backend.",
+        "required": False,
     },
 )
 VAMP_PLUGIN_DIRS = (
@@ -251,6 +254,7 @@ def build_deep_failure_report(records: list[dict[str, Any]], max_examples: int =
 
 def build_backend_check_report(records: list[dict[str, Any]]) -> dict[str, Any]:
     failure_report = build_deep_failure_report(records, max_examples=0)
+    backend_status = discover_deep_backends()
     return {
         "deep_failure_targets": {
             "total": failure_report["total"],
@@ -260,7 +264,10 @@ def build_backend_check_report(records: list[dict[str, Any]]) -> dict[str, Any]:
             "by_path_family": failure_report["by_path_family"],
             "triage_hints": failure_report["triage_hints"],
         },
-        "backend_status": discover_deep_backends(),
+        "backend_status": backend_status,
+        "missing_required_backends": [
+            backend for backend in backend_status["commands"] if backend.get("required") and backend.get("status") != "available"
+        ],
     }
 
 
@@ -1136,6 +1143,7 @@ def discover_command_backend(spec: dict[str, Any]) -> dict[str, Any]:
                 "path": path,
                 "version": command_version(path, spec["version_args"]),
                 "purpose": spec["purpose"],
+                "required": bool(spec.get("required")),
             }
     return {
         "id": spec["id"],
@@ -1145,6 +1153,7 @@ def discover_command_backend(spec: dict[str, Any]) -> dict[str, Any]:
         "path": None,
         "version": None,
         "purpose": spec["purpose"],
+        "required": bool(spec.get("required")),
     }
 
 
@@ -1235,10 +1244,17 @@ def format_backend_check_report(report: dict[str, Any]) -> str:
     lines.append("Candidate backends:")
     for backend in status["commands"]:
         detail = backend["path"] if backend["status"] == "available" else "not found on PATH"
-        lines.append(f"- {backend['label']}: {backend['status']} ({detail})")
+        requirement = "required" if backend.get("required") else "optional"
+        lines.append(f"- {backend['label']}: {backend['status']} ({detail}) [{requirement}]")
         if backend.get("version"):
             lines.append(f"  Version: {backend['version']}")
         lines.append(f"  Role: {backend['purpose']}")
+    if report.get("missing_required_backends"):
+        lines.append("")
+        lines.append("Missing required backends:")
+        for backend in report["missing_required_backends"]:
+            commands = ", ".join(next((spec["commands"] for spec in DEEP_BACKEND_COMMANDS if spec["id"] == backend["id"]), (backend["label"],)))
+            lines.append(f"- {backend['label']} ({commands})")
     qm_plugins = status["qm_vamp_plugins"]
     lines.append(f"- QM Vamp Plugins: {qm_plugins['status']}")
     if qm_plugins["matches"]:
@@ -1248,8 +1264,8 @@ def format_backend_check_report(report: dict[str, Any]) -> str:
         lines.append("  No qm-named Vamp plugin files found in the standard macOS/Homebrew Vamp paths.")
     lines.append("")
     lines.append("Next experiment:")
-    lines.append("- If Sonic Annotator and QM Vamp Plugins are available, test them first against the recorded deep failures.")
-    lines.append("- If KeyFinder CLI is available, compare its key output against the same failure set.")
+    lines.append("- Use KeyFinder CLI as the required external key-comparison backend.")
+    lines.append("- If Sonic Annotator and QM Vamp Plugins are available, test them later against the recorded deep failures.")
     lines.append("- Keep aubio optional for tempo/onset checks rather than primary key detection.")
     return "\n".join(lines)
 
@@ -1793,8 +1809,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     records = load_records(index_path)
     if args.backend_check:
-        print(format_backend_check_report(build_backend_check_report(records)))
-        return 0
+        report = build_backend_check_report(records)
+        print(format_backend_check_report(report))
+        return 2 if report.get("missing_required_backends") else 0
     if args.keyfinder_compare:
         report = build_keyfinder_comparison_report(records, max_examples=max(0, args.examples))
         print(format_keyfinder_comparison_report(report))
@@ -1867,7 +1884,7 @@ def main(argv: list[str] | None = None) -> int:
             report_path = args.keyfinder_json.expanduser().resolve()
             write_keyfinder_report(report, report_path)
             print(f"KeyFinder report JSON: {report_path}")
-        return 0
+        return 2 if report.get("backend_error") == "keyfinder_not_found" else 0
     if args.deep_failures:
         report = build_deep_failure_report(records, max_examples=max(0, args.examples))
         print(format_deep_failure_report(report))

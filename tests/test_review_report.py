@@ -621,6 +621,7 @@ class ReviewReportTests(unittest.TestCase):
                     "path": None,
                     "version": None,
                     "purpose": "External harmonic key detection.",
+                    "required": True,
                 },
                 {
                     "id": "sonic_annotator",
@@ -629,6 +630,7 @@ class ReviewReportTests(unittest.TestCase):
                     "path": "/usr/local/bin/sonic-annotator",
                     "version": "Sonic Annotator 1.6",
                     "purpose": "Vamp plugin runner for QM key/chord plugins.",
+                    "required": False,
                 },
             ],
             "qm_vamp_plugins": {
@@ -643,9 +645,12 @@ class ReviewReportTests(unittest.TestCase):
         text = format_backend_check_report(report)
 
         self.assertEqual(report["deep_failure_targets"]["total"], 1)
+        self.assertEqual(report["missing_required_backends"][0]["id"], "keyfinder")
         self.assertEqual(report["deep_failure_targets"]["by_path_family"], [{"value": "Indian Melodic / Flute", "count": 1}])
         self.assertIn("Deep backend check:", text)
         self.assertIn("Deep-review failure targets: 1 files", text)
+        self.assertIn("KeyFinder CLI: missing (not found on PATH) [required]", text)
+        self.assertIn("Missing required backends:", text)
         self.assertIn("Sonic Annotator: available (/usr/local/bin/sonic-annotator)", text)
         self.assertIn("QM Vamp Plugins: available", text)
 

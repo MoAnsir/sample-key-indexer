@@ -4,6 +4,7 @@ import argparse
 from dataclasses import dataclass, replace
 import os
 import re
+import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex
 from sample_key_indexer.routing import route_file
 
 DEFAULT_IGNORED_NAME_PATTERNS: tuple[str, ...] = ("fullmix", "full mix")
+REQUIRED_EXTERNAL_TOOLS: tuple[tuple[str, ...], ...] = (("keyfinder-cli", "keyfinder"),)
 
 
 @dataclass
@@ -91,7 +93,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.doctor:
+        missing_tools = missing_required_external_tools()
+        if missing_tools:
+            print("Required external tool check failed.")
+            for commands in missing_tools:
+                print(f"Missing: {' or '.join(commands)}")
+            return 2
         print("Audio backend check passed.")
+        print("Required external tool check passed.")
         for warning in backend_warnings:
             print(f"Warning: {warning}")
         print(f"Analysis profile: {args.analysis_profile}; engines: {', '.join(selected_engines)}")
@@ -339,6 +348,10 @@ def _parse_engines(value: str | None) -> tuple[str, ...] | None:
     if not value:
         return None
     return tuple(engine.strip() for engine in value.split(",") if engine.strip())
+
+
+def missing_required_external_tools() -> list[tuple[str, ...]]:
+    return [commands for commands in REQUIRED_EXTERNAL_TOOLS if not any(shutil.which(command) for command in commands)]
 
 
 if __name__ == "__main__":

@@ -12,7 +12,11 @@ If the commands are missing after code changes:
 pip install -e .
 ```
 
-This installs the normal analysis stack, including Essentia.
+This installs the normal analysis stack, including Essentia. KeyFinder CLI is required too, but it is an external command-line tool, so install it separately and make sure one of these works:
+
+```bash
+which keyfinder-cli || which keyfinder
+```
 
 ## Start The Browser
 
@@ -149,7 +153,7 @@ sample-key-indexer-review \
 
 ## Rerun KeyFinder Only
 
-Add KeyFinder metadata without changing the final key:
+Add required KeyFinder comparison metadata without changing the final key:
 
 ```bash
 sample-key-indexer-review \

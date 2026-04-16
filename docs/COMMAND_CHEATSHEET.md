@@ -178,7 +178,11 @@ sample-key-indexer-review \
 
 ## KeyFinder
 
-Check optional backend availability:
+Check required KeyFinder and optional backend availability:
+
+```bash
+which keyfinder-cli || which keyfinder
+```
 
 ```bash
 sample-key-indexer-review \
