@@ -13,13 +13,13 @@ DRUM_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("Kick", ("kick", "kicks", "bd", "bass drum", "bassdrum", "kik")),
     ("Snare", ("snare", "snares", "sd", "rim", "clap")),
     ("Hat", ("hat", "hats", "hihat", "hi hat", "hh", "closed hat", "closedhat", "open hat", "openhat", "cymbal", "ride", "crash")),
-    ("Perc", ("perc", "percussion", "conga", "bongo", "tom", "shaker", "clave", "cowbell")),
+    ("Perc", ("perc", "percussion", "conga", "bongo", "tom", "shaker", "clave", "cowbell", "tabla", "dholak", "duff", "timbale", "timbales", "tambourine", "cabassa")),
 ]
 
 TONAL_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("Bass", ("bass", "808", "sub")),
     ("Chords", ("chord", "stab", "keys", "piano", "organ", "rhodes")),
-    ("Leads", ("lead", "melody", "melodic", "synth")),
+    ("Leads", ("lead", "melody", "melodic", "synth", "horn", "horns", "brass")),
     ("Pads", ("pad", "atmo", "atmos", "drone", "texture")),
     ("Plucks", ("pluck", "arp", "arpeggio")),
     ("Vocals", ("vocal", "vox", "voice", "chant", "choir")),

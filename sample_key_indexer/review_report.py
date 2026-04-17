@@ -465,6 +465,8 @@ def classification_audit_item(sample: dict[str, Any]) -> dict[str, Any]:
 
     if audit_text_has(stem_text, "fullmix") or audit_text_has(stem_text, "full mix"):
         reasons.append("ignored_fullmix_present")
+    if audit_text_has(stem_text, "musicloop") or audit_text_has(stem_text, "music loop"):
+        reasons.append("ignored_musicloop_present")
 
     loop_score = audit_score(stem_text, folder_text, AUDIT_LOOP_TOKENS)
     oneshot_score = audit_score(stem_text, folder_text, AUDIT_ONESHOT_TOKENS)
@@ -755,6 +757,11 @@ def enrich_keyfinder_metadata(
     write_every: int = 25,
     export_json: bool = True,
 ) -> dict[str, Any]:
+    try:
+        from tqdm import tqdm
+    except ModuleNotFoundError:
+        tqdm = None
+
     command = shutil.which("keyfinder-cli") or shutil.which("keyfinder")
     ffmpeg_command = shutil.which("ffmpeg") if convert_retry else None
     targets = keyfinder_targets(records, scope=scope, low_confidence=low_confidence)
@@ -788,7 +795,10 @@ def enrich_keyfinder_metadata(
 
     index = None if dry_run else open_writable_index(index_path)
     try:
-        for target in targets:
+        iterable = targets
+        if tqdm is not None:
+            iterable = tqdm(targets, total=len(targets), unit="file", desc="KeyFinder")
+        for target in iterable:
             playable = Path(_playable_path(target, library_roots, destination_roots))
             result = {
                 "name": target.get("name"),
@@ -804,6 +814,7 @@ def enrich_keyfinder_metadata(
             if not playable.exists():
                 result["status"] = "missing_audio"
                 result["error"] = "audio_not_found"
+                result["error_code"] = "audio_not_found"
                 report["missing_audio"] += 1
                 report["results"].append(result)
                 continue
@@ -852,6 +863,17 @@ def enrich_keyfinder_metadata(
         if index:
             close_index(index)
     report["error_reasons"] = count_items([item for item in report["results"] if item.get("status") != "success" or item.get("metadata_error")], "error")
+    report["error_codes"] = count_items(
+        [
+            {
+                **item,
+                "error_code": item.get("error_code") or ("metadata_error" if item.get("metadata_error") else item.get("error")),
+            }
+            for item in report["results"]
+            if item.get("status") != "success" or item.get("metadata_error")
+        ],
+        "error_code",
+    )
     report["success_by_path_family"] = count_items([item for item in report["results"] if item.get("status") == "success"], "path_family")
     report["error_by_path_family"] = count_items([item for item in report["results"] if item.get("status") != "success"], "path_family")
     return report
@@ -1020,7 +1042,13 @@ def run_keyfinder(command: str, path: Path, timeout: float = 15.0) -> dict[str, 
         return {"status": "error", "error": str(exc), "raw_output": ""}
     raw_output = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
     if completed.returncode != 0:
-        return {"status": "error", "error": raw_output or f"exit_{completed.returncode}", "raw_output": raw_output}
+        error = raw_output or f"exit_{completed.returncode}"
+        return {
+            "status": "error",
+            "error": error,
+            "error_code": normalize_keyfinder_error(error),
+            "raw_output": raw_output,
+        }
     raw_key = raw_output.splitlines()[0].strip() if raw_output else ""
     normalized_key, root_note = normalize_keyfinder_key(raw_key)
     return {
@@ -1030,12 +1058,20 @@ def run_keyfinder(command: str, path: Path, timeout: float = 15.0) -> dict[str, 
         "root_note": root_note,
         "raw_output": raw_output,
         "error": None if raw_key else "empty_output",
+        "error_code": None if raw_key else "empty_output",
     }
 
 
 def run_keyfinder_with_converted_wav(command: str, path: Path, ffmpeg_command: str | None, timeout: float = 15.0) -> dict[str, Any]:
     if not ffmpeg_command:
-        return {"status": "error", "error": "ffmpeg_not_found", "raw_output": "", "conversion_status": "error", "conversion_error": "ffmpeg_not_found"}
+        return {
+            "status": "error",
+            "error": "ffmpeg_not_found",
+            "error_code": "ffmpeg_not_found",
+            "raw_output": "",
+            "conversion_status": "error",
+            "conversion_error": "ffmpeg_not_found",
+        }
     with tempfile.TemporaryDirectory(prefix="sample-key-indexer-keyfinder-") as temp_dir:
         converted = Path(temp_dir) / f"{path.stem}.keyfinder.wav"
         conversion = convert_to_pcm16_wav(ffmpeg_command, path, converted, timeout=timeout)
@@ -1043,6 +1079,7 @@ def run_keyfinder_with_converted_wav(command: str, path: Path, ffmpeg_command: s
             return {
                 "status": "error",
                 "error": conversion["error"],
+                "error_code": normalize_keyfinder_error(conversion["error"]),
                 "raw_output": conversion.get("raw_output", ""),
                 "conversion_status": "error",
                 "conversion_error": conversion["error"],
@@ -1085,6 +1122,27 @@ def convert_to_pcm16_wav(ffmpeg_command: str, source: Path, destination: Path, t
     if not destination.exists():
         return {"status": "error", "error": "converted_file_missing", "raw_output": raw_output}
     return {"status": "success", "error": None, "raw_output": raw_output}
+
+
+def normalize_keyfinder_error(error: str | None) -> str:
+    text = (error or "").strip().lower()
+    if not text:
+        return "unknown_error"
+    if "file doesn't exist or unhandle format" in text or "unable to open audio file" in text:
+        return "audio_unopenable_or_unhandled"
+    if "does not have any audio streams" in text:
+        return "no_audio_streams"
+    if "unable to resample audio into 16bit pcm data" in text:
+        return "pcm16_resample_failed"
+    if "ffmpeg_not_found" in text:
+        return "ffmpeg_not_found"
+    if "timeout" in text:
+        return "timeout"
+    if text.startswith("exit_"):
+        return "keyfinder_exit_error"
+    if text.startswith("ffmpeg_exit_"):
+        return "ffmpeg_exit_error"
+    return text[:120]
 
 
 def normalize_keyfinder_key(raw_key: str | None) -> tuple[str | None, str | None]:
@@ -1421,6 +1479,11 @@ def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
         lines.append("Error reasons:")
         for item in report["error_reasons"][:10]:
             lines.append(f"- {item['value']}: {item['count']}")
+    if report.get("error_codes"):
+        lines.append("")
+        lines.append("Normalized error codes:")
+        for item in report["error_codes"][:10]:
+            lines.append(f"- {item['value']}: {item['count']}")
     if report.get("success_by_path_family"):
         lines.append("")
         lines.append("Successes by path family:")
@@ -1443,6 +1506,12 @@ def format_keyfinder_experiment_report(report: dict[str, Any]) -> str:
                 )
             else:
                 lines.append(f"- {item['name']} | {item['status']} | {item.get('error')}")
+    if report.get("selected") and report.get("processed") is not None:
+        remaining = report["selected"] - report["processed"] - report["missing_audio"]
+        if remaining < 0:
+            remaining = 0
+        lines.append("")
+        lines.append(f"  Remaining without successful KeyFinder result: {remaining} files")
     return "\n".join(lines)
 
 

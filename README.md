@@ -43,6 +43,14 @@ Build a searchable catalog without copying audio into `Key/` or `Unsorted`:
 sample-key-indexer /path/to/SampleLibrary /path/to/SampleIndexes/USB_01 --catalog-only --library-id usb_01 --library-name "USB 01"
 ```
 
+Every main indexing run now also writes a machine-readable run log to:
+
+```text
+/path/to/output_root/analysis_run_report.json
+```
+
+Use `--report-json` to override that location when you want to save the report somewhere else during debugging or comparisons.
+
 V2 uses the balanced analysis profile by default. It keeps the librosa baseline, uses Essentia key analysis, writes a SQLite working index, and exports the JSON metadata used by the browser:
 
 ```text
@@ -75,6 +83,16 @@ Duration probing uses `ffprobe` when it is installed, then falls back to the Pyt
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --probe-backend ffprobe
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised --probe-backend python
 ```
+
+The run report JSON includes:
+
+- processed/skipped/unsupported counts
+- probe backend counts
+- normalized failed-probe reason counts and failed-probe examples
+- whether isolated retry mode was triggered after a worker crash
+- normalized crash signature buckets with counts and representative example files
+- example files for errors, warnings, and review cases
+- suspicious-file rollups and explained source/output delta
 
 To include long files anyway:
 
@@ -192,6 +210,12 @@ sample-key-indexer-review /path/to/Samples_Organised/metadata_index.sqlite \
 ```
 
 This writes KeyFinder details under `analysis.external.keyfinder`, including the raw key, normalized key, root, stored-key/root match flags, conversion status, errors, and update time. It does not overwrite `musical.key`, `musical.root`, `analysis.final_decision`, routing metadata, or copied files.
+
+Recent quality-policy tuning:
+
+- `filename_bpm_anchor` is no longer added as a review reason for obvious drum/noise sample types such as `DrumLoops`, `Kick`, `Snare`, `Hat`, `Perc`, `FX`, and `FXLoops`.
+- known Python stdlib AIFF deprecation warnings (`aifc`, `audioop`, `sunau`) are ignored instead of being stored as analysis warnings.
+- `short_signal_fft_adjusted` is kept in metadata but treated as informational rather than counting as an actionable warning in the main run summary.
 
 Compare stored KeyFinder results against the current stored key/root decisions:
 
@@ -334,6 +358,7 @@ The web app can read both this structured schema and older flat records.
 - The report includes the current deep-review failure target summary so external backend experiments stay scoped to real failures.
 - `--keyfinder-experiment` runs KeyFinder CLI against recorded deep-review failures and reports successes, errors, and stored-key/root matches without changing metadata.
 - `--keyfinder-enrich` runs the same KeyFinder path and stores its output under `analysis.external.keyfinder` without changing the main key decision or routing.
+- `--keyfinder-enrich` shows a live progress bar when `tqdm` is available so long whole-library passes have a visible heartbeat.
 - `--keyfinder-compare` is a read-only report over stored `analysis.external.keyfinder` results, grouped by library, type, confidence bucket, status, and match/disagreement decision.
 - `--keyfinder-scope failures|review|all` controls whether KeyFinder runs against known deep failures, review candidates, or the full selected index.
 - `--keyfinder-convert-retry` retries KeyFinder failures by converting the source to a temporary 16-bit PCM WAV with ffmpeg.
@@ -353,7 +378,7 @@ The web app can read both this structured schema and older flat records.
 - Folder evidence is still used as a weaker hint when the filename is vague.
 - Loop-like filename tokens such as `fill`, `beat`, `bpm`, `loop`, `ptn`, and `riff` can keep short drum material in `Loops` instead of `OneShots`.
 - Drum indicators such as `drum`, `beat`, `fill`, `roll`, `hat`, `kick`, and `snare` help keep drum material out of misleading melodic, lead, and FX buckets.
-- Full arrangement files named `fullmix` or `full mix` are ignored by default, reported under `Not copied - ignored filename patterns`, and can be included with `--include-ignored-files`.
+- Full arrangement files named `fullmix`, `full mix`, `musicloop`, or `music loop` are ignored by default, reported under `Not copied - ignored filename patterns`, and can be included with `--include-ignored-files`.
 - `sample-key-indexer-review --classification-audit` scans an existing metadata index for suspicious stored category/type decisions before rebuilding organised audio folders.
 - Key analysis and KeyFinder comparison are unchanged by this classification pass.
 

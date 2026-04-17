@@ -45,6 +45,16 @@ class ClassificationAndRoutingTests(unittest.TestCase):
         self.assertEqual(category, "Loops")
         self.assertEqual(sample_type, "DrumLoops")
 
+    def test_timbales_name_routes_to_drum_family_not_melody(self) -> None:
+        category, sample_type = classify_sample(Path("Melodies/32 timbales 03.aif"), 5.0)
+        self.assertEqual(category, "Loops")
+        self.assertEqual(sample_type, "DrumLoops")
+
+    def test_horns_name_routes_to_melodic_loop_not_fx(self) -> None:
+        category, sample_type = classify_sample(Path("FX/19 horns 02.aif"), 5.0)
+        self.assertEqual(category, "Loops")
+        self.assertEqual(sample_type, "MelodyLoops")
+
     def test_named_melodic_instrument_rescues_bright_fx_feature_guess(self) -> None:
         with patch("sample_key_indexer.classify._feature_type", return_value="FXLoops"):
             category, sample_type = classify_sample(

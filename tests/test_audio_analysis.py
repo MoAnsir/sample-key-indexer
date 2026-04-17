@@ -48,6 +48,23 @@ class AudioAnalysisV2Tests(unittest.TestCase):
         self.assertEqual(bpm, 140.0)
         self.assertEqual(reason, [])
 
+    @unittest.skipUnless(importlib.util.find_spec("numpy"), "numpy is required for audio array tests")
+    def test_detect_bpm_with_review_suppresses_filename_anchor_for_drum_types(self) -> None:
+        import numpy as np
+
+        with patch("sample_key_indexer.audio_analysis.librosa.onset.onset_strength", return_value=np.array([0.1, 0.2, 0.3])):
+            with patch("sample_key_indexer.audio_analysis.librosa.feature.tempo", return_value=np.array([95.7])):
+                bpm, reason = detect_bpm_with_review(
+                    np.ones(44100),
+                    22050,
+                    4.0,
+                    expected_bpm=140.0,
+                    sample_type="DrumLoops",
+                )
+
+        self.assertEqual(bpm, 140.0)
+        self.assertEqual(reason, [])
+
     def test_essentia_key_confidence_lifts_when_librosa_root_supports_it(self) -> None:
         key, root, confidence, review_reasons = choose_consensus_key(
             librosa_key=None,
@@ -135,6 +152,7 @@ class AudioAnalysisV2Tests(unittest.TestCase):
             warnings.warn("PySoundFile failed. Trying audioread instead.")
             warnings.warn("n_fft=1024 is too large for input signal of length=43")
             warnings.warn("Trying to estimate tuning from empty frequency set.")
+            warnings.warn("'aifc' is deprecated and slated for removal in Python 3.13", DeprecationWarning)
 
         self.assertEqual(
             summarize_warnings(captured),

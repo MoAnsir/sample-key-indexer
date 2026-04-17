@@ -53,6 +53,8 @@ caffeinate -dimsu sample-key-indexer \
   --probe-backend auto
 ```
 
+Main indexing runs also write `analysis_run_report.json` in the output root. Use `--report-json /tmp/LIBRARY_ID_run_report.json` if you want to keep a named debug log elsewhere. The report now includes failed-probe reasons/examples, suspicious-file examples, and the explained source/output size delta too.
+
 Kitchen sink, creating `Key/` and `Unsorted/` plus metadata for a physical USB/SD:
 
 Step 1: analyse and organise:
@@ -69,6 +71,8 @@ caffeinate -dimsu sample-key-indexer \
   --write-every 25 \
   --probe-backend auto
 ```
+
+This first step produces the main run log too, including processed/skipped counts, probe backend counts, failed-probe reasons/examples, isolated retry activation, suspicious-file rollups, and example files for errors, warnings, and review cases.
 
 Step 2: add required KeyFinder comparison metadata:
 
@@ -103,6 +107,8 @@ Include files normally skipped as fullmix/full mix:
 ```bash
 sample-key-indexer INPUT_ROOT OUTPUT_ROOT --include-ignored-files
 ```
+
+Ignored-name matching also covers `musicloop`, `music-loop`, `music_loop`, and `music loop`.
 
 ## Start The Web App
 

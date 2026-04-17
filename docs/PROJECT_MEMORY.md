@@ -8,6 +8,10 @@ This file is the long-lived project context for humans and AI agents. Read it be
 
 The user workflow is based around multiple removable drives. Each USB or SD card should be indexed as a separate library so the web app can search metadata even when the drive is not mounted. Audio playback should become available again when the matching source or organised drive is mounted and passed to the web app.
 
+The Apllication along with telling you the root, key and bpm. It also suggests complamentry keys, chords, notes and scales for that sample and the key it is in.
+
+The Aplliction also has a sanatisation command that cleans the source samples folders to remove unessacry files, unessacry file formats and full mixes to clean it up for scanning, analysis and sorting.
+
 The short one-page daily command guide lives in `docs/DAILY_COMMANDS.md`. The fuller command reference lives in `docs/COMMAND_CHEATSHEET.md`. Keep both updated when a feature adds or changes a command the user is likely to reuse. The daily guide should include both catalog-only indexing and organising/copying into `Key/` and `Unsorted/` for moving onto USB/SD devices.
 
 ## Current Branch State
@@ -127,6 +131,8 @@ Important analysis behavior:
 - Final key/root decisions come from a consensus layer that compares librosa, Essentia, and filename key hints.
 - Review reasons are stored in metadata for later filtering and reruns.
 - BPM detection now uses `librosa.onset.onset_strength` plus `librosa.feature.tempo` instead of `librosa.beat.beat_track`, because real-world USB test files were hard-crashing worker processes inside the older beat-tracking path.
+- Main indexing runs now always emit `analysis_run_report.json` in the output root unless `--report-json` points elsewhere. This report stores processed/skipped counts, probe backend counts, normalized failed-probe reasons/examples, worker-crash/isolation flags, normalized crash signature buckets, suspicious-file rollups, explained source/output size delta, and example files for errors, warnings, and review cases so future bulk-run failures are easier to diagnose.
+- Review/warning noise was reduced after the large `SD_02_Trad` run: `filename_bpm_anchor` is suppressed for obvious drum/noise sample types, known Python AIFF deprecation warnings are ignored, and `short_signal_fft_adjusted` remains in metadata but is treated as informational rather than an actionable warning count in the main run summary.
 
 ### Classification And Routing
 
@@ -134,7 +140,9 @@ Classification lives in `sample_key_indexer/classify.py`.
 
 Classification uses filename evidence, nearby folder evidence, and audio features. Filename tokens are weighted higher than folder tokens because real sample packs often contain misleading folders after earlier sorting, while the filename usually carries the strongest clues: drum/fill/beat/hat/kick/snare, BPM, section, key, pack, artist, and index. Loop-like filename tokens such as `fill`, `beat`, `bpm`, `loop`, `ptn`, and `riff` can force even short files into `Loops` instead of `OneShots`.
 
-The CLI skips supported audio whose filename indicates a full arrangement/demo mix via `fullmix` or `full mix`. These files are usually full songs rather than reusable samples. They are reported as `Not copied - ignored filename patterns` and can be included deliberately with `--include-ignored-files`.
+Drum/percussion token coverage has been expanded for real library material such as `tabla`, `dholak`, `duff`, `timbale(s)`, `tambourine`, and `cabassa`. Melodic loop coverage now also catches `horn` and `horns` so these examples do not default back to `FXLoops`.
+
+The CLI skips supported audio whose filename indicates a full arrangement/demo mix via `fullmix`, `full mix`, `musicloop`, or `music loop`. These files are usually full songs rather than reusable samples. They are reported as `Not copied - ignored filename patterns` and can be included deliberately with `--include-ignored-files`.
 
 Routing lives in `sample_key_indexer/routing.py`. Samples with usable key/root are routed under `Key/<key>/...`. Samples with no usable root/key go under `Unsorted/...`.
 
@@ -245,7 +253,7 @@ Active:
   - Improve sample type/category routing by combining filename tokens, folder context, and audio features.
   - Filename evidence should beat conflicting folder evidence, for example `HH_Open_01.wav` inside a `Kicks` folder should classify as `Hat`.
   - Drum loop indicators such as `drum`, `beat`, `fill`, `roll`, and `bpm` should keep drum material out of misleading `MelodyLoops`, `Leads`, and `FXLoops` buckets.
-  - Full arrangement files named `fullmix` or `full mix` are ignored by default so they are not copied into organised sample folders.
+  - Full arrangement files named `fullmix`, `full mix`, `musicloop`, or `music loop` are ignored by default so they are not copied into organised sample folders.
   - `--classification-audit` scans an existing index for suspicious category/type decisions before rebuilding an organised physical device.
   - Keep key analysis and KeyFinder comparison unchanged while improving type routing.
 

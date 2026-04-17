@@ -98,8 +98,9 @@ caffeinate -dimsu sample-key-indexer \
 ```
 
 The output folder will contain `Key/`, `Unsorted/`, `metadata_index.sqlite`, and `metadata_index.json`. Move the `Key/` and `Unsorted/` folders to the physical USB or SD card, and keep the metadata index on the Mac under `SampleIndexes`.
+Each main run also writes `analysis_run_report.json` in the output folder so you can inspect worker crashes, warning examples, review examples, probe/backend counts, failed-probe reasons/examples, suspicious-file rollups, and the explained source/output size delta after a bulk pass.
 
-Kitchen sink: analyse from the Mac, organise into `Key/` and `Unsorted/`, use balanced Librosa + Essentia, skip long/fullmix material by default, probe with ffprobe when available, write metadata as it goes, then add required KeyFinder comparison metadata.
+Kitchen sink: analyse from the Mac, organise into `Key/` and `Unsorted/`, use balanced Librosa + Essentia, skip long/fullmix/music-loop material by default, probe with ffprobe when available, write metadata as it goes, then add required KeyFinder comparison metadata.
 
 Step 1: analyse and organise:
 
@@ -116,6 +117,8 @@ caffeinate -dimsu sample-key-indexer \
   --probe-backend auto
 ```
 
+This step also writes `analysis_run_report.json` in the output root. Add `--report-json /tmp/LIBRARY_ID_run_report.json` if you want the log somewhere specific while debugging.
+
 Step 2: enrich the finished index with KeyFinder:
 
 ```bash
@@ -127,6 +130,8 @@ sample-key-indexer-review \
   --write-every 25 \
   --keyfinder-json /tmp/LIBRARY_ID_keyfinder_enrich.json
 ```
+
+This step now shows a live progress bar when `tqdm` is available.
 
 After it finishes, move `/Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/Key` and `/Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/Unsorted` to the USB/SD device. Keep `metadata_index.sqlite` and `metadata_index.json` on the Mac so the browser can search the library without the device mounted.
 

@@ -97,7 +97,7 @@ def _analyze_file(
     features = extract_audio_features(y, sr, fundamental_freq)
     notes = detect_notes(y, sr)
     filename_bpm = detect_filename_bpm(path)
-    bpm, bpm_review_reasons = detect_bpm_with_review(y, sr, duration, expected_bpm=filename_bpm)
+    bpm, bpm_review_reasons = detect_bpm_with_review(y, sr, duration, expected_bpm=filename_bpm, sample_type=sample_type)
     signature = file_signature(path)
     essentia_key, essentia_root, essentia_confidence, essentia_warning = analyze_with_essentia(y, sr, selected_engines)
     if essentia_warning:
@@ -235,6 +235,10 @@ def summarize_warnings(captured_warnings: list[warnings.WarningMessage]) -> list
             messages.append("short_signal_fft_adjusted")
         elif "Trying to estimate tuning from empty frequency set" in text:
             messages.append("empty_frequency_set")
+        elif warning.category.__name__ == "DeprecationWarning" and any(
+            marker in text for marker in ("'aifc' is deprecated", "'audioop' is deprecated", "'sunau' is deprecated")
+        ):
+            continue
         else:
             messages.append(f"{warning.category.__name__}: {text}")
     return unique_strings(messages)
@@ -315,7 +319,10 @@ def python_audio_file_info(path: Path) -> AudioProbe:
         try:
             import librosa
 
-            duration = round(float(librosa.get_duration(path=str(path))), 3)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="PySoundFile failed. Trying audioread instead.", category=FutureWarning)
+                warnings.filterwarnings("ignore", message="Audioread support is deprecated in librosa 0.10.0 and will be removed in version 1.0.", category=FutureWarning)
+                duration = round(float(librosa.get_duration(path=str(path))), 3)
             return AudioProbe(duration=duration, backend="librosa")
         except Exception as exc:
             return AudioProbe(backend="python", error=str(exc))
@@ -589,7 +596,13 @@ def detect_bpm(y: np.ndarray, sr: int, duration: float, expected_bpm: float | No
     return bpm
 
 
-def detect_bpm_with_review(y: np.ndarray, sr: int, duration: float, expected_bpm: float | None = None) -> tuple[float | None, list[str]]:
+def detect_bpm_with_review(
+    y: np.ndarray,
+    sr: int,
+    duration: float,
+    expected_bpm: float | None = None,
+    sample_type: str | None = None,
+) -> tuple[float | None, list[str]]:
     if duration < 2.0:
         return None, []
     try:
@@ -602,6 +615,8 @@ def detect_bpm_with_review(y: np.ndarray, sr: int, duration: float, expected_bpm
         if value <= 0:
             return None, []
         normalized, reason = _normalise_bpm_with_reason(value, expected_bpm)
+        if reason == "filename_bpm_anchor" and sample_type in DRUM_OR_NOISE_TYPES:
+            reason = None
         return round(normalized, 2), ([reason] if reason else [])
     except Exception:
         return None, []

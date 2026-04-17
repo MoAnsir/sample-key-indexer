@@ -196,6 +196,16 @@ class ReviewReportTests(unittest.TestCase):
                 duration=90.0,
             ).to_dict(),
             AnalysisResult(
+                file_path="/samples/Loops/Pack_music-loop_demo.wav",
+                root_note=None,
+                key=None,
+                confidence=0.5,
+                relative_path="Loops/Pack_music-loop_demo.wav",
+                category="Loops",
+                type="MelodyLoops",
+                duration=90.0,
+            ).to_dict(),
+            AnalysisResult(
                 file_path="/samples/Kicks/Hard_Kick_01.wav",
                 root_note=None,
                 key=None,
@@ -209,16 +219,18 @@ class ReviewReportTests(unittest.TestCase):
 
         report = build_classification_audit_report(records, max_examples=10)
 
-        self.assertEqual(report["total"], 4)
-        self.assertEqual(report["suspicious"], 3)
+        self.assertEqual(report["total"], 5)
+        self.assertEqual(report["suspicious"], 4)
         reasons = {item["value"]: item["count"] for item in report["by_reason"]}
         self.assertEqual(reasons["drum_loop_misclassified"], 1)
         self.assertEqual(reasons["type_mismatch_from_filename"], 1)
         self.assertEqual(reasons["ignored_fullmix_present"], 1)
+        self.assertEqual(reasons["ignored_musicloop_present"], 1)
         names = {item["name"] for item in report["examples"]}
         self.assertIn("Drum_Beat_90.wav", names)
         self.assertIn("HH_Open_01.wav", names)
         self.assertIn("Pack_FullMix_128.wav", names)
+        self.assertIn("Pack_music-loop_demo.wav", names)
         self.assertNotIn("Hard_Kick_01.wav", names)
 
     def test_format_classification_audit_prints_human_report(self) -> None:
