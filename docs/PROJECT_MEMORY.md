@@ -10,7 +10,7 @@ The user workflow is based around multiple removable drives. Each USB or SD card
 
 The application does more than root/key/BPM. It also derives notes/chords and suggests musically-related keys and scales for quick writing and auditioning.
 
-The application includes a source library sanitization command that cleans a `Samples_to_detect` folder in place. It scans first (with a progress indicator), prints a removable-file report, then prompts to quarantine or delete. It removes unsupported file types, pack baggage (docs/artwork/ReadMe), Mac artifacts, and full-arrangement/demo mixes (`fullmix` / `musicloop` variants) so the library is cleaner for scanning, analysis, and sorting.
+The application includes a source library sanitization command that cleans a `Samples_to_detect` folder in place. It scans first (with a progress indicator), prints a removable-file report, then prompts to quarantine or delete. It removes unsupported file types, pack baggage (docs/artwork/ReadMe), Mac artifacts, full-arrangement mixes (`fullmix` / `musicloop` variants), and long demo files (`demo*` in the filename when duration > 60s) so the library is cleaner for scanning, analysis, and sorting.
 
 Command:
 

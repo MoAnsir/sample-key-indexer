@@ -37,7 +37,7 @@ python3 -B -m unittest discover -s tests
 
 ## Index A New Device Or Folder
 
-Sanitize a messy source folder in place before scanning (removes unsupported files, pack baggage like ReadMe/artwork/PDFs, Mac artifacts, and `fullmix`/`musicloop` demo mixes):
+Sanitize a messy source folder in place before scanning (removes unsupported files, pack baggage like ReadMe/artwork/PDFs, Mac artifacts, `fullmix`/`musicloop` mixes, and long demo files with `demo*` in the filename and duration > 60s):
 
 ```bash
 sample-key-indexer-sanitize /Users/mohammedansir/Desktop/Samples_to_detect

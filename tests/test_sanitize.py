@@ -54,6 +54,22 @@ class SanitizeTests(unittest.TestCase):
         self.assertEqual(fullmix_item.reason, "ignored_name_pattern")
         self.assertEqual(musicloop_item.reason, "ignored_name_pattern")
 
+    def test_classify_sanitize_item_flags_demo_long_audio_only_when_over_threshold(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            demo = root / "Pack" / "demo01.wav"
+            demo.parent.mkdir()
+            demo.write_bytes(b"not real audio")
+
+            with patch("sample_key_indexer.sanitize.ffprobe_duration_seconds", return_value=61.0):
+                item = classify_sanitize_item(root, demo, demo.stat().st_size, demo_min_seconds=60.0)
+            self.assertIsNotNone(item)
+            self.assertEqual(item.reason, "demo_long_audio")
+
+            with patch("sample_key_indexer.sanitize.ffprobe_duration_seconds", return_value=59.0):
+                item2 = classify_sanitize_item(root, demo, demo.stat().st_size, demo_min_seconds=60.0)
+            self.assertIsNone(item2)
+
     def test_scan_sanitization_candidates_summarizes_files(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
