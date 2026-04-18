@@ -77,6 +77,9 @@ caffeinate -dimsu sample-key-indexer-kitchen-sink \
   --write-every 25 \
   --probe-backend auto \
   --keyfinder-convert-retry
+
+# Speed up KeyFinder with parallel workers (start with 8):
+#   --keyfinder-workers 8
 ```
 
 This produces the normal `analysis_run_report.json` log during indexing, then enriches the finished index with KeyFinder comparison metadata (with a visible progress bar).
