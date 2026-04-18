@@ -37,7 +37,13 @@ Copy files into the organised library:
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised
 ```
 
-Sanitize a source library in place before scanning. This scans first, prints a removable-file report, then prompts for `quarantine`, `delete`, or `cancel`:
+Kitchen sink (one command): index + KeyFinder enrich:
+
+```bash
+sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry
+```
+
+Sanitize a source library in place before scanning. This scans first, prints a removable-file report, then prompts for `quarantine`, `delete`, or `cancel`. It removes unsupported files, pack baggage (ReadMe/docs/artwork), Mac artifacts, and `fullmix`/`musicloop` demo mixes:
 
 ```bash
 sample-key-indexer-sanitize /path/to/SampleLibrary

@@ -37,6 +37,12 @@ python3 -B -m unittest discover -s tests
 
 ## Index A New Device Or Folder
 
+Sanitize a messy source folder in place before scanning (removes unsupported files, pack baggage like ReadMe/artwork/PDFs, Mac artifacts, and `fullmix`/`musicloop` demo mixes):
+
+```bash
+sample-key-indexer-sanitize /Users/mohammedansir/Desktop/Samples_to_detect
+```
+
 Catalog only, keeping audio where it is:
 
 ```bash
@@ -57,7 +63,25 @@ Main indexing runs also write `analysis_run_report.json` in the output root. Use
 
 Kitchen sink, creating `Key/` and `Unsorted/` plus metadata for a physical USB/SD:
 
-Step 1: analyse and organise:
+One command:
+
+```bash
+caffeinate -dimsu sample-key-indexer-kitchen-sink \
+  /Users/mohammedansir/Desktop/Samples_to_detect \
+  /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID \
+  --library-id LIBRARY_ID \
+  --library-name "Human Library Name" \
+  --analysis-profile balanced \
+  --engines librosa,essentia \
+  --workers 4 \
+  --write-every 25 \
+  --probe-backend auto \
+  --keyfinder-convert-retry
+```
+
+This produces the normal `analysis_run_report.json` log during indexing, then enriches the finished index with KeyFinder comparison metadata (with a visible progress bar).
+
+Two-step fallback (same behavior):
 
 ```bash
 caffeinate -dimsu sample-key-indexer \
@@ -70,13 +94,7 @@ caffeinate -dimsu sample-key-indexer \
   --workers 4 \
   --write-every 25 \
   --probe-backend auto
-```
 
-This first step produces the main run log too, including processed/skipped counts, probe backend counts, failed-probe reasons/examples, isolated retry activation, suspicious-file rollups, and example files for errors, warnings, and review cases.
-
-Step 2: add required KeyFinder comparison metadata:
-
-```bash
 sample-key-indexer-review \
   /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/metadata_index.sqlite \
   --keyfinder-enrich \
