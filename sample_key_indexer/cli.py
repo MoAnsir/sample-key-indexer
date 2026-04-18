@@ -8,12 +8,13 @@ import json
 import os
 import re
 import shutil
+import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
 from sample_key_indexer.classify import classify_sample
-from sample_key_indexer.discovery import SUPPORTED_EXTENSIONS, discover_audio_files
+from sample_key_indexer.discovery import SUPPORTED_EXTENSIONS
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex
 from sample_key_indexer.models import AnalysisResult, file_signature
 from sample_key_indexer.routing import route_file
@@ -73,6 +74,35 @@ class ProbeRunSummary:
     failed: int = 0
     failed_reason_counts: dict[str, int] = field(default_factory=dict)
     failed_examples: list[dict[str, str]] = field(default_factory=list)
+
+
+def _progress_bar():
+    if not sys.stderr.isatty():
+        return None
+    try:
+        from tqdm import tqdm  # type: ignore
+    except Exception:
+        return None
+    return tqdm
+
+
+def scan_library_files(root: Path) -> tuple[list[Path], dict[str, FileTypeSummary]]:
+    """Single-pass filesystem scan that returns supported audio files + unsupported summary (with progress)."""
+    supported: list[Path] = []
+    unsupported: dict[str, FileTypeSummary] = {}
+    progress = _progress_bar()
+    iterator = (path for path in root.rglob("*") if path.is_file())
+    if progress is not None:
+        iterator = progress(iterator, desc="Scanning library", unit="file", mininterval=0.5)
+    for path in iterator:
+        extension = normalized_extension(path)
+        if extension in SUPPORTED_EXTENSIONS:
+            supported.append(path)
+            continue
+        summary = unsupported.setdefault(extension, FileTypeSummary())
+        summary.count += 1
+        summary.bytes += file_size(path)
+    return supported, unsupported
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -153,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         index = SQLiteMetadataIndex(index_db_path, json_seed_path=index_path)
 
     unsupported_by_type = summarize_unsupported_files(input_root)
-    files = discover_audio_files(input_root)
+    files, unsupported_by_type = scan_library_files(input_root)
     if args.include_ignored_files:
         discovered_processable = files
         skipped_ignored: list[Path] = []
@@ -280,7 +310,11 @@ def split_long_files(files: list[Path], max_duration: float, probe_backend: str 
 
     processable: list[Path] = []
     skipped: list[Path] = []
-    for path in files:
+    progress = _progress_bar()
+    iterator: object = files
+    if progress is not None and files:
+        iterator = progress(files, total=len(files), desc="Probing durations", unit="file", mininterval=0.5)
+    for path in iterator:  # type: ignore[assignment]
         probe = probe_audio_file(path, probe_backend)
         record_probe_summary(probe_summary, probe)
         append_probe_failure_example(probe_summary, path, probe)
