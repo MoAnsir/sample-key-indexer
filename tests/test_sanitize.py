@@ -29,16 +29,28 @@ class SanitizeTests(unittest.TestCase):
             unsupported = root / "Pack" / "loop.rx2"
             unsupported.parent.mkdir()
             unsupported.write_bytes(b"1")
+            readme = root / "Pack" / "ReadMe.txt"
+            readme.write_bytes(b"hello")
+            artwork = root / "Pack" / "Cover.jpg"
+            artwork.write_bytes(b"jpg")
+            ds_store = root / ".DS_Store"
+            ds_store.write_bytes(b"ds")
             fullmix = root / "Pack" / "song_fullmix.wav"
             fullmix.write_bytes(b"12")
             musicloop = root / "Pack" / "artist_music-loop_demo.wav"
             musicloop.write_bytes(b"123")
 
             unsupported_item = classify_sanitize_item(root, unsupported, unsupported.stat().st_size)
+            readme_item = classify_sanitize_item(root, readme, readme.stat().st_size)
+            artwork_item = classify_sanitize_item(root, artwork, artwork.stat().st_size)
+            ds_store_item = classify_sanitize_item(root, ds_store, ds_store.stat().st_size)
             fullmix_item = classify_sanitize_item(root, fullmix, fullmix.stat().st_size)
             musicloop_item = classify_sanitize_item(root, musicloop, musicloop.stat().st_size)
 
         self.assertEqual(unsupported_item.reason, "unsupported_file")
+        self.assertEqual(readme_item.reason, "pack_baggage")
+        self.assertEqual(artwork_item.reason, "pack_baggage")
+        self.assertEqual(ds_store_item.reason, "mac_artifact")
         self.assertEqual(fullmix_item.reason, "ignored_name_pattern")
         self.assertEqual(musicloop_item.reason, "ignored_name_pattern")
 
@@ -48,17 +60,19 @@ class SanitizeTests(unittest.TestCase):
             (root / "good.wav").write_bytes(b"audio")
             (root / "Pack" / "bad.mid").parent.mkdir()
             (root / "Pack" / "bad.mid").write_bytes(b"midi")
+            (root / "Pack" / "ReadMe.txt").write_bytes(b"readme")
             (root / "Pack" / "song full mix.wav").write_bytes(b"mix")
             (root / "Pack" / "artist_musicloop_demo.wav").write_bytes(b"loop")
 
             scan = scan_sanitization_candidates(root)
 
-        self.assertEqual(scan["scanned_files"], 4)
+        self.assertEqual(scan["scanned_files"], 5)
         self.assertEqual(scan["kept_supported_files"], 1)
-        self.assertEqual(scan["removable_count"], 3)
+        self.assertEqual(scan["removable_count"], 4)
         reasons = {item["reason"]: item["count"] for item in scan["by_reason"]}
         self.assertEqual(reasons["unsupported_file"], 1)
         self.assertEqual(reasons["ignored_name_pattern"], 2)
+        self.assertEqual(reasons["pack_baggage"], 1)
 
     def test_quarantine_items_preserves_relative_paths(self) -> None:
         with TemporaryDirectory() as tmp:

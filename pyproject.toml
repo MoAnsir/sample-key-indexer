@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 sample-key-indexer = "sample_key_indexer.cli:main"
 sample-key-indexer-review = "sample_key_indexer.review_report:main"
+sample-key-indexer-kitchen-sink = "sample_key_indexer.kitchen_sink:main"
 sample-key-indexer-sanitize = "sample_key_indexer.sanitize:main"
 sample-key-indexer-web = "sample_key_indexer.web_app:main"
 

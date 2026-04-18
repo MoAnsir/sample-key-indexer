@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+import sys
 import shutil
 import time
 from pathlib import Path
@@ -16,6 +17,27 @@ IGNORED_NAME_PATTERNS: tuple[str, ...] = (
     "full mix",
     "musicloop",
     "music loop",
+)
+
+PACK_BAGGAGE_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".txt",
+        ".rtf",
+        ".nfo",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".md",
+        ".url",
+        ".webloc",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
+        ".icns",
+        ".plist",
+    }
 )
 
 
@@ -210,14 +232,21 @@ def default_quarantine_dir(input_root: Path) -> Path:
 
 
 def scan_sanitization_candidates(input_root: Path) -> dict[str, object]:
-    all_files = sorted(path for path in input_root.rglob("*") if path.is_file())
     items: list[SanitizeItem] = []
     kept_supported = 0
     kept_supported_bytes = 0
     total_bytes = 0
-    for path in all_files:
+
+    scanned_files = 0
+    progress = get_progress_bar()
+    iterator = (path for path in input_root.rglob("*") if path.is_file())
+    if progress is not None:
+        iterator = progress(iterator, desc="Scanning files", unit="file", mininterval=0.5)
+
+    for path in iterator:
         size = file_size(path)
         total_bytes += size
+        scanned_files += 1
         removable = classify_sanitize_item(input_root, path, size)
         if removable is None:
             if path.suffix.lower() in SUPPORTED_EXTENSIONS:
@@ -235,7 +264,7 @@ def scan_sanitization_candidates(input_root: Path) -> dict[str, object]:
         extension_bytes[item.extension] += item.bytes
 
     return {
-        "scanned_files": len(all_files),
+        "scanned_files": scanned_files,
         "total_bytes": total_bytes,
         "kept_supported_files": kept_supported,
         "kept_supported_bytes": kept_supported_bytes,
@@ -257,13 +286,15 @@ def scan_sanitization_candidates(input_root: Path) -> dict[str, object]:
 def classify_sanitize_item(input_root: Path, path: Path, size: int) -> SanitizeItem | None:
     extension = normalized_extension(path)
     relative = str(path.relative_to(input_root))
-    if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+    suffix = path.suffix.lower()
+    if suffix not in SUPPORTED_EXTENSIONS:
+        reason = unsupported_reason(path, extension)
         return SanitizeItem(
             path=str(path),
             relative_path=relative,
             extension=extension,
             bytes=size,
-            reason="unsupported_file",
+            reason=reason,
         )
     stem_text = normalized_name_text(path.stem)
     if any(pattern in stem_text for pattern in normalized_patterns()):
@@ -275,6 +306,31 @@ def classify_sanitize_item(input_root: Path, path: Path, size: int) -> SanitizeI
             reason="ignored_name_pattern",
         )
     return None
+
+
+def unsupported_reason(path: Path, extension: str) -> str:
+    name = path.name
+    lowered = name.lower()
+    if lowered == ".ds_store" or lowered.startswith("._"):
+        return "mac_artifact"
+    if lowered == "icon" and extension == "[no extension]":
+        return "mac_artifact"
+    if extension in PACK_BAGGAGE_EXTENSIONS:
+        return "pack_baggage"
+    stem = normalized_name_text(path.stem)
+    if "readme" in stem or "license" in stem or "credits" in stem:
+        return "pack_baggage"
+    return "unsupported_file"
+
+
+def get_progress_bar():
+    if not sys.stderr.isatty():
+        return None
+    try:
+        from tqdm import tqdm  # type: ignore
+    except Exception:
+        return None
+    return tqdm
 
 
 def normalized_patterns() -> tuple[str, ...]:

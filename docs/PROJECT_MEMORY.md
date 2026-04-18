@@ -8,9 +8,15 @@ This file is the long-lived project context for humans and AI agents. Read it be
 
 The user workflow is based around multiple removable drives. Each USB or SD card should be indexed as a separate library so the web app can search metadata even when the drive is not mounted. Audio playback should become available again when the matching source or organised drive is mounted and passed to the web app.
 
-The Apllication along with telling you the root, key and bpm. It also suggests complamentry keys, chords, notes and scales for that sample and the key it is in.
+The application does more than root/key/BPM. It also derives notes/chords and suggests musically-related keys and scales for quick writing and auditioning.
 
-The Aplliction also has a sanatisation command that cleans the source samples folders to remove unessacry files, unessacry file formats and full mixes to clean it up for scanning, analysis and sorting.
+The application includes a source library sanitization command that cleans a `Samples_to_detect` folder in place. It scans first, prints a removable-file report, then prompts to quarantine or delete. It removes unsupported file types and full-arrangement/demo mixes (`fullmix` / `musicloop` variants) so the library is cleaner for scanning, analysis, and sorting.
+
+Command:
+
+```bash
+sample-key-indexer-sanitize /path/to/Samples_to_detect
+```
 
 The short one-page daily command guide lives in `docs/DAILY_COMMANDS.md`. The fuller command reference lives in `docs/COMMAND_CHEATSHEET.md`. Keep both updated when a feature adds or changes a command the user is likely to reuse. The daily guide should include both catalog-only indexing and organising/copying into `Key/` and `Unsorted/` for moving onto USB/SD devices.
 
