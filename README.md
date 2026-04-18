@@ -37,6 +37,18 @@ Copy files into the organised library:
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised
 ```
 
+Sanitize a source library in place before scanning. This scans first, prints a removable-file report, then prompts for `quarantine`, `delete`, or `cancel`:
+
+```bash
+sample-key-indexer-sanitize /path/to/SampleLibrary
+```
+
+Use `--dry-run` to inspect the removable set and write `sanitize_report.json` without changing files:
+
+```bash
+sample-key-indexer-sanitize /path/to/SampleLibrary --dry-run
+```
+
 Build a searchable catalog without copying audio into `Key/` or `Unsorted`:
 
 ```bash
