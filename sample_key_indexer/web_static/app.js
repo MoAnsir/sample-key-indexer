@@ -410,7 +410,7 @@ function renderList() {
     const status = isPlayable ? "Playable" : "Missing";
     const playbackSource = sourceLabel(sample.playback_source);
     row.innerHTML = `
-      <button class="play-button" type="button" ${isPlayable ? "" : "disabled"}>${isPlayable ? "Play" : "Missing"}</button>
+      <button class="play-button" type="button">${isPlayable ? "Play" : "Missing"}</button>
       <span class="sample-name" title="${escapeHtml(fileName(sample))}">${escapeHtml(fileName(sample))}</span>
       <span class="sample-cell" title="${escapeHtml(library)}">${escapeHtml(library)}</span>
       <span class="sample-cell ${isPlayable ? "" : "missing"}" title="${escapeHtml(playbackSource)}">${escapeHtml(status)}</span>
@@ -423,9 +423,15 @@ function renderList() {
       <span class="sample-cell" title="${escapeHtml(sample.bpm ? `${sample.bpm} BPM` : "Unknown")}">${sample.bpm ? `${escapeHtml(sample.bpm)} BPM` : "-"}</span>
       <span class="sample-cell ${confidence < 0.35 ? "low" : ""}" title="${confidence.toFixed(2)}">${confidence.toFixed(2)}</span>
     `;
-    if (isPlayable) {
-      row.querySelector("button").addEventListener("click", () => playSample(sample));
-    }
+    row.addEventListener("click", () => selectSample(sample, false));
+    row.querySelector("button").addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (isPlayable) {
+        playSample(sample);
+      } else {
+        selectSample(sample, false);
+      }
+    });
     els.list.appendChild(row);
   });
 
@@ -493,14 +499,23 @@ function renderReviewExamples(samples) {
     const row = document.createElement("article");
     row.className = "review-example";
     const reasons = (sample.review_reasons || []).join(", ") || "needs_review";
+    const isPlayable = sample.playback_status === "available";
     row.innerHTML = `
-      <button class="play-button" type="button">Play</button>
+      <button class="play-button" type="button">${isPlayable ? "Play" : "Missing"}</button>
       <span class="sample-name" title="${escapeHtml(fileName(sample))}">${escapeHtml(fileName(sample))}</span>
       <span class="sample-cell" title="${escapeHtml(sample.key || sample.root_note || "Unsorted")}">${escapeHtml(sample.key || sample.root_note || "Unsorted")}</span>
       <span class="sample-cell ${Number(sample.confidence || 0) < 0.55 ? "low" : ""}" title="${Number(sample.confidence || 0).toFixed(3)}">${Number(sample.confidence || 0).toFixed(3)}</span>
       <span class="review-reasons" title="${escapeHtml(reasons)}">${escapeHtml(reasons)}</span>
     `;
-    row.querySelector("button").addEventListener("click", () => playSample(sample));
+    row.addEventListener("click", () => selectSample(sample, false));
+    row.querySelector("button").addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (isPlayable) {
+        playSample(sample);
+      } else {
+        selectSample(sample, false);
+      }
+    });
     els.reviewExampleList.appendChild(row);
   });
 }
@@ -514,16 +529,28 @@ function countsFor(values) {
 }
 
 function playSample(sample) {
-  if (sample.playback_status !== "available") {
-    return;
-  }
+  selectSample(sample, true);
+}
+
+function selectSample(sample, autoPlay = false) {
   els.playerBar.classList.remove("is-empty");
   els.nowPlaying.textContent = fileName(sample);
   els.nowPlaying.title = fileName(sample);
   renderNowPlayingDetails(sample);
-  els.player.src = `/api/audio?id=${sample.id}`;
-  els.player.play();
-  drawWaveform(sample);
+
+  if (sample.playback_status === "available") {
+    els.player.src = `/api/audio?id=${sample.id}`;
+    if (autoPlay) {
+      els.player.play().catch(() => undefined);
+    }
+    drawWaveform(sample);
+    return;
+  }
+
+  els.player.pause();
+  els.player.removeAttribute("src");
+  els.player.load();
+  drawWaveformUnavailable();
 }
 
 function renderNowPlayingDetails(sample) {
@@ -692,10 +719,17 @@ async function drawWaveform(sample) {
     const channel = audioBuffer.getChannelData(0);
     renderWaveform(channel);
   } catch (error) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#c74343";
-    ctx.fillText("Waveform unavailable", 16, 28);
+    drawWaveformUnavailable(true);
   }
+}
+
+function drawWaveformUnavailable(isError = false) {
+  const canvas = els.waveform;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = isError ? "#c74343" : "#60706b";
+  ctx.font = "700 13px system-ui";
+  ctx.fillText("Waveform unavailable", 16, 28);
 }
 
 function renderWaveform(channel) {
