@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+import subprocess
 import sys
 import shutil
 import time
@@ -18,6 +19,8 @@ IGNORED_NAME_PATTERNS: tuple[str, ...] = (
     "musicloop",
     "music loop",
 )
+
+DEMO_MIN_SECONDS_DEFAULT = 60.0
 
 PACK_BAGGAGE_EXTENSIONS: frozenset[str] = frozenset(
     {
@@ -70,6 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the interactive choice. delete still requires confirmation unless --yes is set.",
     )
     parser.add_argument("--yes", action="store_true", help="Skip the final DELETE confirmation when used with --action delete.")
+    parser.add_argument(
+        "--demo-min-seconds",
+        type=float,
+        default=DEMO_MIN_SECONDS_DEFAULT,
+        help="When a supported audio filename contains the word 'demo', remove it only if its duration exceeds this many seconds. Default: 60.",
+    )
     return parser
 
 
@@ -85,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     started = time.time()
-    scan = scan_sanitization_candidates(input_root)
+    scan = scan_sanitization_candidates(input_root, demo_min_seconds=float(args.demo_min_seconds))
     print_pre_action_report(input_root, scan)
 
     if int(scan["removable_count"]) == 0:
@@ -231,7 +240,7 @@ def default_quarantine_dir(input_root: Path) -> Path:
     return input_root.parent / f"{input_root.name}__quarantine"
 
 
-def scan_sanitization_candidates(input_root: Path) -> dict[str, object]:
+def scan_sanitization_candidates(input_root: Path, demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT) -> dict[str, object]:
     items: list[SanitizeItem] = []
     kept_supported = 0
     kept_supported_bytes = 0
@@ -247,7 +256,7 @@ def scan_sanitization_candidates(input_root: Path) -> dict[str, object]:
         size = file_size(path)
         total_bytes += size
         scanned_files += 1
-        removable = classify_sanitize_item(input_root, path, size)
+        removable = classify_sanitize_item(input_root, path, size, demo_min_seconds=demo_min_seconds)
         if removable is None:
             if path.suffix.lower() in SUPPORTED_EXTENSIONS:
                 kept_supported += 1
@@ -283,7 +292,9 @@ def scan_sanitization_candidates(input_root: Path) -> dict[str, object]:
     }
 
 
-def classify_sanitize_item(input_root: Path, path: Path, size: int) -> SanitizeItem | None:
+def classify_sanitize_item(
+    input_root: Path, path: Path, size: int, *, demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT
+) -> SanitizeItem | None:
     extension = normalized_extension(path)
     relative = str(path.relative_to(input_root))
     suffix = path.suffix.lower()
@@ -305,6 +316,16 @@ def classify_sanitize_item(input_root: Path, path: Path, size: int) -> SanitizeI
             bytes=size,
             reason="ignored_name_pattern",
         )
+    if is_demo_name(stem_text):
+        duration = ffprobe_duration_seconds(path)
+        if duration is not None and duration > float(demo_min_seconds):
+            return SanitizeItem(
+                path=str(path),
+                relative_path=relative,
+                extension=extension,
+                bytes=size,
+                reason="demo_long_audio",
+            )
     return None
 
 
@@ -339,6 +360,52 @@ def normalized_patterns() -> tuple[str, ...]:
 
 def normalized_name_text(value: str) -> str:
     return " ".join("".join(ch if ch.isalnum() else " " for ch in value.lower()).split())
+
+
+def is_demo_name(normalized_stem_text: str) -> bool:
+    # normalized_stem_text is already lowercase and whitespace-separated.
+    # We match the token 'demo' and variants like 'demo01' / 'demo1' (common in sample packs).
+    for token in normalized_stem_text.split():
+        if token == "demo":
+            return True
+        if token.startswith("demo") and token[4:].isdigit():
+            return True
+    return False
+
+
+def ffprobe_duration_seconds(path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=duration:format=duration",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, check=False, text=True, timeout=10)
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except Exception:
+        return None
+    streams = payload.get("streams") or []
+    stream = streams[0] if streams else {}
+    duration = stream.get("duration") or (payload.get("format") or {}).get("duration")
+    try:
+        return float(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def normalized_extension(path: Path) -> str:

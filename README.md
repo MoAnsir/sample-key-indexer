@@ -43,7 +43,7 @@ Kitchen sink (one command): index + KeyFinder enrich:
 sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry
 ```
 
-Sanitize a source library in place before scanning. This scans first, prints a removable-file report, then prompts for `quarantine`, `delete`, or `cancel`. It removes unsupported files, pack baggage (ReadMe/docs/artwork), Mac artifacts, and `fullmix`/`musicloop` demo mixes:
+Sanitize a source library in place before scanning. This scans first, prints a removable-file report, then prompts for `quarantine`, `delete`, or `cancel`. It removes unsupported files, pack baggage (ReadMe/docs/artwork), Mac artifacts, `fullmix`/`musicloop` mixes, and long demo files (`demo*` in the filename with duration > 60s; tune with `--demo-min-seconds`):
 
 ```bash
 sample-key-indexer-sanitize /path/to/SampleLibrary

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 import warnings
@@ -41,9 +42,12 @@ class AudioAnalysisV2Tests(unittest.TestCase):
     def test_detect_bpm_with_review_uses_onset_strength_and_feature_tempo(self) -> None:
         import numpy as np
 
-        with patch("sample_key_indexer.audio_analysis.librosa.onset.onset_strength", return_value=np.array([0.1, 0.2, 0.3])):
-            with patch("sample_key_indexer.audio_analysis.librosa.feature.tempo", return_value=np.array([69.84])):
-                bpm, reason = detect_bpm_with_review(np.ones(44100), 22050, 4.0, expected_bpm=140.0)
+        fake_librosa = SimpleNamespace(
+            onset=SimpleNamespace(onset_strength=Mock(return_value=np.array([0.1, 0.2, 0.3]))),
+            feature=SimpleNamespace(tempo=Mock(return_value=np.array([69.84]))),
+        )
+        with patch.dict("sys.modules", {"librosa": fake_librosa}):
+            bpm, reason = detect_bpm_with_review(np.ones(44100), 22050, 4.0, expected_bpm=140.0)
 
         self.assertEqual(bpm, 140.0)
         self.assertEqual(reason, [])
@@ -52,15 +56,18 @@ class AudioAnalysisV2Tests(unittest.TestCase):
     def test_detect_bpm_with_review_suppresses_filename_anchor_for_drum_types(self) -> None:
         import numpy as np
 
-        with patch("sample_key_indexer.audio_analysis.librosa.onset.onset_strength", return_value=np.array([0.1, 0.2, 0.3])):
-            with patch("sample_key_indexer.audio_analysis.librosa.feature.tempo", return_value=np.array([95.7])):
-                bpm, reason = detect_bpm_with_review(
-                    np.ones(44100),
-                    22050,
-                    4.0,
-                    expected_bpm=140.0,
-                    sample_type="DrumLoops",
-                )
+        fake_librosa = SimpleNamespace(
+            onset=SimpleNamespace(onset_strength=Mock(return_value=np.array([0.1, 0.2, 0.3]))),
+            feature=SimpleNamespace(tempo=Mock(return_value=np.array([95.7]))),
+        )
+        with patch.dict("sys.modules", {"librosa": fake_librosa}):
+            bpm, reason = detect_bpm_with_review(
+                np.ones(44100),
+                22050,
+                4.0,
+                expected_bpm=140.0,
+                sample_type="DrumLoops",
+            )
 
         self.assertEqual(bpm, 140.0)
         self.assertEqual(reason, [])
