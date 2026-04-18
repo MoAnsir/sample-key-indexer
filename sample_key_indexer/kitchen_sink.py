@@ -40,6 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="SQLite write frequency during KeyFinder enrich. Default: 25.",
     )
     parser.add_argument(
+        "--keyfinder-workers",
+        type=int,
+        default=1,
+        help="Parallelism for the KeyFinder enrich phase. Default: 1.",
+    )
+    parser.add_argument(
         "--",
         dest="passthrough_marker",
         action="store_true",
@@ -84,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
         "--keyfinder-enrich",
         "--keyfinder-scope",
         known.keyfinder_scope,
+        "--keyfinder-workers",
+        str(int(known.keyfinder_workers)),
         "--write-every",
         str(known.keyfinder_write_every),
         "--keyfinder-json",
@@ -97,4 +105,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

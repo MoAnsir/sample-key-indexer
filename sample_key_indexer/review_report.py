@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -753,6 +753,7 @@ def enrich_keyfinder_metadata(
     scope: str = "failures",
     low_confidence: float = 0.35,
     convert_retry: bool = False,
+    keyfinder_workers: int = 1,
     dry_run: bool = False,
     write_every: int = 25,
     export_json: bool = True,
@@ -795,66 +796,85 @@ def enrich_keyfinder_metadata(
 
     index = None if dry_run else open_writable_index(index_path)
     try:
-        iterable = targets
-        if tqdm is not None:
-            iterable = tqdm(targets, total=len(targets), unit="file", desc="KeyFinder")
-        for target in iterable:
+        workers = max(1, int(keyfinder_workers))
+
+        def run_for(playable_path: Path) -> tuple[dict[str, Any], bool]:
+            direct = run_keyfinder(command, playable_path, timeout=timeout)
+            if direct.get("status") == "success" or not convert_retry:
+                return direct, False
+            retry = run_keyfinder_with_converted_wav(command, playable_path, ffmpeg_command, timeout=timeout)
+            if retry.get("status") == "success":
+                return retry, True
+            direct["conversion_status"] = retry.get("conversion_status")
+            direct["conversion_error"] = retry.get("conversion_error")
+            return direct, True
+
+        # Pre-handle missing audio quickly, then parallelize only the runnable set.
+        runnable: list[tuple[dict[str, Any], Path]] = []
+        for target in targets:
             playable = Path(_playable_path(target, library_roots, destination_roots))
-            result = {
-                "name": target.get("name"),
-                "library_id": target.get("library_id"),
-                "relative_path": target.get("relative_path"),
-                "path": str(playable),
-                "stored_key": target.get("key"),
-                "stored_root": target.get("root_note"),
-                "confidence": target.get("confidence"),
-                "needs_review": target.get("needs_review"),
-                "path_family": target.get("path_family") or path_family(target.get("relative_path") or target.get("file_path")),
-            }
             if not playable.exists():
-                result["status"] = "missing_audio"
-                result["error"] = "audio_not_found"
-                result["error_code"] = "audio_not_found"
+                missing = {
+                    "name": target.get("name"),
+                    "library_id": target.get("library_id"),
+                    "relative_path": target.get("relative_path"),
+                    "path": str(playable),
+                    "stored_key": target.get("key"),
+                    "stored_root": target.get("root_note"),
+                    "confidence": target.get("confidence"),
+                    "needs_review": target.get("needs_review"),
+                    "path_family": target.get("path_family") or path_family(target.get("relative_path") or target.get("file_path")),
+                    "status": "missing_audio",
+                    "error": "audio_not_found",
+                    "error_code": "audio_not_found",
+                }
                 report["missing_audio"] += 1
-                report["results"].append(result)
+                report["results"].append(missing)
                 continue
-            keyfinder_result = run_keyfinder(command, playable, timeout=timeout)
-            if keyfinder_result["status"] != "success" and convert_retry:
-                report["conversion_attempts"] += 1
-                retry_result = run_keyfinder_with_converted_wav(command, playable, ffmpeg_command, timeout=timeout)
-                if retry_result.get("conversion_status") == "success":
-                    report["conversion_successes"] += 1
-                else:
-                    report["conversion_errors"] += 1
-                if retry_result["status"] == "success":
-                    keyfinder_result = retry_result
-                else:
-                    keyfinder_result["conversion_status"] = retry_result.get("conversion_status")
-                    keyfinder_result["conversion_error"] = retry_result.get("conversion_error")
-            result.update(keyfinder_result)
-            if keyfinder_result["status"] == "success":
-                report["processed"] += 1
-                report["successes"] += 1
-                result["matches_stored_key"] = keys_match(result.get("normalized_key"), result.get("stored_key"))
-                result["matches_stored_root"] = roots_match(result.get("root_note"), result.get("stored_root"))
-                if result["matches_stored_key"]:
-                    report["matches_stored_key"] += 1
-                if result["matches_stored_root"]:
-                    report["matches_stored_root"] += 1
-            else:
-                report["errors"] += 1
-            if not dry_run:
-                structured = target.get("structured")
-                if isinstance(structured, dict) and structured:
-                    updated_record = record_with_keyfinder_external(structured, result, command, scope)
-                    upsert_record(index, updated_record)
-                    report["updated"] += 1
-                    if report["updated"] % max(1, write_every) == 0:
-                        index.write()
-                else:
-                    report["errors"] += 1
-                    result["metadata_error"] = "missing_structured_record"
-            report["results"].append(result)
+            runnable.append((target, playable))
+
+        if workers <= 1:
+            iterable = runnable
+            if tqdm is not None:
+                iterable = tqdm(runnable, total=len(runnable), unit="file", desc="KeyFinder")
+            for target, playable in iterable:
+                keyfinder_result, attempted = run_for(playable)
+                _apply_keyfinder_result(
+                    report,
+                    index,
+                    target,
+                    playable,
+                    keyfinder_result,
+                    command,
+                    scope,
+                    write_every,
+                    dry_run,
+                    conversion_attempted=attempted,
+                )
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                future_map = {pool.submit(run_for, playable): (target, playable) for target, playable in runnable}
+                completed = as_completed(future_map)
+                if tqdm is not None:
+                    completed = tqdm(completed, total=len(future_map), unit="file", desc="KeyFinder")
+                for fut in completed:
+                    target, playable = future_map[fut]
+                    try:
+                        keyfinder_result, attempted = fut.result()
+                    except Exception as exc:
+                        keyfinder_result, attempted = ({"status": "error", "error": f"keyfinder_worker_error:{exc}", "raw_output": None}, False)
+                    _apply_keyfinder_result(
+                        report,
+                        index,
+                        target,
+                        playable,
+                        keyfinder_result,
+                        command,
+                        scope,
+                        write_every,
+                        dry_run,
+                        conversion_attempted=attempted,
+                    )
         if index:
             index.write()
             if export_json and isinstance(index, SQLiteMetadataIndex):
@@ -877,6 +897,65 @@ def enrich_keyfinder_metadata(
     report["success_by_path_family"] = count_items([item for item in report["results"] if item.get("status") == "success"], "path_family")
     report["error_by_path_family"] = count_items([item for item in report["results"] if item.get("status") != "success"], "path_family")
     return report
+
+
+def _apply_keyfinder_result(
+    report: dict[str, Any],
+    index: MetadataIndex | None,
+    target: dict[str, Any],
+    playable: Path,
+    keyfinder_result: dict[str, Any],
+    command: str,
+    scope: str,
+    write_every: int,
+    dry_run: bool,
+    *,
+    conversion_attempted: bool,
+) -> None:
+    result: dict[str, Any] = {
+        "name": target.get("name"),
+        "library_id": target.get("library_id"),
+        "relative_path": target.get("relative_path"),
+        "path": str(playable),
+        "stored_key": target.get("key"),
+        "stored_root": target.get("root_note"),
+        "confidence": target.get("confidence"),
+        "needs_review": target.get("needs_review"),
+        "path_family": target.get("path_family") or path_family(target.get("relative_path") or target.get("file_path")),
+    }
+    if conversion_attempted:
+        report["conversion_attempts"] += 1
+        if keyfinder_result.get("conversion_status") == "success":
+            report["conversion_successes"] += 1
+        else:
+            report["conversion_errors"] += 1
+
+    result.update(keyfinder_result)
+    if keyfinder_result.get("status") == "success":
+        report["processed"] += 1
+        report["successes"] += 1
+        result["matches_stored_key"] = keys_match(result.get("normalized_key"), result.get("stored_key"))
+        result["matches_stored_root"] = roots_match(result.get("root_note"), result.get("stored_root"))
+        if result["matches_stored_key"]:
+            report["matches_stored_key"] += 1
+        if result["matches_stored_root"]:
+            report["matches_stored_root"] += 1
+    else:
+        report["errors"] += 1
+
+    if not dry_run:
+        structured = target.get("structured")
+        if isinstance(structured, dict) and structured and index is not None:
+            updated_record = record_with_keyfinder_external(structured, result, command, scope)
+            upsert_record(index, updated_record)
+            report["updated"] += 1
+            if report["updated"] % max(1, write_every) == 0:
+                index.write()
+        else:
+            report["errors"] += 1
+            result["metadata_error"] = "missing_structured_record"
+
+    report["results"].append(result)
 
 
 def record_with_keyfinder_external(record: dict[str, Any], result: dict[str, Any], command: str | None, scope: str) -> dict[str, Any]:
@@ -1848,6 +1927,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keyfinder-enrich", action="store_true", help="Run KeyFinder CLI and store its output under analysis.external.keyfinder without changing the main key decision.")
     parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, or the full index.")
     parser.add_argument("--keyfinder-convert-retry", action="store_true", help="Retry failed KeyFinder reads via a temporary ffmpeg 16-bit PCM WAV conversion.")
+    parser.add_argument("--keyfinder-workers", type=int, default=1, help="Parallelism for KeyFinder enrich/experiment. Default: 1.")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
@@ -1934,6 +2014,7 @@ def main(argv: list[str] | None = None) -> int:
                 scope=args.keyfinder_scope,
                 low_confidence=args.low_confidence,
                 convert_retry=args.keyfinder_convert_retry,
+                keyfinder_workers=args.keyfinder_workers,
                 dry_run=args.dry_run,
                 write_every=args.write_every,
                 export_json=not args.no_json_export,
