@@ -325,7 +325,11 @@ def python_audio_file_info(path: Path) -> AudioProbe:
                 duration = round(float(librosa.get_duration(path=str(path))), 3)
             return AudioProbe(duration=duration, backend="librosa")
         except Exception as exc:
-            return AudioProbe(backend="python", error=str(exc))
+            message = str(exc).strip()
+            if not message:
+                message = exc.__class__.__name__
+            # Prefix so higher layers can categorize "python" probe failures deterministically.
+            return AudioProbe(backend="python", error=f"python_error:{exc.__class__.__name__}:{message}")
 
 
 def _float_or_none(value) -> float | None:

@@ -358,7 +358,20 @@ def normalize_probe_error_reason(reason: str) -> str:
     lowered = (reason or "").strip().lower()
     if not lowered:
         return "unknown_probe_error"
+    if lowered.startswith("python_error:"):
+        # python_error:<ExcClass>:<message>
+        parts = lowered.split(":", 2)
+        exc = parts[1].strip() if len(parts) > 1 else "unknown"
+        exc = re.sub(r"[^a-z0-9_]+", "_", exc)
+        return f"python_error_{exc}"[:120]
     if lowered.startswith("ffprobe_error:"):
+        detail = lowered[len("ffprobe_error:") :].strip()
+        if "invalid data found" in detail:
+            return "ffprobe_invalid_data"
+        if "permission denied" in detail:
+            return "ffprobe_permission_denied"
+        if "no such file or directory" in detail:
+            return "ffprobe_missing_file"
         return "ffprobe_runtime_error"
     if lowered == "ffprobe_missing_duration":
         return "ffprobe_missing_duration"

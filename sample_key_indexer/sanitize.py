@@ -79,6 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEMO_MIN_SECONDS_DEFAULT,
         help="When a supported audio filename contains the word 'demo', remove it only if its duration exceeds this many seconds. Default: 60.",
     )
+    parser.add_argument(
+        "--remove-unopenable-audio",
+        action="store_true",
+        help="Also remove/quarantine supported audio files that ffprobe cannot open (corrupt/unhandled). Default: off.",
+    )
     return parser
 
 
@@ -94,7 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     started = time.time()
-    scan = scan_sanitization_candidates(input_root, demo_min_seconds=float(args.demo_min_seconds))
+    scan = scan_sanitization_candidates(
+        input_root,
+        demo_min_seconds=float(args.demo_min_seconds),
+        remove_unopenable_audio=bool(args.remove_unopenable_audio),
+    )
     print_pre_action_report(input_root, scan)
 
     if int(scan["removable_count"]) == 0:
@@ -240,7 +249,11 @@ def default_quarantine_dir(input_root: Path) -> Path:
     return input_root.parent / f"{input_root.name}__quarantine"
 
 
-def scan_sanitization_candidates(input_root: Path, demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT) -> dict[str, object]:
+def scan_sanitization_candidates(
+    input_root: Path,
+    demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT,
+    remove_unopenable_audio: bool = False,
+) -> dict[str, object]:
     items: list[SanitizeItem] = []
     kept_supported = 0
     kept_supported_bytes = 0
@@ -256,7 +269,13 @@ def scan_sanitization_candidates(input_root: Path, demo_min_seconds: float = DEM
         size = file_size(path)
         total_bytes += size
         scanned_files += 1
-        removable = classify_sanitize_item(input_root, path, size, demo_min_seconds=demo_min_seconds)
+        removable = classify_sanitize_item(
+            input_root,
+            path,
+            size,
+            demo_min_seconds=demo_min_seconds,
+            remove_unopenable_audio=remove_unopenable_audio,
+        )
         if removable is None:
             if path.suffix.lower() in SUPPORTED_EXTENSIONS:
                 kept_supported += 1
@@ -293,7 +312,12 @@ def scan_sanitization_candidates(input_root: Path, demo_min_seconds: float = DEM
 
 
 def classify_sanitize_item(
-    input_root: Path, path: Path, size: int, *, demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT
+    input_root: Path,
+    path: Path,
+    size: int,
+    *,
+    demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT,
+    remove_unopenable_audio: bool = False,
 ) -> SanitizeItem | None:
     extension = normalized_extension(path)
     relative = str(path.relative_to(input_root))
@@ -326,6 +350,14 @@ def classify_sanitize_item(
                 bytes=size,
                 reason="demo_long_audio",
             )
+    if remove_unopenable_audio and not ffprobe_audio_openable(path):
+        return SanitizeItem(
+            path=str(path),
+            relative_path=relative,
+            extension=extension,
+            bytes=size,
+            reason="unopenable_audio",
+        )
     return None
 
 
@@ -406,6 +438,40 @@ def ffprobe_duration_seconds(path: Path) -> float | None:
         return float(duration) if duration is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def ffprobe_audio_openable(path: Path) -> bool:
+    """
+    Best-effort check for "is this supported audio file actually readable".
+    We deliberately use ffprobe only: if it can't see an audio stream, KeyFinder/ffmpeg likely won't either.
+    """
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return True
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_name",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, check=False, text=True, timeout=10)
+    except Exception:
+        return False
+    if completed.returncode != 0:
+        return False
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except Exception:
+        return False
+    streams = payload.get("streams") or []
+    return bool(streams)
 
 
 def normalized_extension(path: Path) -> str:
