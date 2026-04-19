@@ -510,6 +510,110 @@ def apply_review_marking(
     return report
 
 
+_DENOISE_REASONS_NON_HARMONIC: frozenset[str] = frozenset(
+    {
+        "engine_key_disagreement",
+        "engine_root_disagreement",
+        "filename_key_disagreement",
+        "filename_bpm_anchor",
+        "filename_key_disagreement_confident",
+        "filename_key_disagreement_weak",
+    }
+)
+
+
+def apply_review_denoise(
+    index_path: Path,
+    records: list[dict[str, Any]],
+    *,
+    dry_run: bool = False,
+    write_every: int = 100,
+    export_json: bool = True,
+    max_examples: int = 20,
+) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    targets = [sample for sample in samples if not bool(sample.get("reviewed")) and bool(sample.get("needs_review"))]
+
+    report: dict[str, Any] = {
+        "mode": "review_denoise",
+        "selected": len(targets),
+        "updated": 0,
+        "cleared_needs_review": 0,
+        "filtered_reasons": 0,
+        "dry_run": dry_run,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "examples": [],
+    }
+    if not targets:
+        return report
+
+    def denoise(sample: dict[str, Any]) -> tuple[bool, list[str], list[str]]:
+        reasons = list(sample.get("review_reasons") or [])
+        if not reasons:
+            return False, reasons, reasons
+        sample_type = str(sample.get("type") or "")
+        if sample_type not in NON_HARMONIC_REVIEW_TYPES:
+            return False, reasons, reasons
+        filtered = [
+            reason
+            for reason in reasons
+            if reason not in _DENOISE_REASONS_NON_HARMONIC and not reason.startswith("filename_key_disagreement_")
+        ]
+        changed = filtered != reasons
+        return changed, reasons, filtered
+
+    examples: list[dict[str, Any]] = []
+    planned: list[tuple[dict[str, Any], list[str], list[str]]] = []
+    for sample in targets:
+        changed, before, after = denoise(sample)
+        if not changed:
+            continue
+        planned.append((sample, before, after))
+        if len(examples) < max_examples:
+            examples.append(
+                {
+                    "library_id": sample.get("library_id"),
+                    "relative_path": sample.get("relative_path"),
+                    "name": sample.get("name"),
+                    "type": sample.get("type"),
+                    "before": before,
+                    "after": after,
+                }
+            )
+    report["examples"] = examples
+    report["filtered_reasons"] = sum(max(0, len(before) - len(after)) for _, before, after in planned)
+    report["selected"] = len(planned)
+    if dry_run or not planned:
+        return report
+
+    index = open_writable_index(index_path)
+    try:
+        for sample, before, after in planned:
+            record = dict(sample.get("structured") or {})
+            if not record:
+                continue
+            analysis = dict(record.get("analysis") or {})
+            review = dict(analysis.get("review") or {})
+            # Update reasons but preserve other review metadata (reviewed/reviewed_at etc).
+            review["reasons"] = after
+            new_needs_review = bool(after)
+            if bool(review.get("needs_review")) and not new_needs_review:
+                report["cleared_needs_review"] += 1
+            review["needs_review"] = new_needs_review
+            analysis["review"] = review
+            record["analysis"] = analysis
+            upsert_record(index, record)
+            report["updated"] += 1
+            if report["updated"] % max(1, write_every) == 0:
+                index.write()
+        index.write()
+        if export_json and isinstance(index, SQLiteMetadataIndex):
+            index.export_json(index_path.with_suffix(".json"))
+    finally:
+        close_index(index)
+    return report
+
+
 def record_with_keyfinder_review_policy(record: dict[str, Any], item: dict[str, Any], high_confidence: float) -> dict[str, Any]:
     updated = json.loads(json.dumps(record))
     analysis = dict(updated.get("analysis") or {})
@@ -1794,6 +1898,75 @@ def format_review_summary(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def build_v3_health_dashboard(
+    records: list[dict[str, Any]],
+    *,
+    library_roots: dict[str, Path] | None,
+    destination_roots: dict[str, Path] | None,
+    run_report: dict[str, Any] | None,
+    max_examples: int = 5,
+) -> dict[str, Any]:
+    catalog = build_catalog_health_report(
+        records,
+        library_roots=library_roots,
+        destination_roots=destination_roots,
+        max_examples=max_examples,
+        run_report=run_report,
+    )
+    samples = [_flatten_sample(record) for record in records]
+    review_reason_by_family = Counter()
+    keyfinder_error_by_family = Counter()
+    for sample in samples:
+        family = sample.get("path_family") or "unknown"
+        if sample.get("needs_review") and not sample.get("reviewed"):
+            for reason in (sample.get("review_reasons") or [])[:10]:
+                review_reason_by_family[f"{family} | {reason}"] += 1
+        external = keyfinder_external(sample)
+        if external and external.get("status") != "success":
+            code = normalize_keyfinder_error(external.get("error") or "unknown")
+            keyfinder_error_by_family[f"{family} | {code}"] += 1
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "catalog_health": catalog,
+        "run_summary": (run_report or {}).get("summary") if isinstance(run_report, dict) else None,
+        "probe_summary": (run_report or {}).get("probe_summary") if isinstance(run_report, dict) else None,
+        "top_review_offenders": [
+            {"value": key, "count": count} for key, count in review_reason_by_family.most_common(15)
+        ],
+        "top_keyfinder_error_offenders": [
+            {"value": key, "count": count} for key, count in keyfinder_error_by_family.most_common(15)
+        ],
+    }
+
+
+def format_v3_health_dashboard(report: dict[str, Any]) -> str:
+    catalog = report.get("catalog_health") or {}
+    totals = (catalog.get("totals") or {}) if isinstance(catalog, dict) else {}
+    run_summary = report.get("run_summary") or {}
+    lines = [
+        "V3 health:",
+        f"  Total: {totals.get('total', 0)} | Playable: {totals.get('playable', 0)} | Missing: {totals.get('missing', 0)}",
+        f"  Reviewed: {totals.get('reviewed', 0)} | Needs review: {totals.get('needs_review', 0)} | KeyFinder errors: {totals.get('keyfinder_errors', 0)}",
+    ]
+    if isinstance(run_summary, dict) and run_summary:
+        lines.append(
+            f"  Last run: processed {run_summary.get('processed', 0)} | errors {run_summary.get('errors', 0)} | needs_review {run_summary.get('needs_review', 0)} | low_conf {run_summary.get('low_confidence', 0)}"
+        )
+    offenders = report.get("top_review_offenders") or []
+    if offenders:
+        lines.append("")
+        lines.append("Top review offenders (path_family | reason):")
+        for item in offenders[:8]:
+            lines.append(f"- {item.get('value')}: {item.get('count')}")
+    kf = report.get("top_keyfinder_error_offenders") or []
+    if kf:
+        lines.append("")
+        lines.append("Top KeyFinder error offenders (path_family | code):")
+        for item in kf[:8]:
+            lines.append(f"- {item.get('value')}: {item.get('count')}")
+    return "\n".join(lines)
+
+
 def build_catalog_health_report(
     records: list[dict[str, Any]],
     library_roots: dict[str, Path] | None = None,
@@ -2191,6 +2364,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reviewed-json", type=Path, default=None, help="Write the reviewed-marking report to JSON.")
     parser.add_argument("--catalog-health", action="store_true", help="Print playable vs missing summary for one or more libraries (requires mounted roots via --library-root/--destination-root).")
     parser.add_argument("--catalog-health-json", type=Path, default=None, help="Write the catalog health report to JSON.")
+    parser.add_argument("--v3-health", action="store_true", help="Print a compact V3 dashboard: catalog health + probe failures + keyfinder errors + top offenders.")
+    parser.add_argument("--v3-health-json", type=Path, default=None, help="Write the V3 health dashboard to JSON.")
+    parser.add_argument("--review-denoise", action="store_true", help="Reduce non-actionable review noise (especially drums/FX) by filtering review reasons and needs_review flags.")
+    parser.add_argument("--review-denoise-json", type=Path, default=None, help="Write the review denoise report to JSON.")
     parser.add_argument("--deep-plan", action="store_true", help="Print the V3.3 deep-review candidate plan.")
     parser.add_argument("--deep-rerun", action="store_true", help="Rerun analysis only for deep-review candidates and update the index.")
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
@@ -2233,6 +2410,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Metadata index does not exist: {index_path}")
         return 2
     records = load_records(index_path)
+    if args.review_denoise:
+        report = apply_review_denoise(
+            index_path,
+            records,
+            dry_run=bool(args.dry_run),
+            write_every=int(args.write_every),
+            export_json=not bool(args.no_json_export),
+            max_examples=max(0, int(args.examples)),
+        )
+        print("Review denoise:")
+        print(f"  Selected: {report['selected']} files")
+        print(f"  Updated: {report['updated']} files")
+        print(f"  Cleared needs_review: {report['cleared_needs_review']} files")
+        print(f"  Filtered reasons: {report['filtered_reasons']}")
+        if args.review_denoise_json:
+            report_path = args.review_denoise_json.expanduser().resolve()
+            write_keyfinder_report(report, report_path)
+            print(f"Review denoise JSON: {report_path}")
+        return 0
     if args.mark_reviewed or args.mark_unreviewed:
         if args.mark_reviewed and args.mark_unreviewed:
             print("Choose only one: --mark-reviewed or --mark-unreviewed.")
@@ -2282,6 +2478,33 @@ def main(argv: list[str] | None = None) -> int:
             report_path = args.catalog_health_json.expanduser().resolve()
             write_catalog_health_report(report, report_path)
             print(f"Catalog health JSON: {report_path}")
+        return 0
+    if args.v3_health:
+        try:
+            library_roots = parse_library_roots(args.library_root)
+            destination_roots = parse_library_roots(args.destination_root, option_name="--destination-root")
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        run_report: dict[str, Any] | None = None
+        candidate_run_report = index_path.parent / "analysis_run_report.json"
+        if candidate_run_report.exists():
+            try:
+                run_report = json.loads(candidate_run_report.read_text(encoding="utf-8"))
+            except Exception:
+                run_report = None
+        report = build_v3_health_dashboard(
+            records,
+            library_roots=library_roots,
+            destination_roots=destination_roots,
+            run_report=run_report,
+            max_examples=max(0, int(args.examples)),
+        )
+        print(format_v3_health_dashboard(report))
+        if args.v3_health_json:
+            report_path = args.v3_health_json.expanduser().resolve()
+            write_catalog_health_report(report, report_path)
+            print(f"V3 health JSON: {report_path}")
         return 0
     if args.backend_check:
         report = build_backend_check_report(records)

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import apply_keyfinder_review_policy, apply_review_marking, build_backend_check_report, build_catalog_health_report, build_classification_audit_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_keyfinder_review_policy_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_classification_audit_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_keyfinder_review_policy_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_classification_audit_csv, write_classification_audit_json, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
+from sample_key_indexer.review_report import apply_keyfinder_review_policy, apply_review_denoise, apply_review_marking, build_backend_check_report, build_catalog_health_report, build_classification_audit_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_keyfinder_review_policy_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_classification_audit_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_keyfinder_review_policy_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_classification_audit_csv, write_classification_audit_json, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -1092,6 +1092,39 @@ class ReviewReportTests(unittest.TestCase):
             updated = load_records(index_path)[0]
 
         self.assertTrue(updated["analysis"]["review"].get("reviewed"))
+
+    def test_apply_review_denoise_filters_non_harmonic_reasons(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            index_path = root / "metadata_index.sqlite"
+            index = SQLiteMetadataIndex(index_path)
+            try:
+                # DrumLoops with engine disagreement should be denoised.
+                index.upsert(
+                    AnalysisResult(
+                        file_path="/samples/drum.wav",
+                        root_note="C",
+                        key="C_major",
+                        confidence=0.3,
+                        category="Loops",
+                        type="DrumLoops",
+                        duration=4.0,
+                        needs_review=True,
+                        review_reasons=["engine_key_disagreement"],
+                        relative_path="Pack/drum.wav",
+                        library_id="usb_01",
+                        library_name="USB 01",
+                    )
+                )
+                index.write()
+            finally:
+                index.close()
+
+            report = apply_review_denoise(index_path, load_records(index_path), dry_run=False, write_every=1, export_json=False)
+            updated = load_records(index_path)[0]
+
+        self.assertEqual(report["updated"], 1)
+        self.assertFalse(updated["analysis"]["review"].get("needs_review"))
 
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:
