@@ -70,6 +70,19 @@ class SanitizeTests(unittest.TestCase):
                 item2 = classify_sanitize_item(root, demo, demo.stat().st_size, demo_min_seconds=60.0)
             self.assertIsNone(item2)
 
+    def test_classify_sanitize_item_can_flag_unopenable_audio_when_enabled(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wav = root / "Pack" / "broken.wav"
+            wav.parent.mkdir()
+            wav.write_bytes(b"not audio")
+
+            with patch("sample_key_indexer.sanitize.ffprobe_audio_openable", return_value=False):
+                item = classify_sanitize_item(root, wav, wav.stat().st_size, remove_unopenable_audio=True)
+
+            self.assertIsNotNone(item)
+            self.assertEqual(item.reason, "unopenable_audio")
+
     def test_scan_sanitization_candidates_summarizes_files(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

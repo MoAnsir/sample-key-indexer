@@ -43,6 +43,12 @@ Sanitize a messy source folder in place before scanning (removes unsupported fil
 sample-key-indexer-sanitize /Users/mohammedansir/Desktop/Samples_to_detect
 ```
 
+Optional: also remove/quarantine supported audio that ffprobe can't open (corrupt/unhandled):
+
+```bash
+sample-key-indexer-sanitize /Users/mohammedansir/Desktop/Samples_to_detect --remove-unopenable-audio
+```
+
 Catalog only, keeping audio where it is:
 
 ```bash

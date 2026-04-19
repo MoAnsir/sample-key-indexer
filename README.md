@@ -49,6 +49,12 @@ Sanitize a source library in place before scanning. This scans first, prints a r
 sample-key-indexer-sanitize /path/to/SampleLibrary
 ```
 
+To also flag corrupt/unhandled audio that `ffprobe` cannot open:
+
+```bash
+sample-key-indexer-sanitize /path/to/SampleLibrary --remove-unopenable-audio
+```
+
 Use `--dry-run` to inspect the removable set and write `sanitize_report.json` without changing files:
 
 ```bash
