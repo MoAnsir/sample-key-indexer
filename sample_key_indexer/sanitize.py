@@ -5,10 +5,12 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+import os
 import subprocess
 import sys
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from sample_key_indexer.discovery import SUPPORTED_EXTENSIONS
@@ -53,6 +55,16 @@ class SanitizeItem:
     reason: str
 
 
+@dataclass(frozen=True)
+class _ProbeRequest:
+    path: Path
+    relative_path: str
+    extension: str
+    bytes: int
+    wants_demo_check: bool
+    wants_openable_check: bool
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Scan a source sample library and quarantine or delete unsupported/full-arrangement files in place."
@@ -84,6 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also remove/quarantine supported audio files that ffprobe cannot open (corrupt/unhandled). Default: off.",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=max(1, min(8, os.cpu_count() or 1)),
+        help="Parallelism for ffprobe-based checks (demo duration, unopenable audio). Default: 8 (capped).",
+    )
     return parser
 
 
@@ -103,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         input_root,
         demo_min_seconds=float(args.demo_min_seconds),
         remove_unopenable_audio=bool(args.remove_unopenable_audio),
+        workers=int(args.workers),
     )
     print_pre_action_report(input_root, scan)
 
@@ -283,35 +302,84 @@ def scan_sanitization_candidates(
     input_root: Path,
     demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT,
     remove_unopenable_audio: bool = False,
+    workers: int = 1,
 ) -> dict[str, object]:
     items: list[SanitizeItem] = []
+    probe_requests: list[_ProbeRequest] = []
     kept_supported = 0
     kept_supported_bytes = 0
     total_bytes = 0
 
-    scanned_files = 0
     progress = get_progress_bar()
-    iterator = (path for path in input_root.rglob("*") if path.is_file())
-    if progress is not None:
-        iterator = progress(iterator, desc="Scanning files", unit="file", mininterval=0.5)
+    all_files: list[Path] = []
+    for dirpath, _, filenames in os.walk(input_root):
+        base = Path(dirpath)
+        for name in filenames:
+            all_files.append(base / name)
 
-    for path in iterator:
+    iterator: object = all_files
+    if progress is not None and all_files:
+        iterator = progress(all_files, total=len(all_files), desc="Scanning files", unit="file", mininterval=0.5)
+
+    for path in iterator:  # type: ignore[assignment]
         size = file_size(path)
         total_bytes += size
-        scanned_files += 1
-        removable = classify_sanitize_item(
+        removable, probe = classify_sanitize_item(
             input_root,
             path,
             size,
             demo_min_seconds=demo_min_seconds,
             remove_unopenable_audio=remove_unopenable_audio,
         )
-        if removable is None:
-            if path.suffix.lower() in SUPPORTED_EXTENSIONS:
-                kept_supported += 1
-                kept_supported_bytes += size
+        if removable is not None:
+            items.append(removable)
             continue
-        items.append(removable)
+        if probe is not None:
+            probe_requests.append(probe)
+            continue
+        if path.suffix.lower() in SUPPORTED_EXTENSIONS:
+            kept_supported += 1
+            kept_supported_bytes += size
+
+    if probe_requests:
+        with ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
+            futures = {pool.submit(ffprobe_audio_info, req.path): req for req in probe_requests}
+            probe_iter: object = as_completed(futures)
+            if progress is not None:
+                probe_iter = progress(
+                    probe_iter,
+                    total=len(futures),
+                    desc="Probing audio",
+                    unit="file",
+                    mininterval=0.5,
+                )
+            for future in probe_iter:  # type: ignore[assignment]
+                req = futures[future]
+                duration, openable = future.result()
+                if req.wants_openable_check and not openable:
+                    items.append(
+                        SanitizeItem(
+                            path=str(req.path),
+                            relative_path=req.relative_path,
+                            extension=req.extension,
+                            bytes=req.bytes,
+                            reason="unopenable_audio",
+                        )
+                    )
+                    continue
+                if req.wants_demo_check and duration is not None and duration > float(demo_min_seconds):
+                    items.append(
+                        SanitizeItem(
+                            path=str(req.path),
+                            relative_path=req.relative_path,
+                            extension=req.extension,
+                            bytes=req.bytes,
+                            reason="demo_long_audio",
+                        )
+                    )
+                    continue
+                kept_supported += 1
+                kept_supported_bytes += req.bytes
 
     reason_counts = Counter(item.reason for item in items)
     extension_counts = Counter(item.extension for item in items)
@@ -322,7 +390,7 @@ def scan_sanitization_candidates(
         extension_bytes[item.extension] += item.bytes
 
     return {
-        "scanned_files": scanned_files,
+        "scanned_files": len(all_files),
         "total_bytes": total_bytes,
         "kept_supported_files": kept_supported,
         "kept_supported_bytes": kept_supported_bytes,
@@ -348,47 +416,49 @@ def classify_sanitize_item(
     *,
     demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT,
     remove_unopenable_audio: bool = False,
-) -> SanitizeItem | None:
+) -> tuple[SanitizeItem | None, _ProbeRequest | None]:
     extension = normalized_extension(path)
     relative = str(path.relative_to(input_root))
     suffix = path.suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
         reason = unsupported_reason(path, extension)
-        return SanitizeItem(
-            path=str(path),
-            relative_path=relative,
-            extension=extension,
-            bytes=size,
-            reason=reason,
-        )
-    stem_text = normalized_name_text(path.stem)
-    if any(pattern in stem_text for pattern in normalized_patterns()):
-        return SanitizeItem(
-            path=str(path),
-            relative_path=relative,
-            extension=extension,
-            bytes=size,
-            reason="ignored_name_pattern",
-        )
-    if is_demo_name(stem_text):
-        duration = ffprobe_duration_seconds(path)
-        if duration is not None and duration > float(demo_min_seconds):
-            return SanitizeItem(
+        return (
+            SanitizeItem(
                 path=str(path),
                 relative_path=relative,
                 extension=extension,
                 bytes=size,
-                reason="demo_long_audio",
-            )
-    if remove_unopenable_audio and not ffprobe_audio_openable(path):
-        return SanitizeItem(
-            path=str(path),
+                reason=reason,
+            ),
+            None,
+        )
+    stem_text = normalized_name_text(path.stem)
+    if any(pattern in stem_text for pattern in normalized_patterns()):
+        return (
+            SanitizeItem(
+                path=str(path),
+                relative_path=relative,
+                extension=extension,
+                bytes=size,
+                reason="ignored_name_pattern",
+            ),
+            None,
+        )
+    wants_demo = is_demo_name(stem_text)
+    wants_openable = bool(remove_unopenable_audio)
+    if not wants_demo and not wants_openable:
+        return None, None
+    return (
+        None,
+        _ProbeRequest(
+            path=path,
             relative_path=relative,
             extension=extension,
             bytes=size,
-            reason="unopenable_audio",
-        )
-    return None
+            wants_demo_check=wants_demo,
+            wants_openable_check=wants_openable,
+        ),
+    )
 
 
 def unsupported_reason(path: Path, extension: str) -> str:
@@ -504,6 +574,44 @@ def ffprobe_audio_openable(path: Path) -> bool:
     return bool(streams)
 
 
+def ffprobe_audio_info(path: Path) -> tuple[float | None, bool]:
+    """Return (duration_seconds, openable) from a single ffprobe invocation."""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None, True
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_streams",
+        "-show_format",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, check=False, text=True, timeout=10)
+    except Exception:
+        return None, False
+    if completed.returncode != 0:
+        return None, False
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except Exception:
+        return None, False
+    streams = payload.get("streams") or []
+    openable = any(stream.get("codec_type") == "audio" for stream in streams if isinstance(stream, dict))
+    duration = None
+    try:
+        fmt = payload.get("format") or {}
+        raw = fmt.get("duration")
+        if raw is not None:
+            duration = float(raw)
+    except Exception:
+        duration = None
+    return duration, bool(openable)
+
+
 def normalized_extension(path: Path) -> str:
     suffix = path.suffix.lower()
     return suffix if suffix else "[no extension]"
@@ -518,7 +626,11 @@ def file_size(path: Path) -> int:
 
 def quarantine_items(items: list[SanitizeItem], input_root: Path, quarantine_dir: Path) -> list[SanitizeItem]:
     moved: list[SanitizeItem] = []
-    for item in items:
+    progress = get_progress_bar()
+    iterator: object = items
+    if progress is not None and items:
+        iterator = progress(items, total=len(items), desc="Quarantining", unit="file", mininterval=0.5)
+    for item in iterator:  # type: ignore[assignment]
         source = Path(item.path)
         destination = quarantine_dir / Path(item.relative_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -529,7 +641,11 @@ def quarantine_items(items: list[SanitizeItem], input_root: Path, quarantine_dir
 
 def delete_items(items: list[SanitizeItem]) -> list[SanitizeItem]:
     deleted: list[SanitizeItem] = []
-    for item in items:
+    progress = get_progress_bar()
+    iterator: object = items
+    if progress is not None and items:
+        iterator = progress(items, total=len(items), desc="Deleting", unit="file", mininterval=0.5)
+    for item in iterator:  # type: ignore[assignment]
         path = Path(item.path)
         if path.exists():
             path.unlink()
@@ -557,6 +673,18 @@ def build_report(
     for item in affected:
         affected_reason_bytes[item.reason] += item.bytes
         affected_extension_bytes[item.extension] += item.bytes
+    examples_by_reason: list[dict[str, object]] = []
+    for reason, _ in affected_reason_counts.most_common():
+        if len(examples_by_reason) >= 10:
+            break
+        example_paths: list[str] = []
+        for item in affected:
+            if item.reason != reason:
+                continue
+            example_paths.append(item.relative_path)
+            if len(example_paths) >= 5:
+                break
+        examples_by_reason.append({"reason": reason, "examples": example_paths})
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "input_root": str(input_root),
@@ -585,6 +713,7 @@ def build_report(
                 {"reason": reason, "count": affected_reason_counts[reason], "bytes": affected_reason_bytes[reason]}
                 for reason, _ in affected_reason_counts.most_common()
             ],
+            "examples_by_reason": examples_by_reason,
             "by_extension": [
                 {
                     "extension": extension,
@@ -635,6 +764,15 @@ def print_final_report(report_path: Path, report: dict[str, object]) -> None:
         print("  Affected by extension:")
         for item in report["affected"]["by_extension"][:5]:
             print(f"    - {item['extension']}: {item['count']} files ({format_gb(int(item['bytes']))})")
+    examples_by_reason = report["affected"].get("examples_by_reason") or []
+    if examples_by_reason:
+        print("  Examples by reason:")
+        for item in examples_by_reason[:5]:
+            examples = item.get("examples") or []
+            if not examples:
+                continue
+            joined = "; ".join(str(path) for path in examples[:3])
+            print(f"    - {item.get('reason')}: {joined}")
     if report["action"] == "quarantined":
         print(f"  Quarantine folder: {report['quarantine_dir']}")
     print(f"  Report JSON: {report_path}")
