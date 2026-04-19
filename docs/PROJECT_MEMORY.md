@@ -201,6 +201,10 @@ The browser may cancel audio range requests when users click around. Broken pipe
 
 `sample_key_indexer/review_report.py` summarizes samples that need review. It currently counts review reasons/types and prints low-confidence examples.
 
+Catalog health:
+
+`sample-key-indexer-review --catalog-health` prints playable vs missing counts per library using the same playback path resolution as the web app, driven by `--library-root` and `--destination-root` mappings. This is useful when a drive is not mounted but you want to confirm catalog usability and see what would become playable when mounted.
+
 V3.3 adds deep review mode to the review command. It selects records with low confidence, `needs_review`, key/root disagreements, analysis warnings, or analysis errors. Drum, percussion, and FX records are not selected just for weak key confidence because harmonic reruns usually cannot improve them; they need warnings or errors to enter the queue. This filter checks stored type labels and obvious path/name tokens, which keeps misclassified percussion folders such as Dholak/Khanjira/Idakka/Udakai out of harmonic review unless they also have warnings or errors. V3.3 can print a plan, dry-run the rerun counts, or re-analyze only selected records and upsert them into the same metadata index. Real reruns isolate each selected file in a worker process. If deep/balanced analysis crashes, the file is retried once with the safer `fast`/`librosa` path before being counted as a failed worker crash. `--report-json` writes a rerun report with counts plus examples for missing audio, analysis errors, worker crash failures, and fallback successes.
 
 Plan command:

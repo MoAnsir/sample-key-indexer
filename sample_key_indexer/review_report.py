@@ -16,7 +16,7 @@ from typing import Any
 
 from sample_key_indexer.audio_analysis import analyze_file, normalize_engines
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
-from sample_key_indexer.web_app import _flatten_sample, _playable_path, parse_library_roots
+from sample_key_indexer.web_app import _flatten_sample, _playback_info, _playable_path, parse_library_roots
 
 NON_HARMONIC_REVIEW_TYPES = {"Kick", "Snare", "Hat", "Perc", "DrumLoops", "FX", "FXLoops"}
 NON_HARMONIC_REVIEW_TEXT = (
@@ -1604,6 +1604,11 @@ def write_keyfinder_report(report: dict[str, Any], path: Path) -> None:
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def write_catalog_health_report(report: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def write_classification_audit_json(report: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -1686,6 +1691,113 @@ def format_review_summary(summary: dict[str, Any]) -> str:
         for item in summary["examples"]:
             reasons = ", ".join(item["reasons"]) or "unknown"
             lines.append(f"- {item['name']} | {item['key']} | confidence {item['confidence']} | {reasons}")
+    return "\n".join(lines)
+
+
+def build_catalog_health_report(
+    records: list[dict[str, Any]],
+    library_roots: dict[str, Path] | None = None,
+    destination_roots: dict[str, Path] | None = None,
+    max_examples: int = 5,
+) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    by_library: dict[str, dict[str, Any]] = {}
+    totals = {"total": 0, "playable": 0, "missing": 0}
+    missing_examples: list[dict[str, Any]] = []
+
+    def bucket_for(sample: dict[str, Any]) -> dict[str, Any]:
+        library_id = sample.get("library_id") or "unknown"
+        item = by_library.get(library_id)
+        if item is None:
+            item = {
+                "library_id": library_id,
+                "library_name": sample.get("library_name") or library_id,
+                "total": 0,
+                "playable": 0,
+                "missing": 0,
+                "by_source": {},
+                "missing_examples": [],
+            }
+            by_library[library_id] = item
+        return item
+
+    for sample in samples:
+        info = _playback_info(sample, library_roots, destination_roots)
+        status = info.get("status") or "missing"
+        source = info.get("source") or "missing"
+        bucket = bucket_for(sample)
+
+        totals["total"] += 1
+        bucket["total"] += 1
+        bucket["by_source"][source] = int(bucket["by_source"].get(source, 0)) + 1
+
+        if status == "available":
+            totals["playable"] += 1
+            bucket["playable"] += 1
+        else:
+            totals["missing"] += 1
+            bucket["missing"] += 1
+            example = {
+                "library_id": bucket["library_id"],
+                "library_name": bucket["library_name"],
+                "name": sample.get("name"),
+                "relative_path": sample.get("relative_path"),
+                "path_family": sample.get("path_family"),
+                "playback_path": info.get("path") or "",
+                "playback_source": source,
+            }
+            if len(missing_examples) < max_examples:
+                missing_examples.append(example)
+            if len(bucket["missing_examples"]) < max_examples:
+                bucket["missing_examples"].append(example)
+
+    libraries = sorted(by_library.values(), key=lambda item: (item["missing"], item["library_id"]), reverse=True)
+    for item in libraries:
+        total = max(1, int(item["total"]))
+        item["playable_pct"] = round((int(item["playable"]) / total) * 100, 2)
+        item["missing_pct"] = round((int(item["missing"]) / total) * 100, 2)
+        item["by_source"] = [
+            {"value": key, "count": int(count)}
+            for key, count in sorted(item["by_source"].items(), key=lambda kv: (-int(kv[1]), kv[0]))
+        ]
+
+    overall_total = max(1, totals["total"])
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "totals": {
+            **totals,
+            "playable_pct": round((totals["playable"] / overall_total) * 100, 2),
+            "missing_pct": round((totals["missing"] / overall_total) * 100, 2),
+        },
+        "libraries": libraries,
+        "missing_examples": missing_examples,
+    }
+
+
+def format_catalog_health_report(report: dict[str, Any]) -> str:
+    totals = report.get("totals") or {}
+    lines = [
+        "Catalog health:",
+        f"  Total samples: {totals.get('total', 0)}",
+        f"  Playable: {totals.get('playable', 0)} ({totals.get('playable_pct', 0)}%)",
+        f"  Missing: {totals.get('missing', 0)} ({totals.get('missing_pct', 0)}%)",
+    ]
+    lines.append("")
+    lines.append("By library:")
+    for lib in (report.get("libraries") or [])[:25]:
+        lines.append(
+            f"- {lib.get('library_id')} | {lib.get('library_name')} | total {lib.get('total')} | "
+            f"playable {lib.get('playable')} ({lib.get('playable_pct')}%) | "
+            f"missing {lib.get('missing')} ({lib.get('missing_pct')}%)"
+        )
+    examples = report.get("missing_examples") or []
+    if examples:
+        lines.append("")
+        lines.append("Missing examples:")
+        for item in examples[:5]:
+            lines.append(
+                f"- {item.get('library_id')} | {item.get('name')} | {item.get('playback_source')} | {item.get('playback_path')}"
+            )
     return "\n".join(lines)
 
 
@@ -1916,6 +2028,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Summarize samples that need review from a metadata index.")
     parser.add_argument("index_path", type=Path, help="Path to metadata_index.json or metadata_index.sqlite.")
     parser.add_argument("--examples", type=int, default=10, help="Number of lowest-confidence review examples to print.")
+    parser.add_argument("--catalog-health", action="store_true", help="Print playable vs missing summary for one or more libraries (requires mounted roots via --library-root/--destination-root).")
+    parser.add_argument("--catalog-health-json", type=Path, default=None, help="Write the catalog health report to JSON.")
     parser.add_argument("--deep-plan", action="store_true", help="Print the V3.3 deep-review candidate plan.")
     parser.add_argument("--deep-rerun", action="store_true", help="Rerun analysis only for deep-review candidates and update the index.")
     parser.add_argument("--deep-failures", action="store_true", help="Print the V3.5 deep-review failure report.")
@@ -1957,6 +2071,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Metadata index does not exist: {index_path}")
         return 2
     records = load_records(index_path)
+    if args.catalog_health:
+        try:
+            library_roots = parse_library_roots(args.library_root)
+            destination_roots = parse_library_roots(args.destination_root, option_name="--destination-root")
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        report = build_catalog_health_report(records, library_roots=library_roots, destination_roots=destination_roots, max_examples=max(0, args.examples))
+        print(format_catalog_health_report(report))
+        if args.catalog_health_json:
+            report_path = args.catalog_health_json.expanduser().resolve()
+            write_catalog_health_report(report, report_path)
+            print(f"Catalog health JSON: {report_path}")
+        return 0
     if args.backend_check:
         report = build_backend_check_report(records)
         print(format_backend_check_report(report))
