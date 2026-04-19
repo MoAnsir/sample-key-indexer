@@ -223,9 +223,39 @@ def resolve_action(value: str) -> str:
     return value.strip().lower()
 
 
+def _safe_tty_input(prompt: str) -> str:
+    """Input() that tolerates misconfigured TTYs where Enter sends \\r (CR) instead of \\n (NL).
+
+    In a normal cooked TTY, the line discipline translates CR->NL (stty icrnl), so input()
+    works. If that translation is disabled (e.g. stty -icrnl), input() can appear to hang
+    because it waits for \\n. We temporarily enable ICRNL while reading the line.
+    """
+    if not sys.stdin.isatty():
+        return input(prompt)
+    try:
+        import termios
+
+        fd = sys.stdin.fileno()
+        original = termios.tcgetattr(fd)
+        updated = original[:]
+        updated[0] = int(updated[0]) | int(termios.ICRNL)
+        termios.tcsetattr(fd, termios.TCSADRAIN, updated)
+        return input(prompt)
+    except Exception:
+        return input(prompt)
+    finally:
+        try:
+            import termios
+
+            fd = sys.stdin.fileno()
+            termios.tcsetattr(fd, termios.TCSADRAIN, original)  # type: ignore[name-defined]
+        except Exception:
+            pass
+
+
 def prompt_for_action() -> str:
     while True:
-        choice = input("Choose action: [q]uarantine, [d]elete, [c]ancel: ").strip().lower()
+        choice = _safe_tty_input("Choose action: [q]uarantine, [d]elete, [c]ancel: ").strip().lower()
         if choice in {"q", "quarantine"}:
             return "quarantine"
         if choice in {"d", "delete"}:
@@ -239,7 +269,7 @@ def confirm_delete(scan: dict[str, object]) -> bool:
     removable_count = int(scan["removable_count"])
     removable_bytes = int(scan["removable_bytes"])
     expected = "DELETE"
-    response = input(
+    response = _safe_tty_input(
         f"Type {expected} to permanently remove {removable_count} files ({format_gb(removable_bytes)}): "
     ).strip()
     return response == expected
