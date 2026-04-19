@@ -35,6 +35,16 @@ Run the test suite:
 python3 -B -m unittest discover -s tests
 ```
 
+## Catalog Health
+
+When a USB/SD is not mounted, you can still browse metadata, but playback will be missing. To quantify this per library, run:
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite \
+  --catalog-health \
+  --destination-root "usb_01=/Volumes/SSK Drive/SAMPLEZ"
+```
+
 ## Index A New Device Or Folder
 
 Sanitize a messy source folder in place before scanning (removes unsupported files, pack baggage like ReadMe/artwork/PDFs, Mac artifacts, `fullmix`/`musicloop` mixes, and long demo files with `demo*` in the filename and duration > 60s):

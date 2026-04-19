@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sample_key_indexer.index_store import SQLiteMetadataIndex, load_records
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.review_report import apply_keyfinder_review_policy, build_backend_check_report, build_classification_audit_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_keyfinder_review_policy_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_classification_audit_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_keyfinder_review_policy_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_classification_audit_csv, write_classification_audit_json, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
+from sample_key_indexer.review_report import apply_keyfinder_review_policy, build_backend_check_report, build_catalog_health_report, build_classification_audit_report, build_deep_failure_report, build_deep_review_plan, build_keyfinder_comparison_report, build_keyfinder_experiment_report, build_keyfinder_review_policy_report, build_review_summary, enrich_keyfinder_metadata, format_backend_check_report, format_classification_audit_report, format_deep_failure_report, format_deep_review_plan, format_deep_review_result, format_keyfinder_comparison_report, format_keyfinder_experiment_report, format_keyfinder_review_policy_report, format_review_summary, keyfinder_targets, rerun_deep_review, run_keyfinder_with_converted_wav, select_deep_review_candidates, write_classification_audit_csv, write_classification_audit_json, write_deep_failure_csv, write_deep_failure_json, write_deep_review_report
 
 
 class ReviewReportTests(unittest.TestCase):
@@ -1014,6 +1014,53 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(summary["processed"], 1)
         self.assertEqual(summary["updated"], 0)
         self.assertNotIn("external", records[0]["analysis"])
+
+    def test_catalog_health_report_counts_playable_and_missing(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mounted = root / "Mounted"
+            mounted.mkdir()
+            playable = mounted / "Pack" / "a.wav"
+            playable.parent.mkdir(parents=True)
+            playable.write_bytes(b"audio")
+
+            record_a = AnalysisResult(
+                file_path="/nonexistent/source.wav",
+                root_note="C",
+                key="C_major",
+                confidence=0.8,
+                category="Loops",
+                type="MelodyLoops",
+                duration=1.0,
+                format="wav",
+                relative_path="Pack/a.wav",
+                library_id="usb_01",
+                library_name="USB 01",
+            ).to_dict()
+            record_b = AnalysisResult(
+                file_path="/nonexistent/missing.wav",
+                root_note="C",
+                key="C_major",
+                confidence=0.8,
+                category="Loops",
+                type="MelodyLoops",
+                duration=1.0,
+                format="wav",
+                relative_path="Pack/missing.wav",
+                library_id="usb_01",
+                library_name="USB 01",
+            ).to_dict()
+
+            report = build_catalog_health_report(
+                [record_a, record_b],
+                library_roots={"usb_01": mounted},
+                destination_roots={},
+                max_examples=5,
+            )
+
+        self.assertEqual(report["totals"]["total"], 2)
+        self.assertEqual(report["totals"]["playable"], 1)
+        self.assertEqual(report["totals"]["missing"], 1)
 
     def test_rerun_deep_review_updates_selected_sqlite_record_and_preserves_library_context(self) -> None:
         with TemporaryDirectory() as tmp:
