@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 import time
@@ -67,6 +68,38 @@ def _infer_library_id(passthrough: list[str], output_root: Path) -> str:
     return output_root.name
 
 
+def _infer_run_report_path(passthrough: list[str], output_root: Path) -> Path:
+    for i, arg in enumerate(passthrough):
+        if arg == "--report-json" and i + 1 < len(passthrough):
+            return Path(passthrough[i + 1]).expanduser().resolve()
+    return (output_root / "analysis_run_report.json").expanduser().resolve()
+
+
+def _patch_run_report_with_keyfinder_rollups(run_report_path: Path, keyfinder_report_path: Path) -> None:
+    if not run_report_path.exists() or not keyfinder_report_path.exists():
+        return
+    try:
+        run_report = json.loads(run_report_path.read_text(encoding="utf-8"))
+        keyfinder_report = json.loads(keyfinder_report_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    offenders = run_report.get("offenders") or {}
+    keyfinder = offenders.get("keyfinder") or {}
+    # Keep it compact in JSON; terminal output already has details.
+    if keyfinder_report.get("error_by_path_family"):
+        keyfinder["error_by_path_family"] = list(keyfinder_report.get("error_by_path_family") or [])[:25]
+    if keyfinder_report.get("error_codes"):
+        keyfinder["error_codes"] = list(keyfinder_report.get("error_codes") or [])[:25]
+    if keyfinder_report.get("error_reasons"):
+        keyfinder["error_reasons"] = list(keyfinder_report.get("error_reasons") or [])[:25]
+    offenders["keyfinder"] = keyfinder
+    run_report["offenders"] = offenders
+    try:
+        run_report_path.write_text(json.dumps(run_report, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -111,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
         review_args.append("--keyfinder-convert-retry")
     rc = review_report.main(review_args)
     t2 = time.time()
+    run_report_path = _infer_run_report_path(passthrough, output_root)
+    _patch_run_report_with_keyfinder_rollups(run_report_path, keyfinder_json)
     print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s")
     return rc
 

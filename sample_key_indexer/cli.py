@@ -27,6 +27,7 @@ DEFAULT_IGNORED_NAME_PATTERNS: tuple[str, ...] = (
 )
 REQUIRED_EXTERNAL_TOOLS: tuple[tuple[str, ...], ...] = (("keyfinder-cli", "keyfinder"),)
 INFORMATIONAL_WARNING_CODES: tuple[str, ...] = ("short_signal_fft_adjusted",)
+_PAIR_SEP = "\x1f"
 
 
 @dataclass
@@ -54,6 +55,11 @@ class AnalysisRunSummary:
     crash_signature_examples: dict[str, dict[str, object]] | None = None
     warning_code_counts: dict[str, int] | None = None
     review_reason_counts: dict[str, int] | None = None
+    # Triage rollups (compact, for analysis_run_report.json)
+    review_by_path_family: dict[str, int] | None = None
+    review_by_path_family_reason: dict[str, int] | None = None
+    low_confidence_by_path_family: dict[str, int] | None = None
+    key_disagreements_by_path_family: dict[str, int] | None = None
 
     def __post_init__(self) -> None:
         self.error_examples = list(self.error_examples or [])
@@ -63,6 +69,10 @@ class AnalysisRunSummary:
         self.crash_signature_examples = dict(self.crash_signature_examples or {})
         self.warning_code_counts = dict(self.warning_code_counts or {})
         self.review_reason_counts = dict(self.review_reason_counts or {})
+        self.review_by_path_family = dict(self.review_by_path_family or {})
+        self.review_by_path_family_reason = dict(self.review_by_path_family_reason or {})
+        self.low_confidence_by_path_family = dict(self.low_confidence_by_path_family or {})
+        self.key_disagreements_by_path_family = dict(self.key_disagreements_by_path_family or {})
 
 
 @dataclass
@@ -74,6 +84,8 @@ class ProbeRunSummary:
     failed: int = 0
     failed_reason_counts: dict[str, int] = field(default_factory=dict)
     failed_examples: list[dict[str, str]] = field(default_factory=list)
+    failed_by_path_family: dict[str, int] = field(default_factory=dict)
+    failed_by_path_family_reason: dict[str, int] = field(default_factory=dict)
 
 
 def _progress_bar():
@@ -318,6 +330,12 @@ def split_long_files(files: list[Path], max_duration: float, probe_backend: str 
         probe = probe_audio_file(path, probe_backend)
         record_probe_summary(probe_summary, probe)
         append_probe_failure_example(probe_summary, path, probe)
+        if probe.duration is None:
+            family = path_family(str(path))
+            reason = normalize_probe_error_reason(str(getattr(probe, "error", None) or "unknown_probe_error"))
+            probe_summary.failed_by_path_family[family] = probe_summary.failed_by_path_family.get(family, 0) + 1
+            pair = _pair_key(family, reason)
+            probe_summary.failed_by_path_family_reason[pair] = probe_summary.failed_by_path_family_reason.get(pair, 0) + 1
         duration = probe.duration
         if duration is not None and duration > max_duration:
             skipped.append(path)
@@ -513,6 +531,7 @@ def update_analysis_summary(summary: AnalysisRunSummary, result) -> None:
     warnings = result.analysis_warnings or []
     review_reasons = result.review_reasons or []
     actionable_warnings = [warning for warning in warnings if not is_informational_warning(warning)]
+    family = path_family(result.relative_path or result.file_path)
     if result.error:
         summary.errors += 1
         if "worker_crash" in str(result.error) or "worker_crash" in warnings or "worker_crash" in review_reasons:
@@ -524,17 +543,26 @@ def update_analysis_summary(summary: AnalysisRunSummary, result) -> None:
         )
     if result.needs_review:
         summary.needs_review += 1
+        if summary.review_by_path_family is not None:
+            summary.review_by_path_family[family] = summary.review_by_path_family.get(family, 0) + 1
         for reason in review_reasons:
             if summary.review_reason_counts is not None:
                 summary.review_reason_counts[reason] = summary.review_reason_counts.get(reason, 0) + 1
+            if summary.review_by_path_family_reason is not None:
+                pair = _pair_key(family, reason)
+                summary.review_by_path_family_reason[pair] = summary.review_by_path_family_reason.get(pair, 0) + 1
         append_example(
             summary.review_examples,
             build_result_example(result),
         )
     if result.confidence < 0.35:
         summary.low_confidence += 1
+        if summary.low_confidence_by_path_family is not None:
+            summary.low_confidence_by_path_family[family] = summary.low_confidence_by_path_family.get(family, 0) + 1
     if any("key_disagreement" in reason or "root_disagreement" in reason for reason in review_reasons):
         summary.key_disagreements += 1
+        if summary.key_disagreements_by_path_family is not None:
+            summary.key_disagreements_by_path_family[family] = summary.key_disagreements_by_path_family.get(family, 0) + 1
     if "decoder_fallback_audioread" in actionable_warnings:
         summary.decoder_fallbacks += 1
     if any(reason in {"tiny_audio", "near_silence"} for reason in [*warnings, *review_reasons]):
@@ -694,6 +722,7 @@ def write_run_report(
         },
         "crash_signatures": serialize_crash_signatures(analysis_summary),
         "suspicious_files": build_suspicious_file_report(analysis_summary, probe_summary),
+        "offenders": build_offender_rollups(analysis_summary, probe_summary),
     }
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -721,6 +750,82 @@ def serialize_crash_signatures(summary: AnalysisRunSummary) -> list[dict[str, ob
 def serialize_counter(counter: dict[str, int] | None) -> list[dict[str, object]]:
     counts = counter or {}
     return [{"value": value, "count": count} for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
+
+
+def serialize_counter_top(counter: dict[str, int] | None, *, limit: int = 25) -> list[dict[str, object]]:
+    counts = counter or {}
+    items = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    out: list[dict[str, object]] = []
+    for value, count in items[: max(0, int(limit))]:
+        out.append({"value": value, "count": count})
+    return out
+
+
+def serialize_pair_counter(counter: dict[str, int] | None, *, limit: int = 25) -> list[dict[str, object]]:
+    counts = counter or {}
+    items = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    out: list[dict[str, object]] = []
+    for key, count in items[: max(0, int(limit))]:
+        family, reason = _split_pair_key(key)
+        out.append({"path_family": family, "reason": reason, "count": count})
+    return out
+
+
+def build_offender_rollups(analysis_summary: AnalysisRunSummary, probe_summary: ProbeRunSummary) -> dict[str, object]:
+    # Keep terminal output clean; this is JSON-only triage data.
+    return {
+        "path_family_depth": 2,
+        "probe_failures": {
+            "by_path_family": serialize_counter_top(probe_summary.failed_by_path_family),
+            "by_path_family_reason": serialize_pair_counter(probe_summary.failed_by_path_family_reason),
+        },
+        "review": {
+            "by_path_family": serialize_counter_top(analysis_summary.review_by_path_family),
+            "by_path_family_reason": serialize_pair_counter(analysis_summary.review_by_path_family_reason),
+        },
+        "low_confidence": {
+            "by_path_family": serialize_counter_top(analysis_summary.low_confidence_by_path_family),
+        },
+        "key_disagreements": {
+            "by_path_family": serialize_counter_top(analysis_summary.key_disagreements_by_path_family),
+        },
+        # Kitchen sink optionally patches this in after KeyFinder runs.
+        "keyfinder": {
+            "error_by_path_family": [],
+        },
+    }
+
+
+def _pair_key(path_family_value: str, reason: str) -> str:
+    return f"{path_family_value}{_PAIR_SEP}{reason}"
+
+
+def _split_pair_key(value: str) -> tuple[str, str]:
+    if _PAIR_SEP not in value:
+        return value, "unknown"
+    family, reason = value.split(_PAIR_SEP, 1)
+    return family or "unknown", reason or "unknown"
+
+
+def path_family(path_value: object, depth: int = 2) -> str:
+    """Compact path grouping for triage rollups (stable + readable in reports)."""
+    parts = [part for part in Path(str(path_value or "")).parts if part not in {"/", ""}]
+    if not parts:
+        return "unknown"
+    if Path(parts[-1]).suffix:
+        parts = parts[:-1]
+    if not parts:
+        return "unknown"
+    # Try to drop noisy machine-specific prefixes for macOS paths.
+    if parts[0] == "Users" and len(parts) > 5:
+        for marker in ("Indian Melodic", "Indian Percussion", "SAMPLES", "Key", "Unsorted"):
+            if marker in parts:
+                marker_index = parts.index(marker)
+                parts = parts[marker_index:] if marker.startswith("Indian ") else parts[marker_index + 1 :]
+                break
+    if len(parts) <= 1:
+        return parts[0]
+    return " / ".join(parts[: max(1, int(depth))])
 
 
 def build_suspicious_file_report(analysis_summary: AnalysisRunSummary, probe_summary: ProbeRunSummary) -> dict[str, object]:
