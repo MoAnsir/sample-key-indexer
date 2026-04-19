@@ -124,6 +124,12 @@ caffeinate -dimsu sample-key-indexer-kitchen-sink \
 
 This writes `analysis_run_report.json` during indexing, then shows a KeyFinder progress bar during enrichment.
 
+KeyFinder is resumable by default in kitchen sink (`--keyfinder-scope missing`). To force a full rerun:
+
+```bash
+sample-key-indexer-kitchen-sink /path/to/source /path/to/output --keyfinder-scope all --keyfinder-force
+```
+
 If you ever need the older two-step version (same behavior, just manual):
 
 ```bash
@@ -141,7 +147,7 @@ caffeinate -dimsu sample-key-indexer \
 sample-key-indexer-review \
   /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/metadata_index.sqlite \
   --keyfinder-enrich \
-  --keyfinder-scope all \
+  --keyfinder-scope missing \
   --keyfinder-convert-retry \
   --write-every 25 \
   --keyfinder-json /tmp/LIBRARY_ID_keyfinder_enrich.json
@@ -150,6 +156,12 @@ sample-key-indexer-review \
 After it finishes, move `/Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/Key` and `/Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/Unsorted` to the USB/SD device. Keep `metadata_index.sqlite` and `metadata_index.json` on the Mac so the browser can search the library without the device mounted.
 
 ## Rerun Specific Analysis
+
+Mark the current `needs_review` set as reviewed (so it stops showing up in summaries):
+
+```bash
+sample-key-indexer-review /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/metadata_index.sqlite --mark-reviewed
+```
 
 Preview what would be selected for deep rerun:
 

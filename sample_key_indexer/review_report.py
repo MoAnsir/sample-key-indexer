@@ -101,15 +101,20 @@ AUDIT_TYPE_TO_LOOP_TYPE = {
 }
 
 
-def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10) -> dict[str, Any]:
+def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10, include_reviewed: bool = False) -> dict[str, Any]:
     samples = [_flatten_sample(record) for record in records]
-    review_samples = [sample for sample in samples if sample.get("needs_review")]
+    review_samples = [
+        sample
+        for sample in samples
+        if sample.get("needs_review") and (include_reviewed or not sample.get("reviewed"))
+    ]
     reason_counts = Counter(reason for sample in review_samples for reason in sample.get("review_reasons", []))
     type_counts = Counter(sample.get("type") or "Unknown" for sample in review_samples)
     examples = sorted(review_samples, key=lambda sample: (sample.get("confidence") or 0.0, sample.get("name") or ""))[:max_examples]
 
     return {
         "total": len(samples),
+        "reviewed": sum(1 for sample in samples if sample.get("reviewed")),
         "needs_review": len(review_samples),
         "review_percentage": _percentage(len(review_samples), len(samples)),
         "reasons": [{"reason": reason, "count": count} for reason, count in reason_counts.most_common()],
@@ -135,10 +140,13 @@ def select_deep_review_candidates(
     include_errors: bool = True,
     limit: int = 0,
     retry_deep_failed: bool = False,
+    include_reviewed: bool = False,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for record in records:
         sample = _flatten_sample(record)
+        if sample.get("reviewed") and not include_reviewed:
+            continue
         if deep_review_failed(sample) and not retry_deep_failed:
             continue
         reasons = deep_review_reasons(sample, low_confidence, include_warnings, include_errors)
@@ -412,6 +420,85 @@ def apply_keyfinder_review_policy(
                 continue
             updated_record = record_with_keyfinder_review_policy(record, item, high_confidence)
             upsert_record(index, updated_record)
+            report["updated"] += 1
+            if report["updated"] % max(1, write_every) == 0:
+                index.write()
+        index.write()
+        if export_json and isinstance(index, SQLiteMetadataIndex):
+            index.export_json(index_path.with_suffix(".json"))
+    finally:
+        close_index(index)
+    return report
+
+
+def apply_review_marking(
+    index_path: Path,
+    records: list[dict[str, Any]],
+    *,
+    reviewed: bool,
+    scope: str = "needs_review",
+    low_confidence: float = 0.35,
+    dry_run: bool = False,
+    write_every: int = 100,
+    export_json: bool = True,
+    max_examples: int = 20,
+) -> dict[str, Any]:
+    if scope not in {"needs_review", "deep_candidates", "all"}:
+        raise ValueError(f"Unknown review marking scope: {scope}")
+
+    samples = [_flatten_sample(record) for record in records]
+    if scope == "needs_review":
+        targets = [sample for sample in samples if bool(sample.get("needs_review"))]
+    elif scope == "deep_candidates":
+        targets = select_deep_review_candidates(records, low_confidence=low_confidence, retry_deep_failed=True, include_reviewed=True)
+    else:
+        targets = samples
+
+    if reviewed:
+        targets = [sample for sample in targets if not bool(sample.get("reviewed"))]
+    else:
+        targets = [sample for sample in targets if bool(sample.get("reviewed"))]
+
+    report: dict[str, Any] = {
+        "mode": "review_marking",
+        "action": "mark_reviewed" if reviewed else "clear_reviewed",
+        "scope": scope,
+        "selected": len(targets),
+        "updated": 0,
+        "dry_run": dry_run,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "examples": [],
+    }
+    report["examples"] = [
+        {
+            "library_id": item.get("library_id"),
+            "relative_path": item.get("relative_path"),
+            "name": item.get("name"),
+            "needs_review": bool(item.get("needs_review")),
+            "review_reasons": item.get("review_reasons") or [],
+            "reviewed": bool(item.get("reviewed")),
+        }
+        for item in targets[: max(0, int(max_examples))]
+    ]
+    if dry_run or not targets:
+        return report
+
+    index = open_writable_index(index_path)
+    try:
+        for sample in targets:
+            record = dict(sample.get("structured") or {})
+            if not record:
+                continue
+            analysis = dict(record.get("analysis") or {})
+            review = dict(analysis.get("review") or {})
+            review["reviewed"] = bool(reviewed)
+            if reviewed:
+                review["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+            else:
+                review.pop("reviewed_at", None)
+            analysis["review"] = review
+            record["analysis"] = analysis
+            upsert_record(index, record)
             report["updated"] += 1
             if report["updated"] % max(1, write_every) == 0:
                 index.write()
@@ -999,6 +1086,18 @@ def keyfinder_targets(records: list[dict[str, Any]], scope: str, low_confidence:
         samples = [_flatten_sample(record) for record in records]
         samples.sort(key=lambda sample: (sample.get("relative_path") or sample.get("file_path") or sample.get("name") or ""))
         return samples
+    if scope == "missing":
+        samples = [_flatten_sample(record) for record in records]
+        missing: list[dict[str, Any]] = []
+        for sample in samples:
+            external = keyfinder_external(sample)
+            if not external:
+                missing.append(sample)
+                continue
+            if external.get("status") != "success":
+                missing.append(sample)
+        missing.sort(key=lambda sample: (sample.get("relative_path") or sample.get("file_path") or sample.get("name") or ""))
+        return missing
     raise ValueError(f"Unknown KeyFinder scope: {scope}")
 
 
@@ -1673,6 +1772,7 @@ def write_deep_failure_csv(report: dict[str, Any], path: Path) -> None:
 def format_review_summary(summary: dict[str, Any]) -> str:
     lines = [
         f"Total samples: {summary['total']}",
+        f"Reviewed: {summary.get('reviewed', 0)}",
         f"Needs review: {summary['needs_review']} ({summary['review_percentage']}%)",
     ]
     if summary["reasons"]:
@@ -1699,10 +1799,11 @@ def build_catalog_health_report(
     library_roots: dict[str, Path] | None = None,
     destination_roots: dict[str, Path] | None = None,
     max_examples: int = 5,
+    run_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     samples = [_flatten_sample(record) for record in records]
     by_library: dict[str, dict[str, Any]] = {}
-    totals = {"total": 0, "playable": 0, "missing": 0}
+    totals = {"total": 0, "playable": 0, "missing": 0, "reviewed": 0, "needs_review": 0, "keyfinder_errors": 0}
     missing_examples: list[dict[str, Any]] = []
 
     def bucket_for(sample: dict[str, Any]) -> dict[str, Any]:
@@ -1715,7 +1816,12 @@ def build_catalog_health_report(
                 "total": 0,
                 "playable": 0,
                 "missing": 0,
+                "reviewed": 0,
+                "needs_review": 0,
+                "keyfinder_errors": 0,
                 "by_source": {},
+                "review_reasons": {},
+                "keyfinder_error_codes": {},
                 "missing_examples": [],
             }
             by_library[library_id] = item
@@ -1730,6 +1836,20 @@ def build_catalog_health_report(
         totals["total"] += 1
         bucket["total"] += 1
         bucket["by_source"][source] = int(bucket["by_source"].get(source, 0)) + 1
+        if sample.get("reviewed"):
+            totals["reviewed"] += 1
+            bucket["reviewed"] += 1
+        if sample.get("needs_review") and not sample.get("reviewed"):
+            totals["needs_review"] += 1
+            bucket["needs_review"] += 1
+            for reason in (sample.get("review_reasons") or [])[:10]:
+                bucket["review_reasons"][reason] = int(bucket["review_reasons"].get(reason, 0)) + 1
+        external = keyfinder_external(sample)
+        if external and external.get("status") != "success":
+            totals["keyfinder_errors"] += 1
+            bucket["keyfinder_errors"] += 1
+            code = normalize_keyfinder_error(external.get("error") or "unknown")
+            bucket["keyfinder_error_codes"][code] = int(bucket["keyfinder_error_codes"].get(code, 0)) + 1
 
         if status == "available":
             totals["playable"] += 1
@@ -1756,10 +1876,20 @@ def build_catalog_health_report(
         total = max(1, int(item["total"]))
         item["playable_pct"] = round((int(item["playable"]) / total) * 100, 2)
         item["missing_pct"] = round((int(item["missing"]) / total) * 100, 2)
+        item["reviewed_pct"] = round((int(item["reviewed"]) / total) * 100, 2)
+        item["needs_review_pct"] = round((int(item["needs_review"]) / total) * 100, 2)
         item["by_source"] = [
             {"value": key, "count": int(count)}
             for key, count in sorted(item["by_source"].items(), key=lambda kv: (-int(kv[1]), kv[0]))
         ]
+        item["review_reasons"] = [
+            {"value": key, "count": int(count)}
+            for key, count in sorted(item["review_reasons"].items(), key=lambda kv: (-int(kv[1]), kv[0]))
+        ][:8]
+        item["keyfinder_error_codes"] = [
+            {"value": key, "count": int(count)}
+            for key, count in sorted(item["keyfinder_error_codes"].items(), key=lambda kv: (-int(kv[1]), kv[0]))
+        ][:8]
 
     overall_total = max(1, totals["total"])
     return {
@@ -1768,7 +1898,11 @@ def build_catalog_health_report(
             **totals,
             "playable_pct": round((totals["playable"] / overall_total) * 100, 2),
             "missing_pct": round((totals["missing"] / overall_total) * 100, 2),
+            "reviewed_pct": round((totals["reviewed"] / overall_total) * 100, 2),
+            "needs_review_pct": round((totals["needs_review"] / overall_total) * 100, 2),
         },
+        "duration_probe": (run_report or {}).get("probe_summary") if isinstance(run_report, dict) else None,
+        "duration_probe_failures": (run_report or {}).get("probe_failures") if isinstance(run_report, dict) else None,
         "libraries": libraries,
         "missing_examples": missing_examples,
     }
@@ -1781,14 +1915,29 @@ def format_catalog_health_report(report: dict[str, Any]) -> str:
         f"  Total samples: {totals.get('total', 0)}",
         f"  Playable: {totals.get('playable', 0)} ({totals.get('playable_pct', 0)}%)",
         f"  Missing: {totals.get('missing', 0)} ({totals.get('missing_pct', 0)}%)",
+        f"  Reviewed: {totals.get('reviewed', 0)} ({totals.get('reviewed_pct', 0)}%)",
+        f"  Needs review (unreviewed): {totals.get('needs_review', 0)} ({totals.get('needs_review_pct', 0)}%)",
+        f"  KeyFinder errors: {totals.get('keyfinder_errors', 0)}",
     ]
+    probe_failures = report.get("duration_probe_failures") or {}
+    if isinstance(probe_failures, dict) and probe_failures.get("failed"):
+        lines.append("")
+        lines.append("Duration probe failures (from last run report):")
+        lines.append(f"  Failed: {probe_failures.get('failed')}")
+        reasons = probe_failures.get("failed_reason_counts") or {}
+        if isinstance(reasons, dict) and reasons:
+            top = sorted(reasons.items(), key=lambda kv: (-int(kv[1]), kv[0]))[:5]
+            for reason, count in top:
+                lines.append(f"  - {reason}: {count}")
     lines.append("")
     lines.append("By library:")
     for lib in (report.get("libraries") or [])[:25]:
         lines.append(
             f"- {lib.get('library_id')} | {lib.get('library_name')} | total {lib.get('total')} | "
             f"playable {lib.get('playable')} ({lib.get('playable_pct')}%) | "
-            f"missing {lib.get('missing')} ({lib.get('missing_pct')}%)"
+            f"missing {lib.get('missing')} ({lib.get('missing_pct')}%) | "
+            f"needs_review {lib.get('needs_review')} ({lib.get('needs_review_pct')}%) | "
+            f"keyfinder_errors {lib.get('keyfinder_errors')}"
         )
     examples = report.get("missing_examples") or []
     if examples:
@@ -2028,6 +2177,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Summarize samples that need review from a metadata index.")
     parser.add_argument("index_path", type=Path, help="Path to metadata_index.json or metadata_index.sqlite.")
     parser.add_argument("--examples", type=int, default=10, help="Number of lowest-confidence review examples to print.")
+    parser.add_argument("--include-reviewed", action="store_true", help="Include samples marked reviewed in review summaries and selection.")
+    parser.add_argument("--reviewed-only", action="store_true", help="Only show samples marked reviewed (overrides --include-reviewed).")
+    parser.add_argument("--unreviewed-only", action="store_true", help="Only show samples not marked reviewed.")
+    parser.add_argument("--mark-reviewed", action="store_true", help="Mark selected samples as reviewed in the metadata index.")
+    parser.add_argument("--mark-unreviewed", action="store_true", help="Clear the reviewed flag for selected samples.")
+    parser.add_argument(
+        "--mark-reviewed-scope",
+        choices=("needs_review", "deep_candidates", "all"),
+        default="needs_review",
+        help="Which samples to mark when using --mark-reviewed/--mark-unreviewed. Default: needs_review.",
+    )
+    parser.add_argument("--reviewed-json", type=Path, default=None, help="Write the reviewed-marking report to JSON.")
     parser.add_argument("--catalog-health", action="store_true", help="Print playable vs missing summary for one or more libraries (requires mounted roots via --library-root/--destination-root).")
     parser.add_argument("--catalog-health-json", type=Path, default=None, help="Write the catalog health report to JSON.")
     parser.add_argument("--deep-plan", action="store_true", help="Print the V3.3 deep-review candidate plan.")
@@ -2039,9 +2200,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keyfinder-apply-review", action="store_true", help="Apply the V3.6 KeyFinder review-only policy without changing final keys or routing.")
     parser.add_argument("--keyfinder-experiment", action="store_true", help="Run KeyFinder CLI against recorded deep-review failures without updating metadata.")
     parser.add_argument("--keyfinder-enrich", action="store_true", help="Run KeyFinder CLI and store its output under analysis.external.keyfinder without changing the main key decision.")
-    parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, or the full index.")
+    parser.add_argument("--keyfinder-scope", choices=("failures", "review", "all", "missing"), default="failures", help="Samples to send to KeyFinder: failed deep-review records, review candidates, the full index, or only items missing a successful KeyFinder result.")
     parser.add_argument("--keyfinder-convert-retry", action="store_true", help="Retry failed KeyFinder reads via a temporary ffmpeg 16-bit PCM WAV conversion.")
     parser.add_argument("--keyfinder-workers", type=int, default=1, help="Parallelism for KeyFinder enrich/experiment. Default: 1.")
+    parser.add_argument("--keyfinder-force", action="store_true", help="Rerun KeyFinder even if a successful result is already stored (only affects --keyfinder-scope missing).")
     parser.add_argument("--dry-run", action="store_true", help="Preview deep-review rerun counts without updating metadata.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum deep-review candidates to select. 0 means no limit.")
     parser.add_argument("--low-confidence", type=float, default=0.35, help="Select records below this confidence for deep review.")
@@ -2071,6 +2233,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Metadata index does not exist: {index_path}")
         return 2
     records = load_records(index_path)
+    if args.mark_reviewed or args.mark_unreviewed:
+        if args.mark_reviewed and args.mark_unreviewed:
+            print("Choose only one: --mark-reviewed or --mark-unreviewed.")
+            return 2
+        report = apply_review_marking(
+            index_path,
+            records,
+            reviewed=bool(args.mark_reviewed),
+            scope=str(args.mark_reviewed_scope),
+            low_confidence=float(args.low_confidence),
+            dry_run=bool(args.dry_run),
+            write_every=int(args.write_every),
+            export_json=not bool(args.no_json_export),
+            max_examples=max(0, int(args.examples)),
+        )
+        print(f"Review marking: {report['action']} (scope: {report['scope']})")
+        print(f"  Selected: {report['selected']} files")
+        print(f"  Updated: {report['updated']} files")
+        if args.reviewed_json:
+            report_path = args.reviewed_json.expanduser().resolve()
+            write_keyfinder_report(report, report_path)
+            print(f"Review marking JSON: {report_path}")
+        return 0
     if args.catalog_health:
         try:
             library_roots = parse_library_roots(args.library_root)
@@ -2078,7 +2263,20 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(str(exc))
             return 2
-        report = build_catalog_health_report(records, library_roots=library_roots, destination_roots=destination_roots, max_examples=max(0, args.examples))
+        run_report: dict[str, Any] | None = None
+        candidate_run_report = index_path.parent / "analysis_run_report.json"
+        if candidate_run_report.exists():
+            try:
+                run_report = json.loads(candidate_run_report.read_text(encoding="utf-8"))
+            except Exception:
+                run_report = None
+        report = build_catalog_health_report(
+            records,
+            library_roots=library_roots,
+            destination_roots=destination_roots,
+            max_examples=max(0, args.examples),
+            run_report=run_report,
+        )
         print(format_catalog_health_report(report))
         if args.catalog_health_json:
             report_path = args.catalog_health_json.expanduser().resolve()
@@ -2132,6 +2330,9 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(str(exc))
             return 2
+        keyfinder_scope = args.keyfinder_scope
+        if keyfinder_scope == "missing" and args.keyfinder_force:
+            keyfinder_scope = "all"
         if args.keyfinder_enrich:
             report = enrich_keyfinder_metadata(
                 index_path,
@@ -2139,7 +2340,7 @@ def main(argv: list[str] | None = None) -> int:
                 library_roots=library_roots,
                 destination_roots=destination_roots,
                 limit=args.limit,
-                scope=args.keyfinder_scope,
+                scope=keyfinder_scope,
                 low_confidence=args.low_confidence,
                 convert_retry=args.keyfinder_convert_retry,
                 keyfinder_workers=args.keyfinder_workers,
@@ -2153,7 +2354,7 @@ def main(argv: list[str] | None = None) -> int:
                 library_roots=library_roots,
                 destination_roots=destination_roots,
                 limit=args.limit,
-                scope=args.keyfinder_scope,
+                scope=keyfinder_scope,
                 low_confidence=args.low_confidence,
                 convert_retry=args.keyfinder_convert_retry,
             )
@@ -2206,7 +2407,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Deep review report JSON: {report_path}")
         return 0
 
-    summary = build_review_summary(records, max_examples=max(0, args.examples))
+    filtered_records = records
+    if args.reviewed_only:
+        filtered_records = [record for record in records if bool(((record.get("analysis") or {}).get("review") or {}).get("reviewed"))]
+    elif args.unreviewed_only:
+        filtered_records = [record for record in records if not bool(((record.get("analysis") or {}).get("review") or {}).get("reviewed"))]
+
+    summary = build_review_summary(
+        filtered_records,
+        max_examples=max(0, args.examples),
+        include_reviewed=bool(args.include_reviewed or args.reviewed_only),
+    )
     print(format_review_summary(summary))
     return 0
 
