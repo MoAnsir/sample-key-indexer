@@ -555,7 +555,11 @@ def format_gb(bytes_count: int) -> str:
 
 
 def is_informational_warning(value: str) -> bool:
-    return value in INFORMATIONAL_WARNING_CODES or value.startswith("DeprecationWarning:")
+    return (
+        value in INFORMATIONAL_WARNING_CODES
+        or value.startswith("DeprecationWarning:")
+        or value.startswith("decoder_stderr_snippet:")
+    )
 
 
 def normalize_crash_signature(result: AnalysisResult) -> str:
