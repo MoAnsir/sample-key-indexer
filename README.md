@@ -37,7 +37,7 @@ Copy files into the organised library:
 sample-key-indexer /path/to/SampleLibrary /path/to/Samples_Organised
 ```
 
-Kitchen sink (one command): index + KeyFinder enrich:
+Kitchen sink (one command): index + KeyFinder enrich (resumable KeyFinder by default; rerun is fast):
 
 ```bash
 sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry --keyfinder-workers 8

@@ -201,6 +201,10 @@ The browser may cancel audio range requests when users click around. Broken pipe
 
 `sample_key_indexer/review_report.py` summarizes samples that need review. It currently counts review reasons/types and prints low-confidence examples.
 
+Reviewed status:
+
+`sample-key-indexer-review --mark-reviewed` writes `analysis.review.reviewed=true` (plus `reviewed_at`) into the metadata index so reviewed samples stop showing up in the default review summary and deep-review candidate selection. Use `--include-reviewed` or `--reviewed-only` when you explicitly want to see them again.
+
 Catalog health:
 
 `sample-key-indexer-review --catalog-health` prints playable vs missing counts per library using the same playback path resolution as the web app, driven by `--library-root` and `--destination-root` mappings. This is useful when a drive is not mounted but you want to confirm catalog usability and see what would become playable when mounted.

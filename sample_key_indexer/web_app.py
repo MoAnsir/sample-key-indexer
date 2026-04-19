@@ -259,6 +259,8 @@ def _flatten_sample(record: dict) -> dict:
         "analysis_warnings": analysis.get("warnings", []),
         "needs_review": analysis.get("review", {}).get("needs_review", False),
         "review_reasons": analysis.get("review", {}).get("reasons", []),
+        "reviewed": analysis.get("review", {}).get("reviewed", False),
+        "reviewed_at": analysis.get("review", {}).get("reviewed_at"),
         "deep_review": analysis.get("deep_review", {}),
         "librosa_key": programs.get("librosa", {}).get("key"),
         "essentia_key": programs.get("essentia", {}).get("key"),

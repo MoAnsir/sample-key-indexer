@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+import time
 
 from sample_key_indexer import cli as index_cli
 from sample_key_indexer import review_report
@@ -18,9 +19,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("output_root", type=Path, help="Output root (passed to sample-key-indexer).")
     parser.add_argument(
         "--keyfinder-scope",
-        choices=("all", "missing"),
-        default="all",
-        help="KeyFinder enrich scope after indexing. Default: all.",
+        choices=("missing", "all", "review", "failures"),
+        default="missing",
+        help="KeyFinder enrich scope after indexing. Default: missing (resumable).",
+    )
+    parser.add_argument(
+        "--keyfinder-force",
+        action="store_true",
+        help="Rerun KeyFinder even if a successful result is already stored (only affects --keyfinder-scope missing).",
     )
     parser.add_argument(
         "--keyfinder-convert-retry",
@@ -71,10 +77,12 @@ def main(argv: list[str] | None = None) -> int:
     input_root = known.input_root
     output_root = known.output_root
 
+    t0 = time.time()
     index_args = [str(input_root), str(output_root)] + passthrough
     index_rc = index_cli.main(index_args)
     if index_rc != 0:
         return index_rc
+    t1 = time.time()
 
     sqlite_path = output_root / "metadata_index.sqlite"
     if not sqlite_path.exists():
@@ -90,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         "--keyfinder-enrich",
         "--keyfinder-scope",
         known.keyfinder_scope,
+        "--keyfinder-force" if known.keyfinder_force else "",
         "--keyfinder-workers",
         str(int(known.keyfinder_workers)),
         "--write-every",
@@ -97,10 +106,13 @@ def main(argv: list[str] | None = None) -> int:
         "--keyfinder-json",
         str(keyfinder_json),
     ]
+    review_args = [arg for arg in review_args if arg]
     if known.keyfinder_convert_retry:
         review_args.append("--keyfinder-convert-retry")
-
-    return review_report.main(review_args)
+    rc = review_report.main(review_args)
+    t2 = time.time()
+    print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s")
+    return rc
 
 
 if __name__ == "__main__":

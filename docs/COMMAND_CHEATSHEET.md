@@ -45,6 +45,14 @@ sample-key-indexer-review /path/to/metadata_index.sqlite \
   --destination-root "usb_01=/Volumes/SSK Drive/SAMPLEZ"
 ```
 
+## Mark Reviewed
+
+After you manually review a library, you can mark the current `needs_review` set as reviewed so it stops showing up in the review summary:
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite --mark-reviewed
+```
+
 ## Index A New Device Or Folder
 
 Sanitize a messy source folder in place before scanning (removes unsupported files, pack baggage like ReadMe/artwork/PDFs, Mac artifacts, `fullmix`/`musicloop` mixes, and long demo files with `demo*` in the filename and duration > 60s):
@@ -99,6 +107,12 @@ caffeinate -dimsu sample-key-indexer-kitchen-sink \
 ```
 
 This produces the normal `analysis_run_report.json` log during indexing, then enriches the finished index with KeyFinder comparison metadata (with a visible progress bar).
+
+KeyFinder is resumable by default in kitchen sink (`--keyfinder-scope missing`). To force a full rerun:
+
+```bash
+sample-key-indexer-kitchen-sink /path/to/source /path/to/output --keyfinder-scope all --keyfinder-force
+```
 
 Two-step fallback (same behavior):
 
