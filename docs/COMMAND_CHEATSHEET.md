@@ -53,6 +53,22 @@ After you manually review a library, you can mark the current `needs_review` set
 sample-key-indexer-review /path/to/metadata_index.sqlite --mark-reviewed
 ```
 
+## Review Denoise
+
+Reduce non-actionable review noise (especially drums/FX disagreement reasons):
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite --review-denoise
+```
+
+## V3 Health
+
+One compact dashboard view (catalog health + last run summary + top offenders):
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite --v3-health
+```
+
 ## Index A New Device Or Folder
 
 Sanitize a messy source folder in place before scanning (removes unsupported files, pack baggage like ReadMe/artwork/PDFs, Mac artifacts, `fullmix`/`musicloop` mixes, and long demo files with `demo*` in the filename and duration > 60s):

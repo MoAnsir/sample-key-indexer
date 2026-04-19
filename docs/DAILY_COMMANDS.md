@@ -163,6 +163,12 @@ Mark the current `needs_review` set as reviewed (so it stops showing up in summa
 sample-key-indexer-review /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/metadata_index.sqlite --mark-reviewed
 ```
 
+Reduce review noise for drums/FX:
+
+```bash
+sample-key-indexer-review /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/metadata_index.sqlite --review-denoise
+```
+
 Preview what would be selected for deep rerun:
 
 ```bash
