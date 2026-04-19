@@ -7,6 +7,9 @@ import re
 import shutil
 import subprocess
 import warnings
+import os
+import tempfile
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -80,7 +83,17 @@ def _analyze_file(
 
     selected_engines = normalize_engines(analysis_profile, engines)
     analysis_warnings: list[str] = []
-    y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
+    try:
+        # Some decoders (notably libmpg123) write directly to fd=2, bypassing Python's sys.stderr.
+        # Capture that so large runs don't get spammed, while keeping a diagnostic trail in metadata.
+        if path.suffix.lower() == ".mp3":
+            with capture_stderr_fd(max_bytes=4096) as captured:
+                y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
+            record_decoder_stderr(analysis_warnings, captured.text)
+        else:
+            y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
+    except Exception as exc:
+        return _error_result(path, str(exc), analysis_warnings=analysis_warnings)
     if y.size == 0:
         return _error_result(path, "empty audio")
 
@@ -801,7 +814,7 @@ def _adaptive_n_fft(y: np.ndarray) -> int:
     return max(16, 2 ** int(np.floor(np.log2(length))))
 
 
-def _error_result(path: Path, error: str) -> AnalysisResult:
+def _error_result(path: Path, error: str, analysis_warnings: list[str] | None = None) -> AnalysisResult:
     signature = file_signature(path) if path.exists() else {"size": None, "mtime": None}
     return AnalysisResult(
         file_path=str(path),
@@ -812,7 +825,55 @@ def _error_result(path: Path, error: str) -> AnalysisResult:
         type="FX",
         duration=0.0,
         format=path.suffix.lower().lstrip("."),
+        analysis_warnings=analysis_warnings or [],
         error=error,
         size=signature["size"],
         mtime=signature["mtime"],
     )
+
+
+class _CapturedStderr:
+    def __init__(self) -> None:
+        self.text: str = ""
+
+
+@contextmanager
+def capture_stderr_fd(max_bytes: int = 4096):
+    """
+    Capture OS-level stderr (fd=2). This is required for C/C++ libs that print directly to stderr.
+    Only use in narrow scopes because it swaps process-wide fd=2 briefly.
+    """
+    captured = _CapturedStderr()
+    original_fd = os.dup(2)
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as tmp:
+            os.dup2(tmp.fileno(), 2)
+            try:
+                yield captured
+            finally:
+                os.dup2(original_fd, 2)
+                tmp.seek(0)
+                data = tmp.read(max(0, int(max_bytes)))
+                try:
+                    captured.text = data.decode("utf-8", errors="replace")
+                except Exception:
+                    captured.text = ""
+    finally:
+        try:
+            os.close(original_fd)
+        except Exception:
+            pass
+
+
+def record_decoder_stderr(warnings_out: list[str], stderr_text: str) -> None:
+    text = (stderr_text or "").strip()
+    if not text:
+        return
+    lowered = text.lower()
+    code = "decoder_stderr"
+    if "libmpg123" in lowered or "layer i decoding" in lowered or "layer1.c" in lowered:
+        code = "decoder_stderr_mpg123"
+    warnings_out.append(code)
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if first_line:
+        warnings_out.append(f"decoder_stderr_snippet:{first_line[:200]}")
