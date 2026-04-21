@@ -673,6 +673,16 @@ audio {
   background: var(--surface);
 }
 
+.sample-row.is-selected {
+  border-color: rgba(15, 139, 141, 0.65);
+  box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.18);
+}
+
+.review-example.is-selected {
+  border-color: rgba(15, 139, 141, 0.65);
+  box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.18);
+}
+
 .sample-row + .sample-row {
   border-radius: 0;
 }

@@ -12,6 +12,8 @@ const state = {
   selectedSampleId: null,
   reviewIncludeReviewed: false,
   filtersActive: false,
+  libraryCache: new Map(),
+  activeLoadId: 0,
 };
 
 const els = {
@@ -248,11 +250,35 @@ function applyFilters() {
 }
 
 async function loadLibrary(libraryId) {
+  const loadId = ++state.activeLoadId;
   const library = state.libraries.find((item) => item.id === libraryId);
   const label = library ? `${library.name || library.id} (${library.id})` : libraryId;
   showLoading(`Loading ${label}`, "Fetching samples…");
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
+    const cached = state.libraryCache.get(libraryId);
+    if (cached && Array.isArray(cached.samples) && cached.samples.length) {
+      showLoading(`Loading ${label}`, "Loading from cache…");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      state.samples = cached.samples;
+      state.filtered = [];
+      state.stats = cached.stats || [];
+      state.page = 1;
+      render();
+      showLoading(`Loading ${label}`, "Building filters…");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      setOptions(els.category, ["All categories", ...uniqueValues("category")]);
+      setOptions(els.type, ["All types", ...uniqueValues("type")]);
+      setOptions(els.key, ["All keys", ...uniqueKeys()]);
+      setOptions(els.source, ["All sources", ...uniqueValues("source")]);
+      setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
+      setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
+      showLoading(`Loading ${label}`, "Rendering…");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      applyFilters();
+      return;
+    }
+
     state.samples = [];
     state.filtered = [];
     state.stats = [];
@@ -264,6 +290,7 @@ async function loadLibrary(libraryId) {
     let total = null;
     let stats = [];
     while (total === null || offset < total) {
+      if (loadId !== state.activeLoadId) return;
       const response = await fetchWithTimeout(
         `/api/samples?library_id=${encodeURIComponent(libraryId)}&offset=${offset}&limit=${pageSize}`,
         10 * 60 * 1000
@@ -271,6 +298,7 @@ async function loadLibrary(libraryId) {
       showLoading(`Loading ${label}`, total === null ? "Parsing first chunk…" : `Parsing… (${offset.toLocaleString()} loaded)`);
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const data = await response.json();
+      if (loadId !== state.activeLoadId) return;
       if (total === null) {
         total = Number(data.total || 0);
         stats = data.stats || [];
@@ -283,6 +311,8 @@ async function loadLibrary(libraryId) {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       if (!chunk.length) break;
     }
+
+    state.libraryCache.set(libraryId, { samples: state.samples, stats: state.stats });
 
     showLoading(`Loading ${label}`, "Building filters…");
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -302,8 +332,40 @@ async function loadLibrary(libraryId) {
     render();
     alert(`Failed to load ${label}. ${String(error || "")}`.trim());
   } finally {
-    hideLoading();
+    if (loadId === state.activeLoadId) {
+      hideLoading();
+    }
   }
+}
+
+function isInViewport(element) {
+  if (!element) return true;
+  const rect = element.getBoundingClientRect();
+  const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  return rect.top >= 0 && rect.top < viewHeight * 0.4;
+}
+
+function scrollToPlayerBar() {
+  if (!els.playerBar) return;
+  if (isInViewport(els.playerBar)) return;
+  els.playerBar.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function markSelectedInLists(sampleId) {
+  document.querySelectorAll(".sample-row.is-selected, .review-example.is-selected").forEach((row) => {
+    row.classList.remove("is-selected");
+    row.removeAttribute("aria-selected");
+  });
+  const selectors = [
+    `.sample-row[data-sample-id="${sampleId}"]`,
+    `.review-example[data-sample-id="${sampleId}"]`,
+  ];
+  selectors.forEach((selector) => {
+    const row = document.querySelector(selector);
+    if (!row) return;
+    row.classList.add("is-selected");
+    row.setAttribute("aria-selected", "true");
+  });
 }
 
 function showLoading(title, detail) {
@@ -554,6 +616,11 @@ function renderList() {
   pageSamples.forEach((sample) => {
     const row = document.createElement("article");
     row.className = "sample-row";
+    row.dataset.sampleId = String(sample.id);
+    if (sample.id === state.selectedSampleId) {
+      row.classList.add("is-selected");
+      row.setAttribute("aria-selected", "true");
+    }
     const keyOrRoot = sample.key || sample.root_note || "Unsorted";
     const confidence = Number(sample.confidence || 0);
     const playablePath = sample.playable_path || sample.file_path || "";
@@ -650,6 +717,11 @@ function renderReviewExamples(samples) {
   samples.forEach((sample) => {
     const row = document.createElement("article");
     row.className = "review-example";
+    row.dataset.sampleId = String(sample.id);
+    if (sample.id === state.selectedSampleId) {
+      row.classList.add("is-selected");
+      row.setAttribute("aria-selected", "true");
+    }
     const reasons = (sample.review_reasons || []).join(", ") || "needs_review";
     const isPlayable = sample.playback_status === "available";
     row.innerHTML = `
@@ -686,6 +758,8 @@ function playSample(sample) {
 
 function selectSample(sample, autoPlay = false) {
   state.selectedSampleId = sample.id;
+  markSelectedInLists(sample.id);
+  scrollToPlayerBar();
   els.playerBar.classList.remove("is-empty");
   els.nowPlaying.textContent = fileName(sample);
   els.nowPlaying.title = fileName(sample);
