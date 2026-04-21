@@ -106,6 +106,7 @@ def build_app(
     samples_by_id = {sample["id"]: sample for sample in samples}
     all_stats = summarize_by_type(samples)
     all_libraries = summarize_libraries(samples)
+    library_stats = {lib["id"]: summarize_by_type([s for s in samples if (s.get("library_id") or "unknown") == lib["id"]]) for lib in all_libraries}
     mutation_lock = threading.Lock()
 
     class SampleBrowserHandler(BaseHTTPRequestHandler):
@@ -132,17 +133,35 @@ def build_app(
             elif parsed.path == "/api/samples":
                 params = parse_qs(parsed.query)
                 library_id = (params.get("library_id") or [""])[0].strip() or None
+                try:
+                    offset = int((params.get("offset") or ["0"])[0] or 0)
+                except ValueError:
+                    offset = 0
+                try:
+                    limit = int((params.get("limit") or ["0"])[0] or 0)
+                except ValueError:
+                    limit = 0
+                offset = max(0, offset)
+                if limit <= 0:
+                    limit = 10000
+                limit = min(max(1, limit), 25000)
                 selected = samples if not library_id else [s for s in samples if (s.get("library_id") or "unknown") == library_id]
-                current_samples = [_with_playback_info(sample, library_roots, destination_roots) for sample in selected]
-                stats = summarize_by_type(current_samples)
+                total = len(selected)
+                window = selected[offset : offset + limit]
+                current_samples = [_with_playback_info(sample, library_roots, destination_roots) for sample in window]
+                stats = all_stats if not library_id else library_stats.get(library_id, [])
                 self._send_json(
                     {
                         "index_paths": [str(path) for path in paths],
-                        "total": len(current_samples),
+                        "total": total,
+                        "offset": offset,
+                        "limit": limit,
+                        "returned": len(current_samples),
                         # Slim payload for huge libraries (list view + filters). Fetch full details via /api/sample on demand.
                         "samples": [list_sample(sample) for sample in current_samples],
                         "stats": stats,
-                        "libraries": summarize_libraries(current_samples),
+                        # Libraries are stable; return the full list (small), not a per-window summary.
+                        "libraries": all_libraries,
                     }
                 )
             elif parsed.path == "/api/audio":

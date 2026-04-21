@@ -253,13 +253,37 @@ async function loadLibrary(libraryId) {
   showLoading(`Loading ${label}`, "Fetching samples…");
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const response = await fetchWithTimeout(`/api/samples?library_id=${encodeURIComponent(libraryId)}`, 10 * 60 * 1000);
-    showLoading(`Loading ${label}`, "Parsing response…");
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    const data = await response.json();
-    state.samples = data.samples || [];
-    state.stats = data.stats || [];
+    state.samples = [];
+    state.filtered = [];
+    state.stats = [];
     state.page = 1;
+    render();
+
+    const pageSize = 15000;
+    let offset = 0;
+    let total = null;
+    let stats = [];
+    while (total === null || offset < total) {
+      const response = await fetchWithTimeout(
+        `/api/samples?library_id=${encodeURIComponent(libraryId)}&offset=${offset}&limit=${pageSize}`,
+        10 * 60 * 1000
+      );
+      showLoading(`Loading ${label}`, total === null ? "Parsing first chunk…" : `Parsing… (${offset.toLocaleString()} loaded)`);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const data = await response.json();
+      if (total === null) {
+        total = Number(data.total || 0);
+        stats = data.stats || [];
+        state.stats = stats;
+      }
+      const chunk = data.samples || [];
+      state.samples.push(...chunk);
+      offset += chunk.length;
+      showLoading(`Loading ${label}`, `Loaded ${offset.toLocaleString()} / ${Number(total || 0).toLocaleString()} samples…`);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      if (!chunk.length) break;
+    }
+
     showLoading(`Loading ${label}`, "Building filters…");
     await new Promise((resolve) => requestAnimationFrame(resolve));
     setOptions(els.category, ["All categories", ...uniqueValues("category")]);
