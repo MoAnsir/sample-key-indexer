@@ -69,19 +69,33 @@ const NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", 
 const BLACK_KEYS = new Set(["C#", "D#", "F#", "G#", "A#"]);
 
 async function boot() {
-  const response = await fetch("/api/samples");
-  const data = await response.json();
-  state.samples = data.samples;
-  state.stats = data.stats;
-  state.libraries = data.libraries || [];
+  const catalogResponse = await fetch("/api/catalog");
+  const catalog = await catalogResponse.json();
+  state.libraries = catalog.libraries || [];
+  state.stats = catalog.stats || [];
   populateFilters();
   bindEvents();
-  applyFilters();
+
+  if (state.libraries.length === 1) {
+    await loadLibrary(state.libraries[0].id);
+  } else {
+    state.samples = [];
+    state.filtered = [];
+    state.page = 1;
+    render();
+  }
 }
 
 function bindEvents() {
-  [els.search, els.library, els.playback, els.category, els.type, els.key, els.source, els.brightness, els.warmth, els.bpmMin, els.bpmMax, els.confidence, els.unsortedOnly].forEach((element) => {
+  [els.search, els.playback, els.category, els.type, els.key, els.source, els.brightness, els.warmth, els.bpmMin, els.bpmMax, els.confidence, els.unsortedOnly].forEach((element) => {
     element.addEventListener("input", applyFilters);
+  });
+  els.library.addEventListener("change", async () => {
+    const selection = els.library.value || "";
+    if (!selection) return;
+    const library = state.libraries.find((item) => libraryOptionValue(item) === selection);
+    if (!library) return;
+    await loadLibrary(library.id);
   });
   document.querySelectorAll("[data-sort]").forEach((button) => {
     button.addEventListener("click", () => setSort(button.dataset.sort));
@@ -105,13 +119,14 @@ function bindEvents() {
 }
 
 function populateFilters() {
-  setOptions(els.library, ["All libraries", ...libraryOptions()]);
-  setOptions(els.category, ["All categories", ...uniqueValues("category")]);
-  setOptions(els.type, ["All types", ...uniqueValues("type")]);
-  setOptions(els.key, ["All keys", ...uniqueKeys()]);
-  setOptions(els.source, ["All sources", ...uniqueValues("source")]);
-  setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
-  setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
+  const libraryValues = state.libraries.length ? ["Select a library", ...libraryOptions()] : ["No catalogs loaded"];
+  setOptions(els.library, libraryValues);
+  setOptions(els.category, ["All categories"]);
+  setOptions(els.type, ["All types"]);
+  setOptions(els.key, ["All keys"]);
+  setOptions(els.source, ["All sources"]);
+  setOptions(els.brightness, ["Any brightness"]);
+  setOptions(els.warmth, ["Any warmth"]);
 }
 
 function setOptions(select, values) {
@@ -147,6 +162,12 @@ function sampleLibraryOption(sample) {
 }
 
 function applyFilters() {
+  if (!state.samples.length) {
+    state.filtered = [];
+    state.page = 1;
+    render();
+    return;
+  }
   const search = els.search.value.trim().toLowerCase();
   const minConfidence = Number(els.confidence.value);
   const bpmMin = Number(els.bpmMin.value || 0);
@@ -194,6 +215,23 @@ function applyFilters() {
   state.page = 1;
   sortFiltered();
   render();
+}
+
+async function loadLibrary(libraryId) {
+  const response = await fetch(`/api/samples?library_id=${encodeURIComponent(libraryId)}`);
+  const data = await response.json();
+  state.samples = data.samples || [];
+  state.stats = data.stats || [];
+  // Keep the full catalog list (for switching), but let the cards show totals.
+  state.page = 1;
+  // Now that samples are loaded, populate the rest of the filters.
+  setOptions(els.category, ["All categories", ...uniqueValues("category")]);
+  setOptions(els.type, ["All types", ...uniqueValues("type")]);
+  setOptions(els.key, ["All keys", ...uniqueKeys()]);
+  setOptions(els.source, ["All sources", ...uniqueValues("source")]);
+  setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
+  setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
+  applyFilters();
 }
 
 function setSort(key) {
@@ -266,7 +304,12 @@ function renderLibraries() {
   els.libraryCards.querySelectorAll("[data-library]").forEach((button) => {
     button.addEventListener("click", () => {
       els.library.value = button.dataset.library || "";
-      applyFilters();
+      const library = state.libraries.find((item) => libraryOptionValue(item) === els.library.value);
+      if (!library) {
+        applyFilters();
+        return;
+      }
+      loadLibrary(library.id);
     });
   });
 }

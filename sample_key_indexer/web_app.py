@@ -100,9 +100,12 @@ def build_app(
     destination_roots: dict[str, Path] | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     paths = [index_paths] if isinstance(index_paths, Path) else index_paths
+    # We keep all samples server-side so we can serve per-library subsets without blowing up the browser
+    # (sending 200k+ samples in one JSON response will crash Chrome).
     samples = load_samples(paths, library_roots, destination_roots)
     samples_by_id = {sample["id"]: sample for sample in samples}
-    stats = summarize_by_type(samples)
+    all_stats = summarize_by_type(samples)
+    all_libraries = summarize_libraries(samples)
     mutation_lock = threading.Lock()
 
     class SampleBrowserHandler(BaseHTTPRequestHandler):
@@ -115,8 +118,21 @@ def build_app(
                 self._send_static("index.html")
             elif parsed.path in {"/app.css", "/app.js"}:
                 self._send_static(parsed.path.lstrip("/"))
+            elif parsed.path == "/api/catalog":
+                self._send_json(
+                    {
+                        "index_paths": [str(path) for path in paths],
+                        "total": len(samples),
+                        "stats": all_stats,
+                        "libraries": all_libraries,
+                    }
+                )
             elif parsed.path == "/api/samples":
-                current_samples = [_with_playback_info(sample, library_roots, destination_roots) for sample in samples]
+                params = parse_qs(parsed.query)
+                library_id = (params.get("library_id") or [""])[0].strip() or None
+                selected = samples if not library_id else [s for s in samples if (s.get("library_id") or "unknown") == library_id]
+                current_samples = [_with_playback_info(sample, library_roots, destination_roots) for sample in selected]
+                stats = summarize_by_type(current_samples)
                 self._send_json(
                     {
                         "index_paths": [str(path) for path in paths],
