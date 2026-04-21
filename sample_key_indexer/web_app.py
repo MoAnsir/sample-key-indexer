@@ -104,9 +104,14 @@ def build_app(
     # (sending 200k+ samples in one JSON response will crash Chrome).
     samples = load_samples(paths, library_roots, destination_roots)
     samples_by_id = {sample["id"]: sample for sample in samples}
+    # Pre-index by library so /api/samples doesn't repeatedly scan huge lists.
+    samples_by_library_id: dict[str, list[dict]] = {}
+    for sample in samples:
+        library_id = sample.get("library_id") or "unknown"
+        samples_by_library_id.setdefault(library_id, []).append(sample)
     all_stats = summarize_by_type(samples)
     all_libraries = summarize_libraries(samples)
-    library_stats = {lib["id"]: summarize_by_type([s for s in samples if (s.get("library_id") or "unknown") == lib["id"]]) for lib in all_libraries}
+    library_stats = {lib["id"]: summarize_by_type(samples_by_library_id.get(lib["id"], [])) for lib in all_libraries}
     mutation_lock = threading.Lock()
 
     class SampleBrowserHandler(BaseHTTPRequestHandler):
@@ -145,10 +150,13 @@ def build_app(
                 if limit <= 0:
                     limit = 10000
                 limit = min(max(1, limit), 25000)
-                selected = samples if not library_id else [s for s in samples if (s.get("library_id") or "unknown") == library_id]
+                selected = samples if not library_id else samples_by_library_id.get(library_id, [])
                 total = len(selected)
                 window = selected[offset : offset + limit]
-                current_samples = [_with_playback_info(sample, library_roots, destination_roots) for sample in window]
+                # NOTE: playback info is already computed during load_samples(). Recomputing it here
+                # is extremely expensive for large libraries (filesystem checks per row) and makes
+                # library switching feel "hung", especially when audio is not mounted.
+                current_samples = window
                 stats = all_stats if not library_id else library_stats.get(library_id, [])
                 self._send_json(
                     {
@@ -250,6 +258,13 @@ def build_app(
                 refreshed = _with_playback_info(sample, library_roots, destination_roots)
                 samples_by_id[sample_id] = refreshed
                 samples[sample_id] = refreshed
+                library_key = refreshed.get("library_id") or "unknown"
+                bucket = samples_by_library_id.get(library_key)
+                if bucket is not None:
+                    for idx, existing in enumerate(bucket):
+                        if existing.get("id") == sample_id:
+                            bucket[idx] = refreshed
+                            break
             self._send_json({"ok": True, "sample": public_sample(refreshed)})
 
         def _send_audio(self, query: str) -> None:
@@ -308,8 +323,8 @@ def build_app(
             if not sample:
                 self.send_error(HTTPStatus.NOT_FOUND, "Sample not found")
                 return
-            enriched = _with_playback_info(sample, library_roots, destination_roots)
-            self._send_json({"sample": public_sample(enriched)})
+            # Playback info is already computed at load time; don't redo filesystem probing here.
+            self._send_json({"sample": public_sample(sample)})
 
     return SampleBrowserHandler
 
