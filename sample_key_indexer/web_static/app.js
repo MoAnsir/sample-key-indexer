@@ -11,6 +11,7 @@ const state = {
   audioContext: null,
   selectedSampleId: null,
   reviewIncludeReviewed: false,
+  filtersActive: false,
 };
 
 const els = {
@@ -177,9 +178,38 @@ function applyFilters() {
   const bpmMax = Number(els.bpmMax.value || Number.MAX_SAFE_INTEGER);
   els.confidenceValue.textContent = minConfidence.toFixed(2);
 
+  const hasBpmFilter = Boolean(els.bpmMin.value || els.bpmMax.value);
+  const hasOtherFilters = Boolean(
+    search ||
+    els.playback.value ||
+    els.category.value ||
+    els.type.value ||
+    els.key.value ||
+    els.source.value ||
+    els.brightness.value ||
+    els.warmth.value ||
+    els.unsortedOnly.checked ||
+    hasBpmFilter ||
+    minConfidence > 0
+  );
+  state.filtersActive = hasOtherFilters;
+
+  // Fast path: when no filters are active, avoid building large search haystacks.
+  if (!hasOtherFilters) {
+    state.filtered = state.samples;
+    state.page = 1;
+    // Sorting 100k+ rows by filename can take a long time; keep scan order unless the user explicitly sorts.
+    if (state.filtered.length <= 50000) {
+      sortFiltered();
+    }
+    render();
+    return;
+  }
+
   state.filtered = state.samples.filter((sample) => {
     const keyOrRoot = sample.key || sample.root_note || "Unsorted";
     const haystack = [
+      sample.name,
       sample.file_path,
       sample.destination,
       sample.relative_path,
@@ -195,14 +225,11 @@ function applyFilters() {
       sample.brightness,
       sample.warmth,
       sample.bpm,
-      Array.isArray(sample.notes) ? sample.notes.join(" ") : "",
-      Array.isArray(sample.chords) ? sample.chords.join(" ") : "",
     ].join(" ").toLowerCase();
     const bpm = Number(sample.bpm || 0);
-    const bpmMatches = !sample.bpm ? !els.bpmMin.value && !els.bpmMax.value : bpm >= bpmMin && bpm <= bpmMax;
+    const bpmMatches = !sample.bpm ? !hasBpmFilter : bpm >= bpmMin && bpm <= bpmMax;
 
     return (!search || haystack.includes(search)) &&
-      (!els.library.value || sampleLibraryOption(sample) === els.library.value) &&
       (!els.playback.value || sample.playback_status === els.playback.value) &&
       (!els.category.value || (sample.category || "Unknown") === els.category.value) &&
       (!els.type.value || (sample.type || "Unknown") === els.type.value) &&
@@ -224,18 +251,25 @@ async function loadLibrary(libraryId) {
   const library = state.libraries.find((item) => item.id === libraryId);
   const label = library ? `${library.name || library.id} (${library.id})` : libraryId;
   showLoading(`Loading ${label}`, "Fetching samples…");
+  await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
     const response = await fetchWithTimeout(`/api/samples?library_id=${encodeURIComponent(libraryId)}`, 10 * 60 * 1000);
+    showLoading(`Loading ${label}`, "Parsing response…");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     const data = await response.json();
     state.samples = data.samples || [];
     state.stats = data.stats || [];
     state.page = 1;
+    showLoading(`Loading ${label}`, "Building filters…");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     setOptions(els.category, ["All categories", ...uniqueValues("category")]);
     setOptions(els.type, ["All types", ...uniqueValues("type")]);
     setOptions(els.key, ["All keys", ...uniqueKeys()]);
     setOptions(els.source, ["All sources", ...uniqueValues("source")]);
     setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
     setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
+    showLoading(`Loading ${label}`, "Rendering…");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     applyFilters();
   } catch (error) {
     state.samples = [];
@@ -397,7 +431,7 @@ function renderSortHeaders() {
 function renderChart() {
   const canvas = els.chart;
   const ctx = canvas.getContext("2d");
-  const stats = statsFor(state.filtered, state.samples.length);
+  const stats = state.filtersActive ? statsFor(state.filtered, state.samples.length) : (state.stats || []);
   const rowHeight = 22;
   canvas.height = Math.max(320, 60 + stats.length * rowHeight);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -436,7 +470,7 @@ function renderChart() {
 function renderPieChart() {
   const canvas = els.pieChart;
   const ctx = canvas.getContext("2d");
-  const stats = statsFor(state.filtered, state.samples.length);
+  const stats = state.filtersActive ? statsFor(state.filtered, state.samples.length) : (state.stats || []);
   canvas.height = 240;
   const visibleTotal = Math.max(1, state.filtered.length);
   let angle = -Math.PI / 2;
@@ -640,13 +674,39 @@ function selectSample(sample, autoPlay = false) {
       els.player.play().catch(() => undefined);
     }
     drawWaveform(sample);
+  } else {
+    els.player.pause();
+    els.player.removeAttribute("src");
+    els.player.load();
+    drawWaveformUnavailable();
+  }
+  ensureSampleDetails(sample.id);
+}
+
+async function ensureSampleDetails(sampleId) {
+  const current = state.samples.find((item) => item.id === sampleId) || null;
+  if (current && (Array.isArray(current.mfcc) || Array.isArray(current.notes) || Array.isArray(current.chords))) {
     return;
   }
-
-  els.player.pause();
-  els.player.removeAttribute("src");
-  els.player.load();
-  drawWaveformUnavailable();
+  try {
+    const response = await fetchWithTimeout(`/api/sample?id=${encodeURIComponent(sampleId)}`, 60 * 1000);
+    const data = await response.json();
+    const full = data.sample;
+    if (!full) return;
+    const merged = { ...(current || {}), ...full };
+    const idx = state.samples.findIndex((item) => item.id === sampleId);
+    if (idx >= 0) {
+      state.samples[idx] = merged;
+    }
+    if (state.selectedSampleId === sampleId) {
+      renderNowPlayingDetails(merged);
+      if (merged.playback_status === "available") {
+        drawWaveform(merged);
+      }
+    }
+  } catch (_) {
+    return;
+  }
 }
 
 function renderReviewActions(sample) {
@@ -685,12 +745,13 @@ async function setReviewed(sampleId, reviewed) {
   const data = await response.json();
   const updated = data.sample;
   if (!updated) return;
-  state.samples[updated.id] = updated;
-  applyFilters();
-  const refreshed = state.samples[updated.id];
-  if (refreshed) {
-    selectSample(refreshed, false);
+  const idx = state.samples.findIndex((item) => item.id === updated.id);
+  if (idx >= 0) {
+    state.samples[idx] = { ...state.samples[idx], ...updated };
   }
+  applyFilters();
+  const refreshed = state.samples.find((item) => item.id === updated.id) || null;
+  if (refreshed) selectSample(refreshed, false);
 }
 
 function renderNowPlayingDetails(sample) {
@@ -921,8 +982,10 @@ function statsFor(samples, denominator = samples.length) {
 }
 
 function fileName(sample) {
+  const name = sample.name;
+  if (name) return String(name);
   const path = sample.playable_path || sample.destination || sample.file_path || "Unknown";
-  return path.split("/").pop();
+  return String(path).split("/").pop();
 }
 
 function colorForIndex(index) {

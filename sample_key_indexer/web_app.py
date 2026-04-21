@@ -127,6 +127,8 @@ def build_app(
                         "libraries": all_libraries,
                     }
                 )
+            elif parsed.path == "/api/sample":
+                self._send_sample(parsed.query)
             elif parsed.path == "/api/samples":
                 params = parse_qs(parsed.query)
                 library_id = (params.get("library_id") or [""])[0].strip() or None
@@ -137,7 +139,8 @@ def build_app(
                     {
                         "index_paths": [str(path) for path in paths],
                         "total": len(current_samples),
-                        "samples": [public_sample(sample) for sample in current_samples],
+                        # Slim payload for huge libraries (list view + filters). Fetch full details via /api/sample on demand.
+                        "samples": [list_sample(sample) for sample in current_samples],
                         "stats": stats,
                         "libraries": summarize_libraries(current_samples),
                     }
@@ -274,6 +277,20 @@ def build_app(
                         remaining -= len(chunk)
                 except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
                     return
+
+        def _send_sample(self, query: str) -> None:
+            params = parse_qs(query)
+            try:
+                sample_id = int(params.get("id", [""])[0])
+            except ValueError:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid sample id")
+                return
+            sample = samples_by_id.get(sample_id)
+            if not sample:
+                self.send_error(HTTPStatus.NOT_FOUND, "Sample not found")
+                return
+            enriched = _with_playback_info(sample, library_roots, destination_roots)
+            self._send_json({"sample": public_sample(enriched)})
 
     return SampleBrowserHandler
 
@@ -586,6 +603,48 @@ def public_sample(sample: dict) -> dict:
     cleaned = dict(sample)
     cleaned.pop("structured", None)
     return cleaned
+
+
+def list_sample(sample: dict) -> dict:
+    """Return a slim sample payload for list views (fast to transfer + parse)."""
+    keep = {
+        "id",
+        "index_path",
+        "index_writable",
+        "library_id",
+        "library_name",
+        "library_root",
+        "name",
+        "file_path",
+        "relative_path",
+        "destination",
+        "playable_path",
+        "playback_status",
+        "playback_source",
+        "format",
+        "duration",
+        "size",
+        "mtime",
+        "root_note",
+        "key",
+        "bpm",
+        "category",
+        "type",
+        "subtype",
+        "source",
+        "brightness",
+        "warmth",
+        "confidence",
+        "needs_review",
+        "review_reasons",
+        "reviewed",
+        "reviewed_at",
+        "error",
+    }
+    out = {key: sample.get(key) for key in keep}
+    # Ensure name is always present for sorting/display.
+    out["name"] = out.get("name") or Path(out.get("file_path") or out.get("destination") or "").name
+    return out
 
 
 def _range_from_header(header: str | None, file_size: int) -> tuple[int, int]:
