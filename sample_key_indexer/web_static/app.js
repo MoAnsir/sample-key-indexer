@@ -15,6 +15,9 @@ const state = {
 
 const els = {
   tabButtons: document.querySelectorAll("[data-tab]"),
+  loadingOverlay: document.querySelector("#loadingOverlay"),
+  loadingTitle: document.querySelector("#loadingTitle"),
+  loadingDetail: document.querySelector("#loadingDetail"),
   browseTab: document.querySelector("#browseTab"),
   reviewTab: document.querySelector("#reviewTab"),
   search: document.querySelector("#searchInput"),
@@ -218,20 +221,58 @@ function applyFilters() {
 }
 
 async function loadLibrary(libraryId) {
-  const response = await fetch(`/api/samples?library_id=${encodeURIComponent(libraryId)}`);
-  const data = await response.json();
-  state.samples = data.samples || [];
-  state.stats = data.stats || [];
-  // Keep the full catalog list (for switching), but let the cards show totals.
-  state.page = 1;
-  // Now that samples are loaded, populate the rest of the filters.
-  setOptions(els.category, ["All categories", ...uniqueValues("category")]);
-  setOptions(els.type, ["All types", ...uniqueValues("type")]);
-  setOptions(els.key, ["All keys", ...uniqueKeys()]);
-  setOptions(els.source, ["All sources", ...uniqueValues("source")]);
-  setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
-  setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
-  applyFilters();
+  const library = state.libraries.find((item) => item.id === libraryId);
+  const label = library ? `${library.name || library.id} (${library.id})` : libraryId;
+  showLoading(`Loading ${label}`, "Fetching samples…");
+  try {
+    const response = await fetchWithTimeout(`/api/samples?library_id=${encodeURIComponent(libraryId)}`, 10 * 60 * 1000);
+    const data = await response.json();
+    state.samples = data.samples || [];
+    state.stats = data.stats || [];
+    state.page = 1;
+    setOptions(els.category, ["All categories", ...uniqueValues("category")]);
+    setOptions(els.type, ["All types", ...uniqueValues("type")]);
+    setOptions(els.key, ["All keys", ...uniqueKeys()]);
+    setOptions(els.source, ["All sources", ...uniqueValues("source")]);
+    setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
+    setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
+    applyFilters();
+  } catch (error) {
+    state.samples = [];
+    state.filtered = [];
+    state.page = 1;
+    render();
+    alert(`Failed to load ${label}. ${String(error || "")}`.trim());
+  } finally {
+    hideLoading();
+  }
+}
+
+function showLoading(title, detail) {
+  if (!els.loadingOverlay) return;
+  if (els.loadingTitle) els.loadingTitle.textContent = title || "Loading";
+  if (els.loadingDetail) els.loadingDetail.textContent = detail || "Working…";
+  els.loadingOverlay.hidden = false;
+}
+
+function hideLoading() {
+  if (!els.loadingOverlay) return;
+  els.loadingOverlay.hidden = true;
+}
+
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1, Number(timeoutMs || 0)));
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function setSort(key) {

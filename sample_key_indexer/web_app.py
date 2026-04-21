@@ -137,7 +137,7 @@ def build_app(
                     {
                         "index_paths": [str(path) for path in paths],
                         "total": len(current_samples),
-                        "samples": current_samples,
+                        "samples": [public_sample(sample) for sample in current_samples],
                         "stats": stats,
                         "libraries": summarize_libraries(current_samples),
                     }
@@ -228,7 +228,7 @@ def build_app(
                 refreshed = _with_playback_info(sample, library_roots, destination_roots)
                 samples_by_id[sample_id] = refreshed
                 samples[sample_id] = refreshed
-            self._send_json({"ok": True, "sample": refreshed})
+            self._send_json({"ok": True, "sample": public_sample(refreshed)})
 
         def _send_audio(self, query: str) -> None:
             params = parse_qs(query)
@@ -579,6 +579,13 @@ def _record_path_value(record: dict) -> str:
     if isinstance(file_block, dict):
         return str(file_block.get("path") or "")
     return str(record.get("file_path") or "")
+
+
+def public_sample(sample: dict) -> dict:
+    """Return a JSON-safe sample payload for the browser (omit huge structured record)."""
+    cleaned = dict(sample)
+    cleaned.pop("structured", None)
+    return cleaned
 
 
 def _range_from_header(header: str | None, file_size: int) -> tuple[int, int]:

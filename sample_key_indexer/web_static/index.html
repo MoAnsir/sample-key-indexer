@@ -8,6 +8,15 @@
   </head>
   <body>
     <main class="shell">
+      <div id="loadingOverlay" class="loading-overlay" hidden aria-live="polite" aria-busy="true">
+        <div class="loading-card" role="status">
+          <div class="spinner" aria-hidden="true"></div>
+          <div>
+            <strong id="loadingTitle">Loading</strong>
+            <div id="loadingDetail" class="loading-detail">Fetching samples…</div>
+          </div>
+        </div>
+      </div>
       <section class="toolbar" aria-label="Filters">
         <div>
           <p class="eyebrow">Sample Library</p>
