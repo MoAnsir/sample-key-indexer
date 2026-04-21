@@ -33,6 +33,10 @@ body {
   z-index: 50;
 }
 
+.loading-overlay[hidden] {
+  display: none !important;
+}
+
 .loading-card {
   display: flex;
   gap: 12px;
