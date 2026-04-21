@@ -3,13 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import os
 import socket
+import threading
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from sample_key_indexer.index_store import load_records
+from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 
 STATIC_ROOT = Path(__file__).with_name("web_static")
 
@@ -26,6 +29,7 @@ def load_samples(
         for record in records:
             sample = _flatten_sample(record)
             sample["index_path"] = str(index_path)
+            sample["index_writable"] = is_index_writable(index_path)
             sample["id"] = len(samples)
             samples.append(_with_playback_info(sample, library_roots, destination_roots))
     return samples
@@ -99,6 +103,7 @@ def build_app(
     samples = load_samples(paths, library_roots, destination_roots)
     samples_by_id = {sample["id"]: sample for sample in samples}
     stats = summarize_by_type(samples)
+    mutation_lock = threading.Lock()
 
     class SampleBrowserHandler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
@@ -125,6 +130,13 @@ def build_app(
                 self._send_audio(parsed.query)
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+
+        def do_POST(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path == "/api/review":
+                self._handle_review_mutation()
+                return
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
         def _send_json(self, payload: dict) -> None:
             body = json.dumps(payload).encode("utf-8")
@@ -155,6 +167,52 @@ def build_app(
                 self.wfile.write(body)
             except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
                 return
+
+        def _read_json_body(self) -> dict | None:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length <= 0:
+                return {}
+            try:
+                raw = self.rfile.read(length)
+            except Exception:
+                return None
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except Exception:
+                return None
+            return payload if isinstance(payload, dict) else None
+
+        def _handle_review_mutation(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            try:
+                sample_id = int(payload.get("id"))
+            except Exception:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Missing/invalid sample id")
+                return
+            reviewed = bool(payload.get("reviewed"))
+            sample = samples_by_id.get(sample_id)
+            if not sample:
+                self.send_error(HTTPStatus.NOT_FOUND, "Sample not found")
+                return
+            if not sample.get("index_writable"):
+                self.send_error(HTTPStatus.CONFLICT, "Index is not writable (open a .sqlite index to edit review state)")
+                return
+            with mutation_lock:
+                updated = set_sample_reviewed(sample, reviewed)
+                if not updated:
+                    self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to update index")
+                    return
+                # Refresh playback fields (in case paths changed externally).
+                refreshed = _with_playback_info(sample, library_roots, destination_roots)
+                samples_by_id[sample_id] = refreshed
+                samples[sample_id] = refreshed
+            self._send_json({"ok": True, "sample": refreshed})
 
         def _send_audio(self, query: str) -> None:
             params = parse_qs(query)
@@ -401,6 +459,63 @@ def parse_library_roots(values: list[str], option_name: str = "--library-root") 
             raise ValueError(f"{option_name} must use LIBRARY_ID=/path/to/library")
         roots[library_id.strip()] = Path(root).expanduser().resolve()
     return roots
+
+
+def is_index_writable(index_path: Path) -> bool:
+    suffix = index_path.suffix.lower()
+    if suffix not in {".db", ".sqlite", ".sqlite3", ".json"}:
+        return False
+    try:
+        return index_path.exists() and index_path.is_file() and index_path.stat().st_mode is not None and os.access(index_path, os.W_OK)
+    except Exception:
+        return False
+
+
+def set_sample_reviewed(sample: dict, reviewed: bool) -> bool:
+    index_path = Path(sample.get("index_path") or "")
+    record = sample.get("structured")
+    if not index_path or not record or not isinstance(record, dict):
+        return False
+    # Update structured record.
+    analysis = record.setdefault("analysis", {})
+    review = analysis.setdefault("review", {})
+    review["reviewed"] = bool(reviewed)
+    review["reviewed_at"] = datetime.now(timezone.utc).isoformat() if reviewed else None
+    # Mirror a best-effort UX: a reviewed item shouldn't keep shouting in the queue.
+    if reviewed:
+        review["needs_review"] = False
+        if isinstance(review.get("reasons"), list):
+            review["reasons"] = list(review.get("reasons") or [])
+    # Persist.
+    try:
+        if index_path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
+            db = SQLiteMetadataIndex(index_path)
+            try:
+                db.upsert_record(record)
+                db.write()
+            finally:
+                db.close()
+        else:
+            idx = MetadataIndex(index_path)
+            idx.records[_record_path_value(record)] = record  # type: ignore[attr-defined]
+            idx.write()
+    except Exception:
+        return False
+    # Refresh flattened fields in-place.
+    updated = _flatten_sample(record)
+    for key, value in updated.items():
+        if key == "structured":
+            continue
+        sample[key] = value
+    sample["structured"] = record
+    return True
+
+
+def _record_path_value(record: dict) -> str:
+    file_block = record.get("file")
+    if isinstance(file_block, dict):
+        return str(file_block.get("path") or "")
+    return str(record.get("file_path") or "")
 
 
 def _range_from_header(header: str | None, file_size: int) -> tuple[int, int]:

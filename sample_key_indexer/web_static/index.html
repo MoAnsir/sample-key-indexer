@@ -105,6 +105,7 @@
         <div class="player-info">
           <p class="eyebrow">Now Playing</p>
           <strong id="nowPlaying">Select a sample</strong>
+          <div id="reviewActions" class="review-actions" aria-label="Review actions"></div>
           <div id="nowPlayingDetails" class="now-playing-details"></div>
           <div class="music-panel">
             <div>
@@ -186,6 +187,10 @@
               <span>Key disagreements</span>
               <strong id="reviewKeyDisagreements">0</strong>
             </div>
+            <label class="checkbox review-toggle">
+              <input id="reviewIncludeReviewed" type="checkbox">
+              Include reviewed
+            </label>
           </div>
         </div>
 

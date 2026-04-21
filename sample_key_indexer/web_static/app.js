@@ -9,6 +9,8 @@ const state = {
   page: 1,
   pageSize: 500,
   audioContext: null,
+  selectedSampleId: null,
+  reviewIncludeReviewed: false,
 };
 
 const els = {
@@ -45,6 +47,7 @@ const els = {
   piano: document.querySelector("#pianoView"),
   suggestions: document.querySelector("#suggestionView"),
   nowPlaying: document.querySelector("#nowPlaying"),
+  reviewActions: document.querySelector("#reviewActions"),
   nowPlayingDetails: document.querySelector("#nowPlayingDetails"),
   pageSummary: document.querySelector("#pageSummary"),
   pageSize: document.querySelector("#pageSizeSelect"),
@@ -59,6 +62,7 @@ const els = {
   reviewReasonList: document.querySelector("#reviewReasonList"),
   reviewTypeList: document.querySelector("#reviewTypeList"),
   reviewExampleList: document.querySelector("#reviewExampleList"),
+  reviewIncludeReviewed: document.querySelector("#reviewIncludeReviewed"),
 };
 
 const NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -92,6 +96,12 @@ function bindEvents() {
   els.tabButtons.forEach((button) => {
     button.addEventListener("click", () => setActiveTab(button.dataset.tab));
   });
+  if (els.reviewIncludeReviewed) {
+    els.reviewIncludeReviewed.addEventListener("change", () => {
+      state.reviewIncludeReviewed = Boolean(els.reviewIncludeReviewed.checked);
+      renderReview();
+    });
+  }
 }
 
 function populateFilters() {
@@ -456,7 +466,7 @@ function pageCount() {
 
 function renderReview() {
   const reviewSamples = state.samples
-    .filter((sample) => sample.needs_review)
+    .filter((sample) => sample.needs_review && (state.reviewIncludeReviewed || !sample.reviewed))
     .sort((a, b) => Number(a.confidence || 0) - Number(b.confidence || 0) || fileName(a).localeCompare(fileName(b)));
   const reasonCounts = countsFor(reviewSamples.flatMap((sample) => sample.review_reasons || []));
   const typeCounts = countsFor(reviewSamples.map((sample) => sample.type || "Unknown"));
@@ -533,9 +543,11 @@ function playSample(sample) {
 }
 
 function selectSample(sample, autoPlay = false) {
+  state.selectedSampleId = sample.id;
   els.playerBar.classList.remove("is-empty");
   els.nowPlaying.textContent = fileName(sample);
   els.nowPlaying.title = fileName(sample);
+  renderReviewActions(sample);
   renderNowPlayingDetails(sample);
 
   if (sample.playback_status === "available") {
@@ -553,6 +565,50 @@ function selectSample(sample, autoPlay = false) {
   drawWaveformUnavailable();
 }
 
+function renderReviewActions(sample) {
+  if (!els.reviewActions) return;
+  const writable = Boolean(sample.index_writable);
+  const reviewed = Boolean(sample.reviewed);
+  const label = reviewed ? "Mark unreviewed" : "Mark reviewed";
+  const note = writable ? "" : "Review state is read-only (open a .sqlite index to edit).";
+  els.reviewActions.innerHTML = `
+    <button class="review-button" type="button" ${writable ? "" : "disabled"}>${escapeHtml(label)}</button>
+    <span class="review-note">${escapeHtml(note)}</span>
+  `;
+  const button = els.reviewActions.querySelector("button");
+  if (button) {
+    button.addEventListener("click", () => {
+      if (!writable) return;
+      setReviewed(sample.id, !reviewed);
+    });
+  }
+}
+
+async function setReviewed(sampleId, reviewed) {
+  const response = await fetch("/api/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: sampleId, reviewed }),
+  });
+  if (!response.ok) {
+    let message = `Failed to update review state (${response.status})`;
+    try {
+      message = await response.text();
+    } catch (_) {}
+    alert(message);
+    return;
+  }
+  const data = await response.json();
+  const updated = data.sample;
+  if (!updated) return;
+  state.samples[updated.id] = updated;
+  applyFilters();
+  const refreshed = state.samples[updated.id];
+  if (refreshed) {
+    selectSample(refreshed, false);
+  }
+}
+
 function renderNowPlayingDetails(sample) {
   const details = [
     ["Key", sample.key || sample.root_note || "Unsorted"],
@@ -568,6 +624,7 @@ function renderNowPlayingDetails(sample) {
     ["Source", sample.source || "-"],
     ["Library", sample.library_name || sample.library_id || "-"],
     ["Playback", sample.playback_status === "available" ? `Available / ${sourceLabel(sample.playback_source)}` : "Missing"],
+    ["Reviewed", sample.reviewed ? "Yes" : "No"],
     ["Confidence", hasValue(sample.confidence) ? Number(sample.confidence).toFixed(2) : "-"],
   ];
 

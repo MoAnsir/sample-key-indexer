@@ -339,6 +339,40 @@ audio {
   margin-top: 12px;
 }
 
+.review-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.review-button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0;
+  padding: 8px 12px;
+}
+
+.review-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.review-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .detail-chip {
   min-width: 0;
   padding: 7px 8px;
@@ -686,6 +720,11 @@ audio {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.review-toggle {
+  align-self: end;
+  justify-self: start;
 }
 
 .review-metric {
