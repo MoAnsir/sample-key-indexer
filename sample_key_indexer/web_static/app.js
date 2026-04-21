@@ -69,6 +69,7 @@ const els = {
   reviewTypeList: document.querySelector("#reviewTypeList"),
   reviewExampleList: document.querySelector("#reviewExampleList"),
   reviewIncludeReviewed: document.querySelector("#reviewIncludeReviewed"),
+  toastHost: document.querySelector("#toastHost"),
 };
 
 const NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -378,6 +379,27 @@ function showLoading(title, detail) {
 function hideLoading() {
   if (!els.loadingOverlay) return;
   els.loadingOverlay.hidden = true;
+}
+
+function showToast(message, { title = "Notice", kind = "error", timeoutMs = 6500 } = {}) {
+  if (!els.toastHost) return;
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${kind}`;
+  toast.innerHTML = `
+    <div class="toast-title">${escapeHtml(title)}</div>
+    <div class="toast-message">${escapeHtml(String(message || ""))}</div>
+  `;
+  els.toastHost.appendChild(toast);
+  const timeout = Math.max(1500, Number(timeoutMs || 0));
+  setTimeout(() => toast.remove(), timeout);
+}
+
+function setDetailsLoading(isLoading, message = "Loading details…") {
+  if (!els.nowPlayingDetails) return;
+  const el = els.nowPlayingDetails.querySelector("#detailsLoading");
+  if (!el) return;
+  el.hidden = !isLoading;
+  if (isLoading) el.textContent = message || "Loading details…";
 }
 
 async function fetchWithTimeout(url, timeoutMs) {
@@ -765,6 +787,7 @@ function selectSample(sample, autoPlay = false) {
   els.nowPlaying.title = fileName(sample);
   renderReviewActions(sample);
   renderNowPlayingDetails(sample);
+  setDetailsLoading(false);
 
   if (sample.playback_status === "available") {
     els.player.src = `/api/audio?id=${sample.id}`;
@@ -787,6 +810,10 @@ async function ensureSampleDetails(sampleId) {
     return;
   }
   try {
+    if (state.selectedSampleId === sampleId) {
+      setDetailsLoading(true, "Loading details…");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
     const response = await fetchWithTimeout(`/api/sample?id=${encodeURIComponent(sampleId)}`, 60 * 1000);
     const data = await response.json();
     const full = data.sample;
@@ -797,12 +824,17 @@ async function ensureSampleDetails(sampleId) {
       state.samples[idx] = merged;
     }
     if (state.selectedSampleId === sampleId) {
+      setDetailsLoading(false);
       renderNowPlayingDetails(merged);
       if (merged.playback_status === "available") {
         drawWaveform(merged);
       }
     }
   } catch (_) {
+    if (state.selectedSampleId === sampleId) {
+      setDetailsLoading(false);
+      showToast("Could not load sample details. Try clicking the sample again.", { title: "Details Failed", kind: "error" });
+    }
     return;
   }
 }
@@ -871,12 +903,15 @@ function renderNowPlayingDetails(sample) {
     ["Confidence", hasValue(sample.confidence) ? Number(sample.confidence).toFixed(2) : "-"],
   ];
 
-  els.nowPlayingDetails.innerHTML = details.map(([label, value]) => `
-    <div class="detail-chip" title="${escapeHtml(label)}: ${escapeHtml(value)}">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
-    </div>
-  `).join("");
+  els.nowPlayingDetails.innerHTML = `
+    <div id="detailsLoading" class="details-loading" hidden>Loading details…</div>
+    ${details.map(([label, value]) => `
+      <div class="detail-chip" title="${escapeHtml(label)}: ${escapeHtml(value)}">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(value)}</strong>
+      </div>
+    `).join("")}
+  `;
   renderPiano(sample);
   renderSuggestions(sample);
   renderFrequencyChart(sample);
