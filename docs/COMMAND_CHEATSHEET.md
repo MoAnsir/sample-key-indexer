@@ -186,6 +186,8 @@ sample-key-indexer-web \
   /Users/mohammedansir/Desktop/SampleIndexes/usb_01/metadata_index.sqlite
 ```
 
+When you open a `.sqlite` index, the browser can also mark samples reviewed/unreviewed (it updates the SQLite index on disk). JSON indexes are browse-only.
+
 Use original source audio on the Mac or a mounted source folder:
 
 ```bash

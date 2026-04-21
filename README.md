@@ -156,6 +156,8 @@ sample-key-indexer-web /path/to/SampleIndexes/USB_01/metadata_index.sqlite --des
 
 The browser remains searchable when the USB is not mounted. Refresh the browser after plugging the USB in and matching files will become playable.
 
+When you open a `.sqlite` index, the browser can also mark samples reviewed/unreviewed (this updates the SQLite index on disk). When you open a JSON index, review state is read-only.
+
 You can also open multiple catalogs at once:
 
 ```bash
