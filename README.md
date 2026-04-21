@@ -164,6 +164,12 @@ You can also open multiple catalogs at once:
 sample-key-indexer-web /path/to/SampleIndexes/USB_01/metadata_index.sqlite /path/to/SampleIndexes/USB_02/metadata_index.sqlite
 ```
 
+If you keep multiple catalogs under one folder (for example `SampleIndexes/`), you can also pass the directory and the browser will auto-load every catalog it finds:
+
+```bash
+sample-key-indexer-web /path/to/SampleIndexes
+```
+
 For multi-device browsing, pass the mounted source or organised roots for any devices that are currently plugged in. The browser shows each loaded library, how much audio is playable or missing, and filters for Library and Playback:
 
 ```bash

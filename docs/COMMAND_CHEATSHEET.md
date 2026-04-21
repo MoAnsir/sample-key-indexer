@@ -214,6 +214,12 @@ sample-key-indexer-web \
   --destination-root usb_01="/Volumes/SSK Drive/SAMPLEZ"
 ```
 
+Auto-load every catalog under a directory (prefers `.sqlite` when both exist):
+
+```bash
+sample-key-indexer-web /Users/mohammedansir/Desktop/SampleIndexes
+```
+
 If port `8765` is already in use, stop the old server with `Ctrl-C` in its terminal, or run on another port:
 
 ```bash

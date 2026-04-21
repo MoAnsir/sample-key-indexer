@@ -331,7 +331,15 @@ def _flatten_sample(record: dict) -> dict:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a local web browser for sample-key-indexer metadata.")
-    parser.add_argument("index_paths", nargs="+", type=Path, help="Path to one or more metadata_index.json or metadata_index.sqlite files.")
+    parser.add_argument(
+        "index_paths",
+        nargs="+",
+        type=Path,
+        help=(
+            "Path to one or more metadata_index.json or metadata_index.sqlite files. "
+            "You can also pass a directory (for example SampleIndexes/) and the browser will auto-load every catalog under it."
+        ),
+    )
     parser.add_argument("--library-root", action="append", default=[], help="Playback root override as LIBRARY_ID=/Volumes/USB/Samples. Can be passed more than once.")
     parser.add_argument("--destination-root", action="append", default=[], help="Organized Key/Unsorted root override as LIBRARY_ID=/Volumes/USB/SAMPLEZ. Can be passed more than once.")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
@@ -341,7 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    index_paths = [path.expanduser().resolve() for path in args.index_paths]
+    index_paths = resolve_index_paths([path.expanduser().resolve() for path in args.index_paths])
     for index_path in index_paths:
         if not index_path.exists():
             print(f"Metadata index does not exist: {index_path}")
@@ -372,6 +380,45 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         server.server_close()
     return 0
+
+
+def resolve_index_paths(values: list[Path]) -> list[Path]:
+    """Expand directories into metadata index files; prefer SQLite when both exist.
+
+    This lets users run:
+      sample-key-indexer-web /Users/.../Desktop/SampleIndexes
+    and automatically load all catalogs.
+    """
+    expanded: list[Path] = []
+    for value in values:
+        if value.is_dir():
+            expanded.extend(_discover_indexes_in_dir(value))
+        else:
+            expanded.append(value)
+    # De-dupe while preserving order.
+    seen: set[str] = set()
+    deduped: list[Path] = []
+    for path in expanded:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def _discover_indexes_in_dir(root: Path) -> list[Path]:
+    sqlite_paths = list(root.rglob("metadata_index.sqlite"))
+    sqlite_paths += list(root.rglob("metadata_index.sqlite3"))
+    sqlite_paths += list(root.rglob("metadata_index.db"))
+    json_paths = list(root.rglob("metadata_index.json"))
+    # Prefer sqlite in the same directory as a json index.
+    chosen: dict[str, Path] = {}
+    for path in json_paths:
+        chosen.setdefault(str(path.parent), path)
+    for path in sqlite_paths:
+        chosen[str(path.parent)] = path
+    return sorted(chosen.values(), key=lambda p: str(p))
 
 
 def _playable_path(
