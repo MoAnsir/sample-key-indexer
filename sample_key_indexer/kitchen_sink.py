@@ -53,6 +53,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Parallelism for the KeyFinder enrich phase. Default: 1.",
     )
     parser.add_argument(
+        "--deep-analysis",
+        choices=("off", "smart", "force-all"),
+        default="off",
+        help="Plan Melodyne-style deep-analysis routing after KeyFinder. Default: off.",
+    )
+    parser.add_argument(
+        "--deep-analysis-scope",
+        choices=("missing", "review", "musical", "all"),
+        default="missing",
+        help="Which samples to include in deep-analysis planning. Default: missing.",
+    )
+    parser.add_argument(
+        "--deep-analysis-json",
+        type=Path,
+        default=None,
+        help="Write the deep-analysis planning report JSON. Default: /tmp/<library_id>_deep_analysis.json",
+    )
+    parser.add_argument(
         "--",
         dest="passthrough_marker",
         action="store_true",
@@ -125,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     library_id = _infer_library_id(passthrough, output_root)
     default_json = Path("/tmp") / f"{library_id}_keyfinder_enrich.json"
     keyfinder_json = (known.keyfinder_json or default_json).expanduser().resolve()
+    deep_analysis_json = (known.deep_analysis_json or (Path("/tmp") / f"{library_id}_deep_analysis.json")).expanduser().resolve()
 
     review_args: list[str] = [
         str(sqlite_path),
@@ -144,10 +163,29 @@ def main(argv: list[str] | None = None) -> int:
         review_args.append("--keyfinder-convert-retry")
     rc = review_report.main(review_args)
     t2 = time.time()
+    deep_rc = 0
+    if known.deep_analysis != "off":
+        deep_args: list[str] = [
+            str(sqlite_path),
+            "--deep-analysis-plan",
+            "--deep-analysis-mode",
+            known.deep_analysis,
+            "--deep-analysis-scope",
+            known.deep_analysis_scope,
+            "--write-every",
+            str(known.keyfinder_write_every),
+            "--deep-analysis-json",
+            str(deep_analysis_json),
+        ]
+        deep_rc = review_report.main(deep_args)
+    t3 = time.time()
     run_report_path = _infer_run_report_path(passthrough, output_root)
     _patch_run_report_with_keyfinder_rollups(run_report_path, keyfinder_json)
-    print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s")
-    return rc
+    if known.deep_analysis != "off":
+        print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s, deep-plan {t3 - t2:.1f}s")
+    else:
+        print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s")
+    return deep_rc or rc
 
 
 if __name__ == "__main__":

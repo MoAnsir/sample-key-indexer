@@ -43,6 +43,12 @@ Kitchen sink (one command): index + KeyFinder enrich (resumable KeyFinder by def
 sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry --keyfinder-workers 8
 ```
 
+Kitchen sink can also write a first-pass deep-analysis plan into the index. This does not run full note transcription yet; it stores a per-sample route such as `melodic_mono`, `polyphonic_sustain`, or `percussive_pitched` so later V4 deep-analysis passes can scale cleanly:
+
+```bash
+sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry --keyfinder-workers 8 --deep-analysis smart --deep-analysis-scope musical
+```
+
 Sanitize a source library in place before scanning. This scans first, prints a removable-file report, then prompts for `quarantine`, `delete`, or `cancel`. It removes unsupported files, pack baggage (ReadMe/docs/artwork), Mac artifacts, `fullmix`/`musicloop` mixes, and long demo files (`demo*` in the filename with duration > 60s; tune with `--demo-min-seconds`):
 
 ```bash

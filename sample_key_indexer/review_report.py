@@ -99,6 +99,9 @@ AUDIT_TYPE_TO_LOOP_TYPE = {
     "Vocals": "VocalLoops",
     "FX": "FXLoops",
 }
+DEEP_ANALYSIS_PERCUSSIVE_TYPES = {"Kick", "Snare", "Hat", "Perc", "DrumLoops"}
+DEEP_ANALYSIS_MONO_TYPES = {"Bass", "Leads", "Vocals", "VocalLoops", "BassLoops"}
+DEEP_ANALYSIS_POLYPHONIC_TYPES = {"Chords", "MelodyLoops", "FXLoops", "Pads", "Plucks"}
 
 
 def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10, include_reviewed: bool = False) -> dict[str, Any]:
@@ -1812,6 +1815,11 @@ def write_catalog_health_report(report: dict[str, Any], path: Path) -> None:
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def write_deep_analysis_report(report: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def write_classification_audit_json(report: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -2346,6 +2354,172 @@ def write_deep_review_report(summary: dict[str, Any], path: Path) -> None:
     path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _deep_analysis_scope_matches(sample: dict[str, Any], scope: str, mode: str) -> bool:
+    if scope == "all":
+        return True
+    if scope == "review":
+        return bool(sample.get("needs_review"))
+    existing = ((sample.get("structured") or {}).get("analysis") or {}).get("deep_analysis") or {}
+    if scope == "missing":
+        return not existing
+    sample_type = sample.get("type") or ""
+    category = sample.get("category") or ""
+    if scope == "musical":
+        if mode == "force-all":
+            return True
+        return sample_type not in DEEP_ANALYSIS_PERCUSSIVE_TYPES and category != "OneShots"
+    return True
+
+
+def _deep_analysis_route(sample: dict[str, Any], mode: str) -> dict[str, Any]:
+    sample_type = sample.get("type") or "Unknown"
+    category = sample.get("category") or "Unknown"
+    name = str(sample.get("name") or "").lower()
+    duration = float(sample.get("duration") or 0.0)
+    has_pitch_hint = bool(sample.get("key") or sample.get("root_note"))
+
+    if sample_type in DEEP_ANALYSIS_PERCUSSIVE_TYPES:
+        route = "percussive_pitched" if has_pitch_hint else "percussive"
+    elif sample_type in DEEP_ANALYSIS_MONO_TYPES:
+        route = "melodic_mono"
+    elif sample_type in DEEP_ANALYSIS_POLYPHONIC_TYPES or any(token in name for token in ("piano", "guitar", "chord", "string", "rhodes")):
+        route = "polyphonic_sustain"
+    elif category == "Loops" and duration <= 20:
+        route = "polyphonic_decay"
+    else:
+        route = "complex_mix"
+
+    if mode == "force-all" and route == "percussive":
+        route = "percussive_pitched"
+
+    note_backend = {
+        "melodic_mono": "essentia_pitch_contour",
+        "polyphonic_sustain": "basic_pitch",
+        "polyphonic_decay": "basic_pitch",
+        "percussive_pitched": "onset_pitch",
+        "percussive": "onset_grid",
+        "complex_mix": "basic_pitch",
+    }[route]
+    chord_backend = {
+        "melodic_mono": "essentia_tonal",
+        "polyphonic_sustain": "essentia_tonal",
+        "polyphonic_decay": "essentia_tonal",
+        "percussive_pitched": "none",
+        "percussive": "none",
+        "complex_mix": "essentia_tonal",
+    }[route]
+    should_transcribe_notes = route not in {"percussive"} or mode == "force-all"
+
+    return {
+        "route": route,
+        "note_backend": note_backend,
+        "chord_backend": chord_backend,
+        "timing_backend": "onsets",
+        "tuning_backend": "essentia_tuning",
+        "should_transcribe_notes": should_transcribe_notes,
+        "should_detect_chords": chord_backend != "none",
+        "should_detect_tuning": route != "percussive",
+        "duration_bucket": "long" if duration >= 60 else "medium" if duration >= 10 else "short",
+        "sample_type": sample_type,
+        "category": category,
+    }
+
+
+def apply_deep_analysis_planning(
+    index_path: Path,
+    records: list[dict[str, Any]],
+    *,
+    scope: str,
+    mode: str,
+    dry_run: bool,
+    write_every: int,
+    export_json: bool,
+    max_examples: int,
+) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    selected = [sample for sample in samples if _deep_analysis_scope_matches(sample, scope, mode)]
+    route_counts = Counter()
+    note_backend_counts = Counter()
+    updated = 0
+    examples: list[dict[str, Any]] = []
+    index = None if dry_run else open_writable_index(index_path)
+    try:
+        for position, sample in enumerate(selected, start=1):
+            plan = _deep_analysis_route(sample, mode)
+            route_counts[plan["route"]] += 1
+            note_backend_counts[plan["note_backend"]] += 1
+            if len(examples) < max_examples:
+                examples.append({
+                    "name": sample.get("name"),
+                    "library_id": sample.get("library_id"),
+                    "relative_path": sample.get("relative_path"),
+                    "route": plan["route"],
+                    "note_backend": plan["note_backend"],
+                    "chord_backend": plan["chord_backend"],
+                })
+            if dry_run:
+                continue
+            record = dict(sample.get("structured") or {})
+            if not record:
+                continue
+            analysis = dict(record.get("analysis") or {})
+            analysis["deep_analysis"] = {
+                "version": 1,
+                "status": "planned",
+                "mode": mode,
+                "scope": scope,
+                "planned_at": datetime.now(timezone.utc).isoformat(),
+                **plan,
+            }
+            record["analysis"] = analysis
+            upsert_record(index, record)
+            updated += 1
+            if updated % max(1, int(write_every)) == 0 and hasattr(index, "write"):
+                index.write()
+        if not dry_run and hasattr(index, "write"):
+            index.write()
+        if not dry_run and export_json and isinstance(index, SQLiteMetadataIndex):
+            index.export_json(index_path.with_suffix(".json"))
+    finally:
+        if index is not None:
+            close_index(index)
+    return {
+        "scope": scope,
+        "mode": mode,
+        "selected": len(selected),
+        "updated": updated,
+        "dry_run": dry_run,
+        "routes": [{"route": route, "count": count} for route, count in route_counts.most_common()],
+        "note_backends": [{"backend": backend, "count": count} for backend, count in note_backend_counts.most_common()],
+        "examples": examples,
+    }
+
+
+def format_deep_analysis_report(report: dict[str, Any]) -> str:
+    lines = [
+        "Deep analysis planning:",
+        f"  Scope: {report['scope']}",
+        f"  Mode: {report['mode']}",
+        f"  Selected: {report['selected']} files",
+        f"  Updated: {report['updated']} files" if not report.get("dry_run") else f"  Would update: {report['selected']} files",
+    ]
+    if report.get("routes"):
+        lines.append("  Routes:")
+        for item in report["routes"][:10]:
+            lines.append(f"    - {item['route']}: {item['count']}")
+    if report.get("note_backends"):
+        lines.append("  Note backends:")
+        for item in report["note_backends"][:10]:
+            lines.append(f"    - {item['backend']}: {item['count']}")
+    if report.get("examples"):
+        lines.append("  Examples:")
+        for item in report["examples"][:5]:
+            lines.append(
+                f"    - {item.get('name')} | {item.get('route')} | notes {item.get('note_backend')} | chords {item.get('chord_backend')}"
+            )
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Summarize samples that need review from a metadata index.")
     parser.add_argument("index_path", type=Path, help="Path to metadata_index.json or metadata_index.sqlite.")
@@ -2364,6 +2538,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reviewed-json", type=Path, default=None, help="Write the reviewed-marking report to JSON.")
     parser.add_argument("--catalog-health", action="store_true", help="Print playable vs missing summary for one or more libraries (requires mounted roots via --library-root/--destination-root).")
     parser.add_argument("--catalog-health-json", type=Path, default=None, help="Write the catalog health report to JSON.")
+    parser.add_argument("--deep-analysis-plan", action="store_true", help="Plan Melodyne-style deep-analysis routing and store it under analysis.deep_analysis.")
+    parser.add_argument("--deep-analysis-scope", choices=("missing", "review", "musical", "all"), default="missing", help="Which samples to include in deep-analysis planning.")
+    parser.add_argument("--deep-analysis-mode", choices=("smart", "force-all"), default="smart", help="Planning mode for deep analysis. smart routes musical samples conservatively; force-all plans deeper work for everything.")
+    parser.add_argument("--deep-analysis-json", type=Path, default=None, help="Write the deep-analysis planning report to JSON.")
     parser.add_argument("--v3-health", action="store_true", help="Print a compact V3 dashboard: catalog health + probe failures + keyfinder errors + top offenders.")
     parser.add_argument("--v3-health-json", type=Path, default=None, help="Write the V3 health dashboard to JSON.")
     parser.add_argument("--review-denoise", action="store_true", help="Reduce non-actionable review noise (especially drums/FX) by filtering review reasons and needs_review flags.")
@@ -2478,6 +2656,23 @@ def main(argv: list[str] | None = None) -> int:
             report_path = args.catalog_health_json.expanduser().resolve()
             write_catalog_health_report(report, report_path)
             print(f"Catalog health JSON: {report_path}")
+        return 0
+    if args.deep_analysis_plan:
+        report = apply_deep_analysis_planning(
+            index_path,
+            records,
+            scope=str(args.deep_analysis_scope),
+            mode=str(args.deep_analysis_mode),
+            dry_run=bool(args.dry_run),
+            write_every=int(args.write_every),
+            export_json=not bool(args.no_json_export),
+            max_examples=max(0, int(args.examples)),
+        )
+        print(format_deep_analysis_report(report))
+        if args.deep_analysis_json:
+            report_path = args.deep_analysis_json.expanduser().resolve()
+            write_deep_analysis_report(report, report_path)
+            print(f"Deep analysis JSON: {report_path}")
         return 0
     if args.v3_health:
         try:
