@@ -3,7 +3,7 @@
 Use these from the project root:
 
 ```bash
-cd /Users/mohammedansir/DEV/Projects/sample-key-indexer
+cd /Users/mohammedansir/DEV/Projects/SampleApp/sample-key-indexer
 ```
 
 After code changes, reinstall the editable package:
@@ -128,6 +128,26 @@ KeyFinder is resumable by default in kitchen sink (`--keyfinder-scope missing`).
 
 ```bash
 sample-key-indexer-kitchen-sink /path/to/source /path/to/output --keyfinder-scope all --keyfinder-force
+```
+
+Plan V4 deep analysis during kitchen sink (stores routed deep-analysis metadata in the index; does not yet run full note transcription):
+
+```bash
+sample-key-indexer-kitchen-sink /path/to/source /path/to/output \
+  --keyfinder-convert-retry \
+  --keyfinder-workers 8 \
+  --deep-analysis smart \
+  --deep-analysis-scope musical
+```
+
+Plan deep analysis directly against an existing index:
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite \
+  --deep-analysis-plan \
+  --deep-analysis-mode smart \
+  --deep-analysis-scope musical \
+  --deep-analysis-json /tmp/deep_analysis_plan.json
 ```
 
 Two-step fallback (same behavior):

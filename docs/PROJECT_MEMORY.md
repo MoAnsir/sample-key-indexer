@@ -41,7 +41,7 @@ The short one-page daily command guide lives in `docs/DAILY_COMMANDS.md`. The fu
 Install in editable mode:
 
 ```bash
-cd /Users/mohammedansir/DEV/Projects/sample-key-indexer
+cd /Users/mohammedansir/DEV/Projects/SampleApp/sample-key-indexer
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -105,6 +105,138 @@ Optional external tools and future options:
 - `ffprobe`: V3.2 uses it first, when available, for duration probing and long-file skip decisions.
 - Sonic Annotator with QM Vamp Plugins: possible later deep harmonic analysis backend if KeyFinder comparison is not enough.
 - `aubio`: possible small-footprint onset/tempo utility, only if better onset/tempo becomes useful without adding a large dependency.
+- `basic-pitch`: planned V4 polyphonic note-transcription backend for deep analysis.
+
+## V4 Deep Analysis Direction
+
+The current app uses only a light slice of Essentia (`KeyExtractor`) during normal indexing. That is correct for fast bulk indexing, but it is not enough for Melodyne-style robustness. V4 should add a second analysis layer that stores deeper musical structure per sample while remaining resumable and batch-safe.
+
+Principles:
+
+- Keep the current fast scan for every file.
+- Add a routed deep-analysis phase for musical material.
+- Use Essentia heavily for tonal, tuning, rhythm, and monophonic note work.
+- Use `basic-pitch` for polyphonic note transcription rather than trying to force Essentia to do everything.
+- Store deep-analysis results under `analysis.deep_analysis` first, then add final `musical.deep_*` fields once the outputs are stable.
+
+### Deep Analysis Routing Matrix
+
+Each sample should be routed into one of these analysis families before deep work begins:
+
+- `percussive`
+  - Typical types: `Kick`, `Snare`, `Hat`, `Perc`, drum one-shots, non-pitched FX.
+  - Primary goal: onset grid / timing only.
+  - Deep engines: lightweight onset/timing only; no expensive note transcription by default.
+
+- `percussive_pitched`
+  - Typical types: tuned percussion, pitched drum loops, some ethnic percussion, 808-style one-shots.
+  - Primary goal: onset grid + dominant pitch / tuning.
+  - Deep engines: Essentia tuning + pitch/onset heuristics.
+
+- `melodic_mono`
+  - Typical types: basses, leads, vocals, monophonic phrases.
+  - Primary goal: note events with onset/duration/pitch.
+  - Deep engines: Essentia `PitchCREPE` or pitch contour extraction, then `PitchContourSegmentation`; Essentia tonal/tuning.
+
+- `polyphonic_decay`
+  - Typical types: short harmonic loops, plucks, riffs, stabs.
+  - Primary goal: note events + chord context.
+  - Deep engines: `basic-pitch` for notes, Essentia tonal/chord/tuning for context.
+
+- `polyphonic_sustain`
+  - Typical types: pianos, guitars, pads, chord loops, strings, harmonized phrases.
+  - Primary goal: polyphonic note events + chord timeline + tuning.
+  - Deep engines: `basic-pitch` for note events, Essentia `TonalExtractor` + tuning.
+
+- `complex_mix`
+  - Typical types: full arrangements, layered loops, difficult mixed content.
+  - Primary goal: harmonic summary, not perfect event extraction.
+  - Deep engines: Essentia tonal/tuning plus optional `basic-pitch` in `force-all` mode.
+
+### Essentia Backends To Add
+
+These are the most relevant Essentia additions for V4:
+
+- `TonalExtractor`
+  - Adds richer key/scale/chord/HPCP summaries than the current `KeyExtractor`.
+  - Good for harmonic context and chord-oriented metadata.
+
+- `TuningFrequencyExtractor`
+  - Adds tuning frequency and tuning drift information.
+  - Useful for acoustic, ethnic, and off-440 material.
+
+- `RhythmExtractor2013`
+  - Adds BPM + beat tick positions.
+  - Good for loops and longer rhythmic material; not necessary for every one-shot.
+
+- `PitchCREPE` + pitch contour path
+  - Strong monophonic pitch tracking.
+  - Best for vocals, leads, basses, and monophonic phrases.
+
+- `PitchContourSegmentation`
+  - Converts pitch contours into note events with onset, duration, and MIDI pitch.
+  - This is one of the most important V4 additions.
+
+- `ChordsDetection`
+  - Use only as a supporting signal, not final truth.
+  - Essentia documents it as experimental and prone to errors.
+
+### Basic Pitch vs Essentia
+
+Use Essentia to complement `basic-pitch`, not replace it:
+
+- Essentia should lead for:
+  - tuning
+  - rhythm / beat ticks
+  - tonal context / HPCP / chord hints
+  - monophonic pitch + note segmentation
+
+- `basic-pitch` should lead for:
+  - polyphonic note transcription
+  - stacked chords / harmonic loops
+  - sustained multi-note material
+
+### Kitchen Sink Integration Plan
+
+Kitchen sink should eventually support:
+
+- `--deep-analysis off`
+  - current behavior
+
+- `--deep-analysis smart`
+  - run deep analysis only where routing says it makes musical sense
+
+- `--deep-analysis force-all`
+  - run the heavy V4 pipeline on every supported sample, even difficult material
+
+The first implemented step is planning only:
+
+```bash
+sample-key-indexer-kitchen-sink /path/to/source /path/to/output \
+  --keyfinder-convert-retry \
+  --keyfinder-workers 8 \
+  --deep-analysis smart \
+  --deep-analysis-scope musical
+```
+
+That command stores a per-sample deep-analysis plan under `analysis.deep_analysis`. It does not yet run note transcription; it prepares the routed plan so later deep passes can scale safely.
+
+### V4 Implementation Order
+
+1. Keep the planning scaffold and route all samples.
+2. Add Essentia `TonalExtractor`, tuning, and monophonic pitch/note extraction.
+3. Add `basic-pitch` for polyphonic note events.
+4. Store real deep outputs in SQLite/JSON:
+   - `deep_notes`
+   - `deep_note_events`
+   - `deep_chords`
+   - `deep_key`
+   - `deep_tuning_hz`
+   - `deep_tuning_cents`
+   - `deep_onsets`
+   - `deep_analysis_confidence`
+5. Surface those outputs in the web app.
+6. Make the whole deep-analysis phase resumable by stored status + file signature.
 
 ## Major Features
 
