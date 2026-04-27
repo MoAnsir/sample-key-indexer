@@ -2412,6 +2412,7 @@ def _deep_analysis_route(sample: dict[str, Any], mode: str) -> dict[str, Any]:
 
     return {
         "route": route,
+        "tonal_backend": "essentia_tonal",
         "note_backend": note_backend,
         "chord_backend": chord_backend,
         "timing_backend": "onsets",
@@ -2561,6 +2562,110 @@ def run_essentia_deep_mono_note_analysis(audio: Any, sr: int) -> dict[str, Any]:
         return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
 
 
+def run_librosa_percussive_timing_analysis(audio: Any, sr: int) -> dict[str, Any]:
+    try:
+        import librosa
+        import numpy as np
+    except ModuleNotFoundError as exc:
+        return {"status": "error", "error": f"missing_backend:{exc}", "error_code": "backend_missing"}
+    try:
+        onset_frames = librosa.onset.onset_detect(y=audio, sr=sr, units="frames", backtrack=False)
+        onset_times = librosa.frames_to_time(onset_frames, sr=sr)
+        onset_strength = librosa.onset.onset_strength(y=audio, sr=sr)
+        strengths = onset_strength[onset_frames] if onset_frames.size else np.asarray([], dtype="float32")
+        confidence = float(np.clip(np.mean(strengths) / (np.max(onset_strength) + 1e-6), 0.0, 1.0)) if strengths.size and onset_strength.size else 0.0
+        return {
+            "status": "success",
+            "deep_onsets": [round(float(item), 6) for item in onset_times[:256]],
+            "deep_onset_count": int(len(onset_times)),
+            "deep_timing_confidence": round(confidence, 6),
+            "engines": ["librosa_onsets"],
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+
+def run_librosa_percussive_pitched_note_analysis(audio: Any, sr: int) -> dict[str, Any]:
+    try:
+        import librosa
+        import numpy as np
+    except ModuleNotFoundError as exc:
+        return {"status": "error", "error": f"missing_backend:{exc}", "error_code": "backend_missing"}
+    try:
+        harmonic, _ = librosa.effects.hpss(audio)
+        f0, voiced_flag, voiced_prob = librosa.pyin(
+            harmonic,
+            fmin=librosa.note_to_hz("C2"),
+            fmax=librosa.note_to_hz("C7"),
+            sr=sr,
+        )
+        times = librosa.times_like(f0, sr=sr)
+        midi_values = librosa.hz_to_midi(f0)
+        note_events: list[dict[str, Any]] = []
+        unique_notes: list[str] = []
+        start_idx: int | None = None
+        current_pitch: int | None = None
+        confidence_values: list[float] = []
+
+        def flush(end_idx: int) -> None:
+            nonlocal start_idx, current_pitch, confidence_values
+            if start_idx is None or current_pitch is None or end_idx <= start_idx:
+                start_idx = None
+                current_pitch = None
+                confidence_values = []
+                return
+            onset_sec = float(times[start_idx])
+            duration_sec = float(times[end_idx - 1] - times[start_idx]) if end_idx - 1 > start_idx else float(1.0 / max(1, sr))
+            note_name = midi_note_name(current_pitch)
+            frequency_hz = float(librosa.midi_to_hz(current_pitch))
+            confidence = float(sum(confidence_values) / max(1, len(confidence_values))) if confidence_values else 0.0
+            event = {
+                "onset_sec": round(onset_sec, 6),
+                "duration_sec": round(max(duration_sec, 0.04), 6),
+                "midi_pitch": round(float(current_pitch), 3),
+                "note": note_name,
+                "frequency_hz": round(frequency_hz, 3),
+                "confidence": round(confidence, 6),
+            }
+            note_events.append(event)
+            if note_name and note_name not in unique_notes:
+                unique_notes.append(note_name)
+            start_idx = None
+            current_pitch = None
+            confidence_values = []
+
+        for idx, (voiced, midi_value, prob) in enumerate(zip(voiced_flag, midi_values, voiced_prob, strict=False)):
+            if not voiced or not np.isfinite(midi_value):
+                flush(idx)
+                continue
+            rounded_pitch = int(round(float(midi_value)))
+            if start_idx is None:
+                start_idx = idx
+                current_pitch = rounded_pitch
+                confidence_values = [float(prob or 0.0)]
+                continue
+            if rounded_pitch != current_pitch:
+                flush(idx)
+                start_idx = idx
+                current_pitch = rounded_pitch
+                confidence_values = [float(prob or 0.0)]
+                continue
+            confidence_values.append(float(prob or 0.0))
+        flush(len(times))
+
+        note_confidence = float(sum(event.get("confidence") or 0.0 for event in note_events) / max(1, len(note_events))) if note_events else 0.0
+        return {
+            "status": "success",
+            "deep_note_events": note_events[:256],
+            "deep_notes": unique_notes[:24],
+            "deep_note_count": len(note_events),
+            "deep_note_confidence": round(note_confidence, 6),
+            "engines": ["librosa_pyin", "librosa_hpss"],
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+
 def run_polyphonic_note_backend(audio: Any, sr: int, note_backend: str) -> dict[str, Any]:
     if note_backend != "basic_pitch":
         return {"status": "skipped", "reason": "not_polyphonic_backend"}
@@ -2603,10 +2708,77 @@ def run_polyphonic_note_backend(audio: Any, sr: int, note_backend: str) -> dict[
             "deep_note_events": parsed_events[:512],
             "deep_notes": unique_notes[:48],
             "deep_note_count": len(parsed_events),
+            "deep_note_confidence": round(
+                float(sum(event.get("confidence") or 0.0 for event in parsed_events) / max(1, len(parsed_events))),
+                6,
+            ) if parsed_events else 0.0,
             "engines": ["basic_pitch"],
         }
     except Exception as exc:
         return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+
+def deep_analysis_confidence(result: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    route = str(plan.get("route") or "")
+    tonal_confidence = None
+    raw_tonal = result.get("deep_key_confidence")
+    if raw_tonal is not None:
+        try:
+            tonal_confidence = max(0.0, min(1.0, float(raw_tonal)))
+        except (TypeError, ValueError):
+            tonal_confidence = None
+
+    rhythm_confidence = None
+    if result.get("deep_rhythm_status") == "success":
+        raw_rhythm = result.get("deep_bpm_confidence")
+        fallback_rhythm = result.get("deep_timing_confidence")
+        try:
+            rhythm_confidence = max(0.0, min(1.0, float(raw_rhythm if raw_rhythm is not None else fallback_rhythm or 0.0)))
+        except (TypeError, ValueError):
+            rhythm_confidence = None
+
+    note_confidence = None
+    if result.get("deep_note_backend_status") == "success":
+        raw_note = result.get("deep_note_confidence")
+        if raw_note is not None:
+            try:
+                note_confidence = max(0.0, min(1.0, float(raw_note)))
+            except (TypeError, ValueError):
+                note_confidence = None
+        elif result.get("deep_note_count"):
+            note_confidence = 0.7
+
+    weights_by_route = {
+        "melodic_mono": {"tonal": 0.35, "rhythm": 0.15, "note": 0.5},
+        "polyphonic_sustain": {"tonal": 0.45, "rhythm": 0.15, "note": 0.4},
+        "polyphonic_decay": {"tonal": 0.4, "rhythm": 0.2, "note": 0.4},
+        "percussive_pitched": {"tonal": 0.2, "rhythm": 0.35, "note": 0.45},
+        "percussive": {"tonal": 0.0, "rhythm": 1.0, "note": 0.0},
+        "complex_mix": {"tonal": 0.5, "rhythm": 0.1, "note": 0.4},
+    }
+    route_weights = weights_by_route.get(route, {"tonal": 0.45, "rhythm": 0.15, "note": 0.4})
+    component_values = {
+        "tonal": tonal_confidence,
+        "rhythm": rhythm_confidence,
+        "note": note_confidence,
+    }
+    weighted_sum = 0.0
+    active_weight = 0.0
+    for component, weight in route_weights.items():
+        value = component_values.get(component)
+        if value is None or weight <= 0:
+            continue
+        weighted_sum += value * weight
+        active_weight += weight
+    fused = round(weighted_sum / active_weight, 6) if active_weight > 0 else None
+    return {
+        "deep_analysis_confidence": fused,
+        "deep_analysis_confidence_breakdown": {
+            "route": route,
+            "weights": route_weights,
+            "components": component_values,
+        },
+    }
 
 
 def run_deep_analysis_for_sample(path: Path, plan: dict[str, Any], sample_rate: int = 44100) -> dict[str, Any]:
@@ -2624,6 +2796,9 @@ def run_deep_analysis_for_sample(path: Path, plan: dict[str, Any], sample_rate: 
         "deep_note_backend_error": None,
         "deep_rhythm_status": "skipped",
         "deep_rhythm_error": None,
+        "deep_onsets": [],
+        "deep_onset_count": 0,
+        "deep_timing_confidence": None,
     }
 
     tonal = run_essentia_deep_tonal_analysis(audio, sr)
@@ -2639,6 +2814,19 @@ def run_deep_analysis_for_sample(path: Path, plan: dict[str, Any], sample_rate: 
         if rhythm.get("status") == "success":
             combined.update({key: value for key, value in rhythm.items() if key not in {"status", "engines"}})
             combined["engines"].extend(rhythm.get("engines") or [])
+    if plan.get("timing_backend") == "onsets" or plan.get("route") in {"percussive", "percussive_pitched"}:
+        onset_timing = run_librosa_percussive_timing_analysis(audio, sr)
+        if onset_timing.get("status") == "success":
+            combined["deep_onsets"] = onset_timing.get("deep_onsets") or []
+            combined["deep_onset_count"] = onset_timing.get("deep_onset_count") or 0
+            combined["deep_timing_confidence"] = onset_timing.get("deep_timing_confidence")
+            combined["engines"].extend(onset_timing.get("engines") or [])
+            if combined.get("deep_rhythm_status") != "success":
+                combined["deep_rhythm_status"] = "success"
+                combined["deep_rhythm_error"] = None
+        elif combined.get("deep_rhythm_status") == "skipped":
+            combined["deep_rhythm_status"] = onset_timing.get("status")
+            combined["deep_rhythm_error"] = onset_timing.get("error")
 
     note_backend = str(plan.get("note_backend") or "")
     if note_backend == "essentia_pitch_contour":
@@ -2648,6 +2836,8 @@ def run_deep_analysis_for_sample(path: Path, plan: dict[str, Any], sample_rate: 
         if notes.get("status") == "success":
             combined.update({key: value for key, value in notes.items() if key not in {"status", "engines"}})
             combined["engines"].extend(notes.get("engines") or [])
+            if combined.get("deep_note_confidence") is None and combined.get("deep_note_count"):
+                combined["deep_note_confidence"] = round(min(0.95, 0.55 + 0.02 * min(int(combined.get("deep_note_count") or 0), 10)), 6)
     elif note_backend == "basic_pitch":
         notes = run_polyphonic_note_backend(audio, sr, note_backend)
         combined["deep_note_backend_status"] = notes.get("status")
@@ -2655,10 +2845,18 @@ def run_deep_analysis_for_sample(path: Path, plan: dict[str, Any], sample_rate: 
         if notes.get("status") == "success":
             combined.update({key: value for key, value in notes.items() if key not in {"status", "engines"}})
             combined["engines"].extend(notes.get("engines") or [])
+    elif note_backend == "onset_pitch":
+        notes = run_librosa_percussive_pitched_note_analysis(audio, sr)
+        combined["deep_note_backend_status"] = notes.get("status")
+        combined["deep_note_backend_error"] = notes.get("error")
+        if notes.get("status") == "success":
+            combined.update({key: value for key, value in notes.items() if key not in {"status", "engines"}})
+            combined["engines"].extend(notes.get("engines") or [])
     else:
-        combined["deep_note_backend_status"] = "planned_only" if note_backend == "onset_pitch" else "skipped"
+        combined["deep_note_backend_status"] = "skipped"
 
     combined["engines"] = sorted({engine for engine in combined.get("engines") or [] if engine})
+    combined.update(deep_analysis_confidence(combined, plan))
     return combined
 
 
@@ -2835,13 +3033,19 @@ def run_deep_analysis_execution(
                 "deep_ticks": result.get("deep_ticks") or [],
                 "deep_bpm_estimates": result.get("deep_bpm_estimates") or [],
                 "deep_bpm_intervals": result.get("deep_bpm_intervals") or [],
+                "deep_onsets": result.get("deep_onsets") or [],
+                "deep_onset_count": result.get("deep_onset_count") or 0,
+                "deep_timing_confidence": result.get("deep_timing_confidence"),
                 "deep_note_events": result.get("deep_note_events") or [],
                 "deep_notes": result.get("deep_notes") or [],
                 "deep_note_count": result.get("deep_note_count"),
+                "deep_note_confidence": result.get("deep_note_confidence"),
                 "deep_note_backend_status": result.get("deep_note_backend_status"),
                 "deep_note_backend_error": result.get("deep_note_backend_error"),
                 "deep_rhythm_status": result.get("deep_rhythm_status"),
                 "deep_rhythm_error": result.get("deep_rhythm_error"),
+                "deep_analysis_confidence": result.get("deep_analysis_confidence"),
+                "deep_analysis_confidence_breakdown": result.get("deep_analysis_confidence_breakdown") or {},
             }
             record["analysis"] = analysis
             upsert_record(index, record)

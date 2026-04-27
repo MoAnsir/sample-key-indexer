@@ -242,8 +242,16 @@ The routing scaffold still matters, but it is no longer plan-only.
    - `deep_tuning_cents`
    - `deep_onsets`
    - `deep_analysis_confidence`
-5. Surface those outputs in the web app.
+5. Surface those outputs in the web app:
+   - deep key/tuning/BPM summary
+   - deep notes / chords / backend status in sample detail
+   - musical widgets can fall back to deep key/note data when shallow fields are thin
 6. Make the whole deep-analysis phase resumable by stored status + file signature.
+
+The current V4 slice now also computes a routed `deep_analysis_confidence` with tonal / rhythm / note component breakdown, and it has better route-specific handling for `percussive` and `percussive_pitched` material:
+
+- `percussive` routes get onset-grid style timing metadata
+- `percussive_pitched` routes attempt lightweight pitched-note extraction plus onset timing
 
 ## Major Features
 

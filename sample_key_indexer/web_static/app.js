@@ -885,6 +885,53 @@ async function setReviewed(sampleId, reviewed) {
 }
 
 function renderNowPlayingDetails(sample) {
+  const deepOverallConfidence = hasValue(sample.deep_analysis_confidence)
+    ? Number(sample.deep_analysis_confidence).toFixed(2)
+    : "-";
+  const deepKey = sample.deep_key || sample.deep_root || "-";
+  const deepKeyConfidence = hasValue(sample.deep_key_confidence)
+    ? Number(sample.deep_key_confidence).toFixed(2)
+    : "-";
+  const deepBpm = hasValue(sample.deep_bpm) ? `${Number(sample.deep_bpm).toFixed(2)} BPM` : "-";
+  const deepBpmConfidence = hasValue(sample.deep_bpm_confidence)
+    ? Number(sample.deep_bpm_confidence).toFixed(2)
+    : "-";
+  const deepTimingConfidence = hasValue(sample.deep_timing_confidence)
+    ? Number(sample.deep_timing_confidence).toFixed(2)
+    : "-";
+  const deepNoteConfidence = hasValue(sample.deep_note_confidence)
+    ? Number(sample.deep_note_confidence).toFixed(2)
+    : "-";
+  const deepTuning = hasValue(sample.deep_tuning_hz) ? `${Number(sample.deep_tuning_hz).toFixed(2)} Hz` : "-";
+  const deepRoute = sample.deep_route_family || sample.deep_note_backend || sample.deep_tonal_backend || "-";
+  const deepNotesPreview = previewList(sample.deep_notes, 12);
+  const deepChordsPreview = previewList(sample.deep_chords, 8);
+  const deepTickCount = Array.isArray(sample.deep_ticks) ? sample.deep_ticks.length : 0;
+  const deepOnsetCount = hasValue(sample.deep_onset_count)
+    ? Number(sample.deep_onset_count).toLocaleString()
+    : (Array.isArray(sample.deep_onsets) ? sample.deep_onsets.length.toLocaleString() : "-");
+  const deepNoteCount = hasValue(sample.deep_note_count)
+    ? Number(sample.deep_note_count).toLocaleString()
+    : (Array.isArray(sample.deep_note_events) ? sample.deep_note_events.length.toLocaleString() : "-");
+  const deepEngineSummary = [
+    sample.deep_tonal_backend ? `tonal ${sample.deep_tonal_backend}` : "",
+    sample.deep_note_backend ? `notes ${sample.deep_note_backend}` : "",
+    sample.deep_timing_backend ? `timing ${sample.deep_timing_backend}` : "",
+    sample.deep_tuning_backend ? `tuning ${sample.deep_tuning_backend}` : "",
+  ].filter(Boolean).join(" · ") || "-";
+  const deepStatusSummary = [
+    sample.deep_analysis_status ? `overall ${sample.deep_analysis_status}` : "",
+    sample.deep_note_backend_status ? `note backend ${sample.deep_note_backend_status}` : "",
+    sample.deep_note_backend_error ? `note error ${sample.deep_note_backend_error}` : "",
+    sample.deep_rhythm_status ? `rhythm ${sample.deep_rhythm_status}` : "",
+    sample.deep_rhythm_error ? `rhythm error ${sample.deep_rhythm_error}` : "",
+  ].filter(Boolean).join(" · ") || "-";
+  const deepBreakdown = sample.deep_analysis_confidence_breakdown?.components || {};
+  const deepBreakdownSummary = [
+    hasValue(deepBreakdown.tonal) ? `tonal ${Number(deepBreakdown.tonal).toFixed(2)}` : "",
+    hasValue(deepBreakdown.rhythm) ? `rhythm ${Number(deepBreakdown.rhythm).toFixed(2)}` : "",
+    hasValue(deepBreakdown.note) ? `notes ${Number(deepBreakdown.note).toFixed(2)}` : "",
+  ].filter(Boolean).join(" · ") || "-";
   const details = [
     ["Key", sample.key || sample.root_note || "Unsorted"],
     ["Notes", Array.isArray(sample.notes) && sample.notes.length ? sample.notes.join(", ") : "-"],
@@ -901,7 +948,27 @@ function renderNowPlayingDetails(sample) {
     ["Playback", sample.playback_status === "available" ? `Available / ${sourceLabel(sample.playback_source)}` : "Missing"],
     ["Reviewed", sample.reviewed ? "Yes" : "No"],
     ["Confidence", hasValue(sample.confidence) ? Number(sample.confidence).toFixed(2) : "-"],
+    ["Deep overall", deepOverallConfidence],
+    ["Deep key", deepKey],
+    ["Deep key conf", deepKeyConfidence],
+    ["Deep BPM", deepBpm],
+    ["Deep BPM conf", deepBpmConfidence],
+    ["Deep note conf", deepNoteConfidence],
+    ["Deep timing conf", deepTimingConfidence],
+    ["Deep tuning", deepTuning],
+    ["Deep route", deepRoute],
+    ["Deep note count", deepNoteCount],
+    ["Deep onsets", deepOnsetCount],
   ];
+
+  const deepPanels = [
+    ["Deep notes", deepNotesPreview],
+    ["Deep chords", deepChordsPreview],
+    ["Deep timing", deepTickCount ? `${deepTickCount.toLocaleString()} ticks · ${deepBpm}` : (deepOnsetCount !== "-" ? `${deepOnsetCount} onsets` : deepBpm)],
+    ["Deep confidence", deepBreakdownSummary],
+    ["Deep engines", deepEngineSummary],
+    ["Deep status", deepStatusSummary],
+  ].filter(([, value]) => value && value !== "-");
 
   els.nowPlayingDetails.innerHTML = `
     <div id="detailsLoading" class="details-loading" hidden>Loading details…</div>
@@ -911,6 +978,16 @@ function renderNowPlayingDetails(sample) {
         <strong>${escapeHtml(value)}</strong>
       </div>
     `).join("")}
+    ${deepPanels.length ? `
+      <div class="detail-panels">
+        ${deepPanels.map(([label, value]) => `
+          <section class="detail-panel" title="${escapeHtml(label)}: ${escapeHtml(value)}">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </section>
+        `).join("")}
+      </div>
+    ` : ""}
   `;
   renderPiano(sample);
   renderSuggestions(sample);
@@ -922,9 +999,19 @@ function hasValue(value) {
   return value !== undefined && value !== null && value !== "";
 }
 
+function previewList(values, limit = 8) {
+  if (!Array.isArray(values) || !values.length) return "-";
+  const shown = values.slice(0, limit).map((value) => String(value));
+  const suffix = values.length > limit ? ` +${values.length - limit} more` : "";
+  return `${shown.join(", ")}${suffix}`;
+}
+
 function renderPiano(sample) {
-  const root = normalizeNote(sample.root_note || noteFromKey(sample.key));
-  const notes = Array.isArray(sample.notes) ? sample.notes.map(normalizeNote).filter(Boolean) : [];
+  const root = normalizeNote(sample.root_note || noteFromKey(sample.key) || sample.deep_root || noteFromKey(sample.deep_key));
+  const notesSource = Array.isArray(sample.notes) && sample.notes.length
+    ? sample.notes
+    : (Array.isArray(sample.deep_notes) ? sample.deep_notes : []);
+  const notes = notesSource.map(normalizeNote).filter(Boolean);
   const activeNotes = new Set(notes);
   if (root) activeNotes.add(root);
 
@@ -943,8 +1030,8 @@ function renderPiano(sample) {
 }
 
 function renderSuggestions(sample) {
-  const root = normalizeNote(sample.root_note || noteFromKey(sample.key));
-  const mode = modeFromKey(sample.key);
+  const root = normalizeNote(sample.root_note || noteFromKey(sample.key) || sample.deep_root || noteFromKey(sample.deep_key));
+  const mode = modeFromKey(sample.key || sample.deep_key);
   if (!root) {
     els.suggestions.innerHTML = `<div class="suggestion-row">No key suggestion yet</div>`;
     return;
