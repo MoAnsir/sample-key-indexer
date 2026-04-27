@@ -209,7 +209,7 @@ Kitchen sink should eventually support:
 - `--deep-analysis force-all`
   - run the heavy V4 pipeline on every supported sample, even difficult material
 
-The first implemented step is planning only:
+The first implemented step now runs real routed deep analysis:
 
 ```bash
 sample-key-indexer-kitchen-sink /path/to/source /path/to/output \
@@ -219,13 +219,20 @@ sample-key-indexer-kitchen-sink /path/to/source /path/to/output \
   --deep-analysis-scope musical
 ```
 
-That command stores a per-sample deep-analysis plan under `analysis.deep_analysis`. It does not yet run note transcription; it prepares the routed plan so later deep passes can scale safely.
+That command now stores per-sample deep-analysis results under `analysis.deep_analysis`, including:
+
+- Essentia tonal + tuning
+- Essentia loop BPM/ticks
+- Essentia monophonic note events for `melodic_mono`
+- Basic Pitch note events for polyphonic routes
+
+The routing scaffold still matters, but it is no longer plan-only.
 
 ### V4 Implementation Order
 
 1. Keep the planning scaffold and route all samples.
-2. Add Essentia `TonalExtractor`, tuning, and monophonic pitch/note extraction.
-3. Add `basic-pitch` for polyphonic note events.
+2. Expand the deep record shape and confidence fusion across tonal, timing, and note backends.
+3. Add more route-specific timing/onset handling for percussive and percussive-pitched material.
 4. Store real deep outputs in SQLite/JSON:
    - `deep_notes`
    - `deep_note_events`

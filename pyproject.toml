@@ -9,6 +9,7 @@ description = "Local audio sample library key indexing and organisation tool."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "basic-pitch>=0.4.0",
   "essentia>=2.1b6.dev1389",
   "librosa>=0.10.0",
   "numpy>=1.23",

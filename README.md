@@ -13,7 +13,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-`librosa` handles the baseline pitch and chroma analysis. `essentia` is installed as a required dependency because the normal balanced workflow uses `--engines librosa,essentia`. `soundfile` is included for WAV/AIFF support; MP3 support depends on the audio backend available to librosa/audioread on your machine.
+`librosa` handles the baseline pitch and chroma analysis. `essentia` is installed as a required dependency because the normal balanced workflow uses `--engines librosa,essentia`. `basic-pitch` is now also included so V4 deep-analysis runs can transcribe note events for polyphonic routes. `soundfile` is included for WAV/AIFF support; MP3 support depends on the audio backend available to librosa/audioread on your machine.
 
 KeyFinder CLI is also required. It is an external command-line tool, so `pip install -e .` cannot install it from Python packaging metadata. Install it separately and make sure either `keyfinder-cli` or `keyfinder` is on `PATH`; `--doctor` and `--backend-check` fail when it is missing.
 
@@ -43,13 +43,13 @@ Kitchen sink (one command): index + KeyFinder enrich (resumable KeyFinder by def
 sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry --keyfinder-workers 8
 ```
 
-Kitchen sink can also write a first-pass deep-analysis plan into the index. This does not run full note transcription yet; it stores a per-sample route such as `melodic_mono`, `polyphonic_sustain`, or `percussive_pitched` so later V4 deep-analysis passes can scale cleanly:
+Kitchen sink can also run the routed V4 deep-analysis pass after KeyFinder. It stores per-sample deep metadata under `analysis.deep_analysis`, including tonal/tuning, loop BPM/ticks, and note events where the route/backend supports them:
 
 ```bash
 sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry --keyfinder-workers 8 --deep-analysis smart --deep-analysis-scope musical
 ```
 
-You can now run the first real V4 deep-analysis execution pass directly against an index. This currently stores Essentia tonal + tuning metadata under `analysis.deep_analysis`:
+You can now run the first real V4 deep-analysis execution pass directly against an index. It stores routed deep metadata under `analysis.deep_analysis`, including Essentia tonal+tuning, Essentia loop BPM/ticks, Essentia monophonic note events, and Basic Pitch note events for polyphonic routes:
 
 ```bash
 sample-key-indexer-review /path/to/SampleIndexes/LIBRARY_ID/metadata_index.sqlite \

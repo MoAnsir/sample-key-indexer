@@ -56,19 +56,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--deep-analysis",
         choices=("off", "smart", "force-all"),
         default="off",
-        help="Plan Melodyne-style deep-analysis routing after KeyFinder. Default: off.",
+        help="Run routed deep-analysis after KeyFinder. Default: off.",
     )
     parser.add_argument(
         "--deep-analysis-scope",
         choices=("missing", "review", "musical", "all"),
         default="missing",
-        help="Which samples to include in deep-analysis planning. Default: missing.",
+        help="Which samples to include in deep-analysis execution. Default: missing.",
     )
     parser.add_argument(
         "--deep-analysis-json",
         type=Path,
         default=None,
-        help="Write the deep-analysis planning report JSON. Default: /tmp/<library_id>_deep_analysis.json",
+        help="Write the deep-analysis execution report JSON. Default: /tmp/<library_id>_deep_analysis.json",
     )
     parser.add_argument(
         "--",
@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     if known.deep_analysis != "off":
         deep_args: list[str] = [
             str(sqlite_path),
-            "--deep-analysis-plan",
+            "--deep-analysis-run",
             "--deep-analysis-mode",
             known.deep_analysis,
             "--deep-analysis-scope",
@@ -182,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     run_report_path = _infer_run_report_path(passthrough, output_root)
     _patch_run_report_with_keyfinder_rollups(run_report_path, keyfinder_json)
     if known.deep_analysis != "off":
-        print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s, deep-plan {t3 - t2:.1f}s")
+        print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s, deep-analysis {t3 - t2:.1f}s")
     else:
         print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s")
     return deep_rc or rc

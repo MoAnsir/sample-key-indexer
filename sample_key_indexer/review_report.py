@@ -2425,16 +2425,24 @@ def _deep_analysis_route(sample: dict[str, Any], mode: str) -> dict[str, Any]:
     }
 
 
-def run_essentia_deep_tonal_analysis(path: Path, sample_rate: int = 44100) -> dict[str, Any]:
+def load_deep_analysis_audio(path: Path, sample_rate: int = 44100) -> tuple[Any, int]:
     try:
         import librosa
+        import numpy as np
+    except ModuleNotFoundError:
+        raise
+    y, sr = librosa.load(path, sr=sample_rate, mono=True)
+    audio = np.asarray(y, dtype="float32")
+    return audio, sr
+
+
+def run_essentia_deep_tonal_analysis(audio: Any, sr: int) -> dict[str, Any]:
+    try:
         import numpy as np
         from essentia.standard import KeyExtractor, TonalExtractor, TuningFrequencyExtractor
     except ModuleNotFoundError as exc:
         return {"status": "error", "error": f"missing_backend:{exc}", "error_code": "backend_missing"}
     try:
-        y, sr = librosa.load(path, sr=sample_rate, mono=True)
-        audio = np.asarray(y, dtype="float32")
         key, scale, strength = KeyExtractor(sampleRate=sr)(audio)
         tonal_outputs = TonalExtractor().outputNames()
         tonal_values = TonalExtractor()(audio)
@@ -2479,6 +2487,179 @@ def run_essentia_deep_tonal_analysis(path: Path, sample_rate: int = 44100) -> di
         }
     except Exception as exc:
         return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+
+def run_essentia_deep_rhythm_analysis(audio: Any, sr: int) -> dict[str, Any]:
+    try:
+        import numpy as np
+        from essentia.standard import RhythmExtractor2013
+    except ModuleNotFoundError as exc:
+        return {"status": "error", "error": f"missing_backend:{exc}", "error_code": "backend_missing"}
+    try:
+        bpm, ticks, confidence, estimates, intervals = RhythmExtractor2013(method="multifeature")(audio)
+        tick_values = [round(float(item), 6) for item in list(np.asarray(ticks).reshape(-1)[:128])]
+        estimate_values = [round(float(item), 6) for item in list(np.asarray(estimates).reshape(-1)[:32])]
+        interval_values = [round(float(item), 6) for item in list(np.asarray(intervals).reshape(-1)[:32])]
+        return {
+            "status": "success",
+            "deep_bpm": round(float(bpm), 3),
+            "deep_bpm_confidence": round(float(confidence), 6),
+            "deep_ticks": tick_values,
+            "deep_bpm_estimates": estimate_values,
+            "deep_bpm_intervals": interval_values,
+            "engines": ["essentia_rhythm"],
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+
+def midi_note_name(midi_pitch: float) -> str | None:
+    try:
+        midi_value = int(round(float(midi_pitch)))
+    except (TypeError, ValueError):
+        return None
+    note_name = NOTE_NAMES[midi_value % 12]
+    octave = (midi_value // 12) - 1
+    return f"{note_name}{octave}"
+
+
+def run_essentia_deep_mono_note_analysis(audio: Any, sr: int) -> dict[str, Any]:
+    try:
+        import numpy as np
+        from essentia.standard import MultiPitchMelodia, PitchContourSegmentation
+    except ModuleNotFoundError as exc:
+        return {"status": "error", "error": f"missing_backend:{exc}", "error_code": "backend_missing"}
+    try:
+        pitch = np.asarray(MultiPitchMelodia()(audio), dtype="float32").reshape(-1)
+        onset, duration, midi = PitchContourSegmentation()(pitch, audio)
+        onsets = np.asarray(onset).reshape(-1)
+        durations = np.asarray(duration).reshape(-1)
+        midi_values = np.asarray(midi).reshape(-1)
+        note_events: list[dict[str, Any]] = []
+        unique_notes: list[str] = []
+        for onset_value, duration_value, midi_value in zip(onsets, durations, midi_values, strict=False):
+            note_name = midi_note_name(float(midi_value))
+            frequency_hz = float(440.0 * (2.0 ** ((float(midi_value) - 69.0) / 12.0)))
+            event = {
+                "onset_sec": round(float(onset_value), 6),
+                "duration_sec": round(float(duration_value), 6),
+                "midi_pitch": round(float(midi_value), 3),
+                "note": note_name,
+                "frequency_hz": round(frequency_hz, 3),
+            }
+            note_events.append(event)
+            if note_name and note_name not in unique_notes:
+                unique_notes.append(note_name)
+        return {
+            "status": "success",
+            "deep_note_events": note_events,
+            "deep_notes": unique_notes[:24],
+            "deep_note_count": len(note_events),
+            "engines": ["essentia_melodia", "essentia_pitch_contour_segmentation"],
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+
+def run_polyphonic_note_backend(audio: Any, sr: int, note_backend: str) -> dict[str, Any]:
+    if note_backend != "basic_pitch":
+        return {"status": "skipped", "reason": "not_polyphonic_backend"}
+    try:
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        import soundfile as sf
+    except ModuleNotFoundError:
+        return {"status": "missing_backend", "error": "basic_pitch_not_installed", "error_code": "basic_pitch_not_installed"}
+    try:
+        sink = io.StringIO()
+        with redirect_stdout(sink), redirect_stderr(sink):
+            from basic_pitch.inference import predict
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", prefix="sample-key-indexer-basic-pitch-", delete=True) as handle:
+            sf.write(handle.name, audio, sr)
+            with redirect_stdout(sink), redirect_stderr(sink):
+                _, _, note_events = predict(handle.name)
+        parsed_events: list[dict[str, Any]] = []
+        unique_notes: list[str] = []
+        for onset_value, end_value, midi_value, confidence_value, pitch_bends in note_events:
+            note_name = midi_note_name(float(midi_value))
+            duration_value = max(0.0, float(end_value) - float(onset_value))
+            frequency_hz = float(440.0 * (2.0 ** ((float(midi_value) - 69.0) / 12.0)))
+            event = {
+                "onset_sec": round(float(onset_value), 6),
+                "duration_sec": round(duration_value, 6),
+                "midi_pitch": round(float(midi_value), 3),
+                "note": note_name,
+                "frequency_hz": round(frequency_hz, 3),
+                "confidence": round(float(confidence_value), 6),
+                "pitch_bends": int(len(pitch_bends or [])),
+            }
+            parsed_events.append(event)
+            if note_name and note_name not in unique_notes:
+                unique_notes.append(note_name)
+        return {
+            "status": "success",
+            "deep_note_events": parsed_events[:512],
+            "deep_notes": unique_notes[:48],
+            "deep_note_count": len(parsed_events),
+            "engines": ["basic_pitch"],
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+
+def run_deep_analysis_for_sample(path: Path, plan: dict[str, Any], sample_rate: int = 44100) -> dict[str, Any]:
+    try:
+        audio, sr = load_deep_analysis_audio(path, sample_rate=sample_rate)
+    except ModuleNotFoundError as exc:
+        return {"status": "error", "error": f"missing_backend:{exc}", "error_code": "backend_missing"}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+    combined: dict[str, Any] = {
+        "status": "success",
+        "engines": [],
+        "deep_note_backend_status": "skipped",
+        "deep_note_backend_error": None,
+        "deep_rhythm_status": "skipped",
+        "deep_rhythm_error": None,
+    }
+
+    tonal = run_essentia_deep_tonal_analysis(audio, sr)
+    if tonal.get("status") != "success":
+        return tonal
+    combined.update(tonal)
+    combined["engines"].extend(tonal.get("engines") or [])
+
+    if plan.get("category") == "Loops" or plan.get("route") in {"percussive", "percussive_pitched", "polyphonic_decay", "polyphonic_sustain"}:
+        rhythm = run_essentia_deep_rhythm_analysis(audio, sr)
+        combined["deep_rhythm_status"] = rhythm.get("status")
+        combined["deep_rhythm_error"] = rhythm.get("error")
+        if rhythm.get("status") == "success":
+            combined.update({key: value for key, value in rhythm.items() if key not in {"status", "engines"}})
+            combined["engines"].extend(rhythm.get("engines") or [])
+
+    note_backend = str(plan.get("note_backend") or "")
+    if note_backend == "essentia_pitch_contour":
+        notes = run_essentia_deep_mono_note_analysis(audio, sr)
+        combined["deep_note_backend_status"] = notes.get("status")
+        combined["deep_note_backend_error"] = notes.get("error")
+        if notes.get("status") == "success":
+            combined.update({key: value for key, value in notes.items() if key not in {"status", "engines"}})
+            combined["engines"].extend(notes.get("engines") or [])
+    elif note_backend == "basic_pitch":
+        notes = run_polyphonic_note_backend(audio, sr, note_backend)
+        combined["deep_note_backend_status"] = notes.get("status")
+        combined["deep_note_backend_error"] = notes.get("error")
+        if notes.get("status") == "success":
+            combined.update({key: value for key, value in notes.items() if key not in {"status", "engines"}})
+            combined["engines"].extend(notes.get("engines") or [])
+    else:
+        combined["deep_note_backend_status"] = "planned_only" if note_backend == "onset_pitch" else "skipped"
+
+    combined["engines"] = sorted({engine for engine in combined.get("engines") or [] if engine})
+    return combined
 
 
 def apply_deep_analysis_planning(
@@ -2600,7 +2781,7 @@ def run_deep_analysis_execution(
                         "path": str(playable_path),
                     })
                 continue
-            result = run_essentia_deep_tonal_analysis(playable_path)
+            result = run_deep_analysis_for_sample(playable_path, plan)
             report["processed"] += 1
             if result.get("status") != "success":
                 report["errors"] += 1
@@ -2621,6 +2802,7 @@ def run_deep_analysis_execution(
                     "status": "success",
                     "deep_key": result.get("deep_key"),
                     "deep_tuning_hz": result.get("deep_tuning_hz"),
+                    "deep_note_backend_status": result.get("deep_note_backend_status"),
                 })
             if dry_run:
                 continue
@@ -2648,6 +2830,18 @@ def run_deep_analysis_execution(
                 "deep_chords_scale": result.get("deep_chords_scale") if plan.get("should_detect_chords") else None,
                 "deep_chords_changes_rate": result.get("deep_chords_changes_rate") if plan.get("should_detect_chords") else None,
                 "deep_chords_number_rate": result.get("deep_chords_number_rate") if plan.get("should_detect_chords") else None,
+                "deep_bpm": result.get("deep_bpm"),
+                "deep_bpm_confidence": result.get("deep_bpm_confidence"),
+                "deep_ticks": result.get("deep_ticks") or [],
+                "deep_bpm_estimates": result.get("deep_bpm_estimates") or [],
+                "deep_bpm_intervals": result.get("deep_bpm_intervals") or [],
+                "deep_note_events": result.get("deep_note_events") or [],
+                "deep_notes": result.get("deep_notes") or [],
+                "deep_note_count": result.get("deep_note_count"),
+                "deep_note_backend_status": result.get("deep_note_backend_status"),
+                "deep_note_backend_error": result.get("deep_note_backend_error"),
+                "deep_rhythm_status": result.get("deep_rhythm_status"),
+                "deep_rhythm_error": result.get("deep_rhythm_error"),
             }
             record["analysis"] = analysis
             upsert_record(index, record)
