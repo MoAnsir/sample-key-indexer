@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import shutil
 import subprocess
 import tempfile
@@ -102,6 +103,7 @@ AUDIT_TYPE_TO_LOOP_TYPE = {
 DEEP_ANALYSIS_PERCUSSIVE_TYPES = {"Kick", "Snare", "Hat", "Perc", "DrumLoops"}
 DEEP_ANALYSIS_MONO_TYPES = {"Bass", "Leads", "Vocals", "VocalLoops", "BassLoops"}
 DEEP_ANALYSIS_POLYPHONIC_TYPES = {"Chords", "MelodyLoops", "FXLoops", "Pads", "Plucks"}
+DEEP_ANALYSIS_VERSION = 2
 
 
 def build_review_summary(records: list[dict[str, Any]], max_examples: int = 10, include_reviewed: bool = False) -> dict[str, Any]:
@@ -2426,6 +2428,55 @@ def _deep_analysis_route(sample: dict[str, Any], mode: str) -> dict[str, Any]:
     }
 
 
+def deep_analysis_signature(sample: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "library_id": sample.get("library_id"),
+        "relative_path": sample.get("relative_path"),
+        "size": sample.get("size"),
+        "mtime": sample.get("mtime"),
+        "duration": sample.get("duration"),
+        "format": sample.get("format"),
+    }
+
+
+def existing_deep_analysis(sample: dict[str, Any]) -> dict[str, Any]:
+    structured = sample.get("structured") or {}
+    analysis = structured.get("analysis") if isinstance(structured, dict) else None
+    deep = analysis.get("deep_analysis") if isinstance(analysis, dict) else None
+    return deep if isinstance(deep, dict) else {}
+
+
+def deep_analysis_is_current(sample: dict[str, Any], plan: dict[str, Any], *, mode: str, scope: str) -> bool:
+    existing = existing_deep_analysis(sample)
+    if not existing or existing.get("status") != "success":
+        return False
+    if int(existing.get("version") or 0) != DEEP_ANALYSIS_VERSION:
+        return False
+    if existing.get("signature") != deep_analysis_signature(sample):
+        return False
+    comparable_keys = (
+        "route",
+        "tonal_backend",
+        "note_backend",
+        "chord_backend",
+        "timing_backend",
+        "tuning_backend",
+        "should_transcribe_notes",
+        "should_detect_chords",
+        "should_detect_tuning",
+        "sample_type",
+        "category",
+    )
+    for key in comparable_keys:
+        if existing.get(key) != plan.get(key):
+            return False
+    if existing.get("mode") != mode:
+        return False
+    if existing.get("scope") != scope:
+        return False
+    return True
+
+
 def load_deep_analysis_audio(path: Path, sample_rate: int = 44100) -> tuple[Any, int]:
     try:
         import librosa
@@ -2595,12 +2646,12 @@ def run_librosa_percussive_pitched_note_analysis(audio: Any, sr: int) -> dict[st
         harmonic, _ = librosa.effects.hpss(audio)
         f0, voiced_flag, voiced_prob = librosa.pyin(
             harmonic,
-            fmin=librosa.note_to_hz("C2"),
-            fmax=librosa.note_to_hz("C7"),
+            fmin=65.406391,
+            fmax=2093.004522,
             sr=sr,
         )
         times = librosa.times_like(f0, sr=sr)
-        midi_values = librosa.hz_to_midi(f0)
+        midi_values = 69.0 + 12.0 * np.log2(f0 / 440.0)
         note_events: list[dict[str, Any]] = []
         unique_notes: list[str] = []
         start_idx: int | None = None
@@ -2617,7 +2668,7 @@ def run_librosa_percussive_pitched_note_analysis(audio: Any, sr: int) -> dict[st
             onset_sec = float(times[start_idx])
             duration_sec = float(times[end_idx - 1] - times[start_idx]) if end_idx - 1 > start_idx else float(1.0 / max(1, sr))
             note_name = midi_note_name(current_pitch)
-            frequency_hz = float(librosa.midi_to_hz(current_pitch))
+            frequency_hz = float(440.0 * math.pow(2.0, (float(current_pitch) - 69.0) / 12.0))
             confidence = float(sum(confidence_values) / max(1, len(confidence_values))) if confidence_values else 0.0
             event = {
                 "onset_sec": round(onset_sec, 6),
@@ -2899,11 +2950,12 @@ def apply_deep_analysis_planning(
                 continue
             analysis = dict(record.get("analysis") or {})
             analysis["deep_analysis"] = {
-                "version": 1,
+                "version": DEEP_ANALYSIS_VERSION,
                 "status": "planned",
                 "mode": mode,
                 "scope": scope,
                 "planned_at": datetime.now(timezone.utc).isoformat(),
+                "signature": deep_analysis_signature(sample),
                 **plan,
             }
             record["analysis"] = analysis
@@ -2954,6 +3006,7 @@ def run_deep_analysis_execution(
         "selected": len(selected),
         "processed": 0,
         "updated": 0,
+        "skipped_up_to_date": 0,
         "missing_audio": 0,
         "errors": 0,
         "dry_run": dry_run,
@@ -2968,6 +3021,16 @@ def run_deep_analysis_execution(
         for sample in selected:
             plan = _deep_analysis_route(sample, mode)
             route_counts[plan["route"]] += 1
+            if deep_analysis_is_current(sample, plan, mode=mode, scope=scope):
+                report["skipped_up_to_date"] += 1
+                if len(report["examples"]) < max_examples:
+                    report["examples"].append({
+                        "name": sample.get("name"),
+                        "route": plan["route"],
+                        "status": "skipped_up_to_date",
+                        "path": sample.get("relative_path") or sample.get("file_path"),
+                    })
+                continue
             playable_path = Path(_playable_path(sample, library_roots, destination_roots))
             if not playable_path.exists():
                 report["missing_audio"] += 1
@@ -3011,11 +3074,12 @@ def run_deep_analysis_execution(
             analysis["deep_analysis"] = {
                 **(analysis.get("deep_analysis") or {}),
                 **plan,
-                "version": 1,
+                "version": DEEP_ANALYSIS_VERSION,
                 "status": "success",
                 "mode": mode,
                 "scope": scope,
                 "processed_at": datetime.now(timezone.utc).isoformat(),
+                "signature": deep_analysis_signature(sample),
                 "engines": result.get("engines") or [],
                 "deep_key": result.get("deep_key"),
                 "deep_root": result.get("deep_root"),
@@ -3095,6 +3159,7 @@ def format_deep_analysis_execution_report(report: dict[str, Any]) -> str:
         f"  Scope: {report['scope']}",
         f"  Mode: {report['mode']}",
         f"  Selected: {report['selected']} files",
+        f"  Skipped up-to-date: {report['skipped_up_to_date']} files",
         f"  Processed: {report['processed']} files",
         f"  Updated: {report['updated']} files" if not report.get("dry_run") else f"  Would update: {report['processed']} files",
         f"  Missing audio: {report['missing_audio']} files",
@@ -3114,6 +3179,10 @@ def format_deep_analysis_execution_report(report: dict[str, Any]) -> str:
             if item.get("status") == "success":
                 lines.append(
                     f"    - {item.get('name')} | {item.get('route')} | key {item.get('deep_key')} | tuning {item.get('deep_tuning_hz')}"
+                )
+            elif item.get("status") == "skipped_up_to_date":
+                lines.append(
+                    f"    - {item.get('name')} | {item.get('route')} | skipped_up_to_date | {item.get('path')}"
                 )
             else:
                 lines.append(

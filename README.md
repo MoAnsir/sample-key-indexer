@@ -43,13 +43,13 @@ Kitchen sink (one command): index + KeyFinder enrich (resumable KeyFinder by def
 sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry --keyfinder-workers 8
 ```
 
-Kitchen sink can also run the routed V4 deep-analysis pass after KeyFinder. It stores per-sample deep metadata under `analysis.deep_analysis`, including tonal/tuning, loop BPM/ticks, and note events where the route/backend supports them:
+Kitchen sink can also run the routed V4 deep-analysis pass after KeyFinder. It stores per-sample deep metadata under `analysis.deep_analysis`, including tonal/tuning, loop BPM/ticks, and note events where the route/backend supports them. Deep analysis now skips samples that already have a successful result for the same file signature and routed backend plan, so reruns are resumable instead of recomputing everything:
 
 ```bash
 sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry --keyfinder-workers 8 --deep-analysis smart --deep-analysis-scope musical
 ```
 
-You can now run the first real V4 deep-analysis execution pass directly against an index. It stores routed deep metadata under `analysis.deep_analysis`, including Essentia tonal+tuning, Essentia loop BPM/ticks, Essentia monophonic note events, and Basic Pitch note events for polyphonic routes:
+You can now run the first real V4 deep-analysis execution pass directly against an index. It stores routed deep metadata under `analysis.deep_analysis`, including Essentia tonal+tuning, Essentia loop BPM/ticks, Essentia monophonic note events, and Basic Pitch note events for polyphonic routes. Re-running the same command will skip up-to-date samples automatically when the stored deep-analysis signature still matches the file metadata and route plan:
 
 ```bash
 sample-key-indexer-review /path/to/SampleIndexes/LIBRARY_ID/metadata_index.sqlite \

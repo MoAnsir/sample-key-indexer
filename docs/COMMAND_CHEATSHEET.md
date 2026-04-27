@@ -130,7 +130,7 @@ KeyFinder is resumable by default in kitchen sink (`--keyfinder-scope missing`).
 sample-key-indexer-kitchen-sink /path/to/source /path/to/output --keyfinder-scope all --keyfinder-force
 ```
 
-Run V4 deep analysis during kitchen sink (stores routed deep-analysis metadata in the index, including tonal/tuning, loop BPM/ticks, mono note events, and polyphonic note events where supported):
+Run V4 deep analysis during kitchen sink (stores routed deep-analysis metadata in the index, including tonal/tuning, loop BPM/ticks, mono note events, and polyphonic note events where supported; reruns skip up-to-date samples automatically):
 
 ```bash
 sample-key-indexer-kitchen-sink /path/to/source /path/to/output \
@@ -150,7 +150,7 @@ sample-key-indexer-review /path/to/metadata_index.sqlite \
   --deep-analysis-json /tmp/deep_analysis_plan.json
 ```
 
-Run the first real deep-analysis execution pass (stores routed deep metadata under `analysis.deep_analysis`, including tonal/tuning, loop BPM/ticks, mono note events, and polyphonic note events when the route uses Basic Pitch):
+Run the first real deep-analysis execution pass (stores routed deep metadata under `analysis.deep_analysis`, including tonal/tuning, loop BPM/ticks, mono note events, and polyphonic note events when the route uses Basic Pitch; reruns skip up-to-date samples automatically):
 
 ```bash
 sample-key-indexer-review /path/to/metadata_index.sqlite \

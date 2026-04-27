@@ -253,6 +253,15 @@ The current V4 slice now also computes a routed `deep_analysis_confidence` with 
 - `percussive` routes get onset-grid style timing metadata
 - `percussive_pitched` routes attempt lightweight pitched-note extraction plus onset timing
 
+Deep analysis reruns now skip samples that already have:
+
+- `analysis.deep_analysis.status == success`
+- the current `DEEP_ANALYSIS_VERSION`
+- a matching stored `signature`
+- a matching routed backend plan
+
+This makes the kitchen sink deep-analysis phase resumable instead of reprocessing unchanged samples on every rerun.
+
 ## Major Features
 
 ### Discovery And Supported Files
