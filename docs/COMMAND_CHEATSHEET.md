@@ -150,6 +150,17 @@ sample-key-indexer-review /path/to/metadata_index.sqlite \
   --deep-analysis-json /tmp/deep_analysis_plan.json
 ```
 
+Run the first real deep-analysis execution pass (currently Essentia tonal + tuning, stored under `analysis.deep_analysis`):
+
+```bash
+sample-key-indexer-review /path/to/metadata_index.sqlite \
+  --deep-analysis-run \
+  --deep-analysis-mode smart \
+  --deep-analysis-scope musical \
+  --library-root LIBRARY_ID=/mounted/source/root \
+  --deep-analysis-json /tmp/deep_analysis_run.json
+```
+
 Two-step fallback (same behavior):
 
 ```bash

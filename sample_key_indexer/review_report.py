@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sample_key_indexer.audio_analysis import analyze_file, normalize_engines
+from sample_key_indexer.audio_analysis import NOTE_NAMES, _normalise_key_name, analyze_file, normalize_engines
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.web_app import _flatten_sample, _playback_info, _playable_path, parse_library_roots
 
@@ -2425,6 +2425,62 @@ def _deep_analysis_route(sample: dict[str, Any], mode: str) -> dict[str, Any]:
     }
 
 
+def run_essentia_deep_tonal_analysis(path: Path, sample_rate: int = 44100) -> dict[str, Any]:
+    try:
+        import librosa
+        import numpy as np
+        from essentia.standard import KeyExtractor, TonalExtractor, TuningFrequencyExtractor
+    except ModuleNotFoundError as exc:
+        return {"status": "error", "error": f"missing_backend:{exc}", "error_code": "backend_missing"}
+    try:
+        y, sr = librosa.load(path, sr=sample_rate, mono=True)
+        audio = np.asarray(y, dtype="float32")
+        key, scale, strength = KeyExtractor(sampleRate=sr)(audio)
+        tonal_outputs = TonalExtractor().outputNames()
+        tonal_values = TonalExtractor()(audio)
+        tonal = dict(zip(tonal_outputs, tonal_values, strict=True))
+        tuning_values = np.asarray(TuningFrequencyExtractor()(audio), dtype="float32")
+        tuning_finite = tuning_values[np.isfinite(tuning_values)]
+        tuning_hz = float(np.median(tuning_finite)) if tuning_finite.size else None
+
+        tonal_key = str(tonal.get("key_key") or "")
+        tonal_scale = str(tonal.get("key_scale") or "")
+        tonal_strength = tonal.get("key_strength")
+        normalized_key = _normalise_key_name(tonal_key, tonal_scale) or _normalise_key_name(key, scale)
+        root_note = tonal_key if tonal_key in NOTE_NAMES else (key if key in NOTE_NAMES else None)
+
+        raw_chords = tonal.get("chords_progression")
+        raw_strengths = tonal.get("chords_strength")
+        raw_hpcp = tonal.get("hpcp")
+        chords = [str(item) for item in raw_chords[:32]]
+        chord_strengths = [round(float(item), 4) for item in list(raw_strengths[:32])] if raw_strengths is not None else []
+        hpcp = []
+        if raw_hpcp is not None:
+            hpcp_array = np.asarray(raw_hpcp, dtype="float32")
+            if hpcp_array.ndim == 1:
+                hpcp = [round(float(item), 6) for item in hpcp_array[:36]]
+            elif hpcp_array.ndim >= 2:
+                hpcp_mean = np.mean(hpcp_array, axis=0)
+                hpcp = [round(float(item), 6) for item in hpcp_mean[:36]]
+        return {
+            "status": "success",
+            "deep_key": normalized_key,
+            "deep_root": root_note,
+            "deep_key_confidence": round(float(tonal_strength if tonal_strength is not None else strength), 3),
+            "deep_chords": chords,
+            "deep_chord_strengths": chord_strengths,
+            "deep_hpcp": hpcp,
+            "deep_tuning_hz": round(float(tuning_hz), 4) if tuning_hz is not None else None,
+            "deep_chords_key": str(tonal.get("chords_key") or "") or None,
+            "deep_chords_scale": str(tonal.get("chords_scale") or "") or None,
+            "deep_chords_changes_rate": round(float(tonal.get("chords_changes_rate") or 0.0), 6),
+            "deep_chords_number_rate": round(float(tonal.get("chords_number_rate") or 0.0), 6),
+            "engines": ["essentia_tonal", "essentia_tuning"],
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "error_code": type(exc).__name__}
+
+
 def apply_deep_analysis_planning(
     index_path: Path,
     records: list[dict[str, Any]],
@@ -2495,6 +2551,121 @@ def apply_deep_analysis_planning(
     }
 
 
+def run_deep_analysis_execution(
+    index_path: Path,
+    records: list[dict[str, Any]],
+    *,
+    library_roots: dict[str, Path] | None,
+    destination_roots: dict[str, Path] | None,
+    scope: str,
+    mode: str,
+    limit: int,
+    dry_run: bool,
+    write_every: int,
+    export_json: bool,
+    max_examples: int,
+) -> dict[str, Any]:
+    samples = [_flatten_sample(record) for record in records]
+    selected = [sample for sample in samples if _deep_analysis_scope_matches(sample, scope, mode)]
+    if limit > 0:
+        selected = selected[:limit]
+    report: dict[str, Any] = {
+        "scope": scope,
+        "mode": mode,
+        "selected": len(selected),
+        "processed": 0,
+        "updated": 0,
+        "missing_audio": 0,
+        "errors": 0,
+        "dry_run": dry_run,
+        "route_counts": [],
+        "error_codes": [],
+        "examples": [],
+    }
+    route_counts = Counter()
+    error_codes = Counter()
+    index = None if dry_run else open_writable_index(index_path)
+    try:
+        for sample in selected:
+            plan = _deep_analysis_route(sample, mode)
+            route_counts[plan["route"]] += 1
+            playable_path = Path(_playable_path(sample, library_roots, destination_roots))
+            if not playable_path.exists():
+                report["missing_audio"] += 1
+                if len(report["examples"]) < max_examples:
+                    report["examples"].append({
+                        "name": sample.get("name"),
+                        "route": plan["route"],
+                        "status": "missing_audio",
+                        "path": str(playable_path),
+                    })
+                continue
+            result = run_essentia_deep_tonal_analysis(playable_path)
+            report["processed"] += 1
+            if result.get("status") != "success":
+                report["errors"] += 1
+                error_codes[str(result.get("error_code") or "error")] += 1
+                if len(report["examples"]) < max_examples:
+                    report["examples"].append({
+                        "name": sample.get("name"),
+                        "route": plan["route"],
+                        "status": "error",
+                        "error": result.get("error"),
+                        "path": str(playable_path),
+                    })
+                continue
+            if len(report["examples"]) < max_examples:
+                report["examples"].append({
+                    "name": sample.get("name"),
+                    "route": plan["route"],
+                    "status": "success",
+                    "deep_key": result.get("deep_key"),
+                    "deep_tuning_hz": result.get("deep_tuning_hz"),
+                })
+            if dry_run:
+                continue
+            record = dict(sample.get("structured") or {})
+            if not record:
+                continue
+            analysis = dict(record.get("analysis") or {})
+            analysis["deep_analysis"] = {
+                **(analysis.get("deep_analysis") or {}),
+                **plan,
+                "version": 1,
+                "status": "success",
+                "mode": mode,
+                "scope": scope,
+                "processed_at": datetime.now(timezone.utc).isoformat(),
+                "engines": result.get("engines") or [],
+                "deep_key": result.get("deep_key"),
+                "deep_root": result.get("deep_root"),
+                "deep_key_confidence": result.get("deep_key_confidence"),
+                "deep_chords": (result.get("deep_chords") or []) if plan.get("should_detect_chords") else [],
+                "deep_chord_strengths": (result.get("deep_chord_strengths") or []) if plan.get("should_detect_chords") else [],
+                "deep_hpcp": result.get("deep_hpcp") or [],
+                "deep_tuning_hz": result.get("deep_tuning_hz") if plan.get("should_detect_tuning") else None,
+                "deep_chords_key": result.get("deep_chords_key") if plan.get("should_detect_chords") else None,
+                "deep_chords_scale": result.get("deep_chords_scale") if plan.get("should_detect_chords") else None,
+                "deep_chords_changes_rate": result.get("deep_chords_changes_rate") if plan.get("should_detect_chords") else None,
+                "deep_chords_number_rate": result.get("deep_chords_number_rate") if plan.get("should_detect_chords") else None,
+            }
+            record["analysis"] = analysis
+            upsert_record(index, record)
+            report["updated"] += 1
+            if report["updated"] % max(1, int(write_every)) == 0 and hasattr(index, "write"):
+                index.write()
+        if not dry_run and hasattr(index, "write"):
+            index.write()
+        if not dry_run and export_json and isinstance(index, SQLiteMetadataIndex):
+            index.export_json(index_path.with_suffix(".json"))
+    finally:
+        if index is not None:
+            close_index(index)
+    report["route_counts"] = [{"route": route, "count": count} for route, count in route_counts.most_common()]
+    report["error_codes"] = [{"error_code": code, "count": count} for code, count in error_codes.most_common()]
+    return report
+
+
 def format_deep_analysis_report(report: dict[str, Any]) -> str:
     lines = [
         "Deep analysis planning:",
@@ -2520,6 +2691,39 @@ def format_deep_analysis_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_deep_analysis_execution_report(report: dict[str, Any]) -> str:
+    lines = [
+        "Deep analysis run:",
+        f"  Scope: {report['scope']}",
+        f"  Mode: {report['mode']}",
+        f"  Selected: {report['selected']} files",
+        f"  Processed: {report['processed']} files",
+        f"  Updated: {report['updated']} files" if not report.get("dry_run") else f"  Would update: {report['processed']} files",
+        f"  Missing audio: {report['missing_audio']} files",
+        f"  Errors: {report['errors']} files",
+    ]
+    if report.get("route_counts"):
+        lines.append("  Routes:")
+        for item in report["route_counts"][:10]:
+            lines.append(f"    - {item['route']}: {item['count']}")
+    if report.get("error_codes"):
+        lines.append("  Error codes:")
+        for item in report["error_codes"][:10]:
+            lines.append(f"    - {item['error_code']}: {item['count']}")
+    if report.get("examples"):
+        lines.append("  Examples:")
+        for item in report["examples"][:5]:
+            if item.get("status") == "success":
+                lines.append(
+                    f"    - {item.get('name')} | {item.get('route')} | key {item.get('deep_key')} | tuning {item.get('deep_tuning_hz')}"
+                )
+            else:
+                lines.append(
+                    f"    - {item.get('name')} | {item.get('route')} | {item.get('status')} | {item.get('error') or item.get('path')}"
+                )
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Summarize samples that need review from a metadata index.")
     parser.add_argument("index_path", type=Path, help="Path to metadata_index.json or metadata_index.sqlite.")
@@ -2539,6 +2743,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--catalog-health", action="store_true", help="Print playable vs missing summary for one or more libraries (requires mounted roots via --library-root/--destination-root).")
     parser.add_argument("--catalog-health-json", type=Path, default=None, help="Write the catalog health report to JSON.")
     parser.add_argument("--deep-analysis-plan", action="store_true", help="Plan Melodyne-style deep-analysis routing and store it under analysis.deep_analysis.")
+    parser.add_argument("--deep-analysis-run", action="store_true", help="Run the first deep-analysis execution pass (Essentia tonal + tuning) and store results under analysis.deep_analysis.")
     parser.add_argument("--deep-analysis-scope", choices=("missing", "review", "musical", "all"), default="missing", help="Which samples to include in deep-analysis planning.")
     parser.add_argument("--deep-analysis-mode", choices=("smart", "force-all"), default="smart", help="Planning mode for deep analysis. smart routes musical samples conservatively; force-all plans deeper work for everything.")
     parser.add_argument("--deep-analysis-json", type=Path, default=None, help="Write the deep-analysis planning report to JSON.")
@@ -2669,6 +2874,32 @@ def main(argv: list[str] | None = None) -> int:
             max_examples=max(0, int(args.examples)),
         )
         print(format_deep_analysis_report(report))
+        if args.deep_analysis_json:
+            report_path = args.deep_analysis_json.expanduser().resolve()
+            write_deep_analysis_report(report, report_path)
+            print(f"Deep analysis JSON: {report_path}")
+        return 0
+    if args.deep_analysis_run:
+        try:
+            library_roots = parse_library_roots(args.library_root)
+            destination_roots = parse_library_roots(args.destination_root, option_name="--destination-root")
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        report = run_deep_analysis_execution(
+            index_path,
+            records,
+            library_roots=library_roots,
+            destination_roots=destination_roots,
+            scope=str(args.deep_analysis_scope),
+            mode=str(args.deep_analysis_mode),
+            limit=int(args.limit),
+            dry_run=bool(args.dry_run),
+            write_every=int(args.write_every),
+            export_json=not bool(args.no_json_export),
+            max_examples=max(0, int(args.examples)),
+        )
+        print(format_deep_analysis_execution_report(report))
         if args.deep_analysis_json:
             report_path = args.deep_analysis_json.expanduser().resolve()
             write_deep_analysis_report(report, report_path)

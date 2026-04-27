@@ -49,6 +49,17 @@ Kitchen sink can also write a first-pass deep-analysis plan into the index. This
 sample-key-indexer-kitchen-sink /path/to/SampleLibrary /path/to/SampleIndexes/LIBRARY_ID --keyfinder-convert-retry --keyfinder-workers 8 --deep-analysis smart --deep-analysis-scope musical
 ```
 
+You can now run the first real V4 deep-analysis execution pass directly against an index. This currently stores Essentia tonal + tuning metadata under `analysis.deep_analysis`:
+
+```bash
+sample-key-indexer-review /path/to/SampleIndexes/LIBRARY_ID/metadata_index.sqlite \
+  --deep-analysis-run \
+  --deep-analysis-mode smart \
+  --deep-analysis-scope musical \
+  --library-root LIBRARY_ID=/mounted/source/root \
+  --deep-analysis-json /tmp/LIBRARY_ID_deep_analysis_run.json
+```
+
 Sanitize a source library in place before scanning. This scans first, prints a removable-file report, then prompts for `quarantine`, `delete`, or `cancel`. It removes unsupported files, pack baggage (ReadMe/docs/artwork), Mac artifacts, `fullmix`/`musicloop` mixes, and long demo files (`demo*` in the filename with duration > 60s; tune with `--demo-min-seconds`):
 
 ```bash
