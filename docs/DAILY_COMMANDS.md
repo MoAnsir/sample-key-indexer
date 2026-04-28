@@ -3,7 +3,7 @@
 Run these from the project folder:
 
 ```bash
-cd /Users/mohammedansir/DEV/Projects/sample-key-indexer
+cd /Users/mohammedansir/DEV/Projects/SampleApp/sample-key-indexer
 ```
 
 If the commands are missing after code changes:
@@ -58,6 +58,26 @@ If port `8765` is busy, stop the old server with `Ctrl-C`, or use:
 ```bash
 sample-key-indexer-web INDEX.sqlite --port 8766
 ```
+
+LAN-only (secure) so you can open the browser from another device on your local network.
+
+1. Pick a strong random token (example):
+
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(24))'
+```
+
+2. Run the server bound to your LAN IP, locked to one client IP + token:
+
+```bash
+sample-key-indexer-web \
+  /Users/mohammedansir/Desktop/SampleIndexes/LIBRARY_ID/metadata_index.sqlite \
+  --host 0.0.0.0 \
+  --allow-ip 192.168.1.50 \
+  --auth-token "PASTE_TOKEN_HERE"
+```
+
+Then open `http://YOUR_MAC_LAN_IP:8765/?token=PASTE_TOKEN_HERE` from that device.
 
 ## Analyse Samples On The Mac
 

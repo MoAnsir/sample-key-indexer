@@ -35,6 +35,19 @@ Run the test suite:
 python3 -B -m unittest discover -s tests
 ```
 
+## Web Browser (LAN Only)
+
+Default is loopback-only (`127.0.0.1`). If you want to open the browser from another device on your local network, bind to `0.0.0.0` and lock it down:
+
+```bash
+sample-key-indexer-web /path/to/metadata_index.sqlite \
+  --host 0.0.0.0 \
+  --allow-ip 192.168.1.50 \
+  --auth-token "PASTE_TOKEN_HERE"
+```
+
+Then open `http://YOUR_MAC_LAN_IP:8765/?token=PASTE_TOKEN_HERE` on that device.
+
 ## Catalog Health
 
 When a USB/SD is not mounted, you can still browse metadata, but playback will be missing. To quantify this per library, run:

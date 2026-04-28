@@ -7,7 +7,7 @@ For durable project context, architecture notes, workflows, branch state, and AI
 ## Install
 
 ```bash
-cd /Users/mohammedansir/DEV/Projects/sample-key-indexer
+cd /Users/mohammedansir/DEV/Projects/SampleApp/sample-key-indexer
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .

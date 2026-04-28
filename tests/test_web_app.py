@@ -5,7 +5,16 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from sample_key_indexer.models import AnalysisResult
-from sample_key_indexer.web_app import _flatten_sample, _playable_path, _with_playback_info, organized_relative_path, parse_library_roots, summarize_by_type, summarize_libraries
+from sample_key_indexer.web_app import (
+    _flatten_sample,
+    _playable_path,
+    _with_playback_info,
+    organized_relative_path,
+    parse_allowed_networks,
+    parse_library_roots,
+    summarize_by_type,
+    summarize_libraries,
+)
 
 
 class WebAppTests(unittest.TestCase):
@@ -179,6 +188,16 @@ class WebAppTests(unittest.TestCase):
     def test_parse_destination_roots_uses_option_name_in_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "--destination-root"):
             parse_library_roots(["/Volumes/USB_01/SAMPLEZ"], option_name="--destination-root")
+
+    def test_parse_allowed_networks_accepts_ips_and_cidrs(self) -> None:
+        allowed = parse_allowed_networks(["192.168.1.10", "2001:db8::1"], ["10.0.0.0/8", "2001:db8::/32"])
+        self.assertEqual(len(allowed), 4)
+
+    def test_parse_allowed_networks_rejects_bad_values(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid --allow-ip"):
+            parse_allowed_networks(["not-an-ip"], [])
+        with self.assertRaisesRegex(ValueError, "Invalid --allow-cidr"):
+            parse_allowed_networks([], ["not-a-cidr"])
 
 
 if __name__ == "__main__":

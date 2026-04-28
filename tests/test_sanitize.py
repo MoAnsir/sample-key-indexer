@@ -40,12 +40,25 @@ class SanitizeTests(unittest.TestCase):
             musicloop = root / "Pack" / "artist_music-loop_demo.wav"
             musicloop.write_bytes(b"123")
 
-            unsupported_item = classify_sanitize_item(root, unsupported, unsupported.stat().st_size)
-            readme_item = classify_sanitize_item(root, readme, readme.stat().st_size)
-            artwork_item = classify_sanitize_item(root, artwork, artwork.stat().st_size)
-            ds_store_item = classify_sanitize_item(root, ds_store, ds_store.stat().st_size)
-            fullmix_item = classify_sanitize_item(root, fullmix, fullmix.stat().st_size)
-            musicloop_item = classify_sanitize_item(root, musicloop, musicloop.stat().st_size)
+            unsupported_item, unsupported_probe = classify_sanitize_item(root, unsupported, unsupported.stat().st_size)
+            readme_item, readme_probe = classify_sanitize_item(root, readme, readme.stat().st_size)
+            artwork_item, artwork_probe = classify_sanitize_item(root, artwork, artwork.stat().st_size)
+            ds_store_item, ds_store_probe = classify_sanitize_item(root, ds_store, ds_store.stat().st_size)
+            fullmix_item, fullmix_probe = classify_sanitize_item(root, fullmix, fullmix.stat().st_size)
+            musicloop_item, musicloop_probe = classify_sanitize_item(root, musicloop, musicloop.stat().st_size)
+
+        self.assertIsNotNone(unsupported_item)
+        self.assertIsNone(unsupported_probe)
+        self.assertIsNotNone(readme_item)
+        self.assertIsNone(readme_probe)
+        self.assertIsNotNone(artwork_item)
+        self.assertIsNone(artwork_probe)
+        self.assertIsNotNone(ds_store_item)
+        self.assertIsNone(ds_store_probe)
+        self.assertIsNotNone(fullmix_item)
+        self.assertIsNone(fullmix_probe)
+        self.assertIsNotNone(musicloop_item)
+        self.assertIsNone(musicloop_probe)
 
         self.assertEqual(unsupported_item.reason, "unsupported_file")
         self.assertEqual(readme_item.reason, "pack_baggage")
@@ -61,14 +74,17 @@ class SanitizeTests(unittest.TestCase):
             demo.parent.mkdir()
             demo.write_bytes(b"not real audio")
 
-            with patch("sample_key_indexer.sanitize.ffprobe_duration_seconds", return_value=61.0):
-                item = classify_sanitize_item(root, demo, demo.stat().st_size, demo_min_seconds=60.0)
-            self.assertIsNotNone(item)
-            self.assertEqual(item.reason, "demo_long_audio")
+            with patch("sample_key_indexer.sanitize.ffprobe_audio_info", return_value=(61.0, True)):
+                scan = scan_sanitization_candidates(root, demo_min_seconds=60.0)
+            reasons = {item.reason for item in scan["items"]}
+            self.assertIn("demo_long_audio", reasons)
 
-            with patch("sample_key_indexer.sanitize.ffprobe_duration_seconds", return_value=59.0):
-                item2 = classify_sanitize_item(root, demo, demo.stat().st_size, demo_min_seconds=60.0)
-            self.assertIsNone(item2)
+            with patch("sample_key_indexer.sanitize.ffprobe_audio_info", return_value=(59.0, True)):
+                scan2 = scan_sanitization_candidates(root, demo_min_seconds=60.0)
+            reasons2 = {item.reason for item in scan2["items"]}
+            self.assertNotIn("demo_long_audio", reasons2)
+            suspicious = {item["match"] for item in scan2.get("suspicious_by_match", [])}
+            self.assertIn("demo_kept_short_or_unknown", suspicious)
 
     def test_classify_sanitize_item_can_flag_unopenable_audio_when_enabled(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -77,11 +93,10 @@ class SanitizeTests(unittest.TestCase):
             wav.parent.mkdir()
             wav.write_bytes(b"not audio")
 
-            with patch("sample_key_indexer.sanitize.ffprobe_audio_openable", return_value=False):
-                item = classify_sanitize_item(root, wav, wav.stat().st_size, remove_unopenable_audio=True)
-
-            self.assertIsNotNone(item)
-            self.assertEqual(item.reason, "unopenable_audio")
+            with patch("sample_key_indexer.sanitize.ffprobe_audio_info", return_value=(None, False)):
+                scan = scan_sanitization_candidates(root, remove_unopenable_audio=True)
+            reasons = {item.reason for item in scan["items"]}
+            self.assertIn("unopenable_audio", reasons)
 
     def test_scan_sanitization_candidates_summarizes_files(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -123,7 +138,8 @@ class SanitizeTests(unittest.TestCase):
             root = Path(tmp)
             path = root / "bad.mid"
             path.write_bytes(b"midi")
-            item = classify_sanitize_item(root, path, path.stat().st_size)
+            item, _ = classify_sanitize_item(root, path, path.stat().st_size)
+            self.assertIsNotNone(item)
 
             deleted = delete_items([item])
 

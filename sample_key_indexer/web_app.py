@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import mimetypes
 import os
@@ -102,6 +103,9 @@ def build_app(
     index_paths: Path | list[Path],
     library_roots: dict[str, Path] | None = None,
     destination_roots: dict[str, Path] | None = None,
+    *,
+    allowed_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] | None = None,
+    auth_token: str | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     paths = [index_paths] if isinstance(index_paths, Path) else index_paths
     # We keep all samples server-side so we can serve per-library subsets without blowing up the browser
@@ -117,12 +121,53 @@ def build_app(
     all_libraries = summarize_libraries(samples)
     library_stats = {lib["id"]: summarize_by_type(samples_by_library_id.get(lib["id"], [])) for lib in all_libraries}
     mutation_lock = threading.Lock()
+    allowed = list(allowed_networks or [])
+    expected_token = (auth_token or "").strip() or None
 
     class SampleBrowserHandler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
             return
 
+        def _client_ip(self) -> str:
+            try:
+                return str(self.client_address[0])
+            except Exception:
+                return ""
+
+        def _authorized(self) -> bool:
+            if allowed:
+                try:
+                    addr = ipaddress.ip_address(self._client_ip())
+                except ValueError:
+                    return False
+                if not any(addr in network for network in allowed):
+                    return False
+
+            if expected_token:
+                token = self.headers.get("X-SKI-Token")
+                if not token:
+                    parsed = urlparse(self.path)
+                    params = parse_qs(parsed.query)
+                    token = (params.get("token") or [""])[0]
+                if (token or "").strip() != expected_token:
+                    return False
+
+            return True
+
+        def _reject_unauthorized(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path.startswith("/api/"):
+                self._send_json({"error": "forbidden"}, status=HTTPStatus.FORBIDDEN)
+                return
+            self.send_response(HTTPStatus.FORBIDDEN)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Forbidden")
+
         def do_GET(self) -> None:
+            if not self._authorized():
+                self._reject_unauthorized()
+                return
             parsed = urlparse(self.path)
             if parsed.path in {"/", "/index.html"}:
                 self._send_static("index.html")
@@ -184,15 +229,18 @@ def build_app(
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
         def do_POST(self) -> None:
+            if not self._authorized():
+                self._reject_unauthorized()
+                return
             parsed = urlparse(self.path)
             if parsed.path == "/api/review":
                 self._handle_review_mutation()
                 return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
-        def _send_json(self, payload: dict) -> None:
+        def _send_json(self, payload: dict, *, status: HTTPStatus = HTTPStatus.OK) -> None:
             body = json.dumps(payload).encode("utf-8")
-            self.send_response(HTTPStatus.OK)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -515,7 +563,46 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--destination-root", action="append", default=[], help="Organized Key/Unsorted root override as LIBRARY_ID=/Volumes/USB/SAMPLEZ. Can be passed more than once.")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
+    parser.add_argument("--allow-ip", action="append", default=[], help="Restrict access to a specific client IP (repeatable).")
+    parser.add_argument("--allow-cidr", action="append", default=[], help="Restrict access to client IP ranges like 192.168.1.0/24 (repeatable).")
+    parser.add_argument("--auth-token", default="", help="If set, require X-SKI-Token header or ?token=... on every request.")
     return parser
+
+
+def parse_allowed_networks(
+    allow_ip: list[str] | None,
+    allow_cidr: list[str] | None,
+) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    allowed_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+
+    for value in list(allow_ip or []):
+        value = str(value).strip()
+        if not value:
+            continue
+        try:
+            ip = ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid --allow-ip: {value}") from exc
+        prefix = 32 if ip.version == 4 else 128
+        network = ipaddress.ip_network(f"{ip}/{prefix}", strict=False)
+        allowed_networks.append(network)
+
+    for value in list(allow_cidr or []):
+        value = str(value).strip()
+        if not value:
+            continue
+        try:
+            network = ipaddress.ip_network(value, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"Invalid --allow-cidr: {value}") from exc
+        allowed_networks.append(network)
+
+    return allowed_networks
+
+
+def is_loopback_host(host: str) -> bool:
+    bind_ip = str(host or "").strip()
+    return bind_ip in {"127.0.0.1", "::1", "localhost"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -532,7 +619,27 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(str(exc))
         return 2
-    handler = build_app(index_paths, library_roots, destination_roots)
+
+    try:
+        allowed_networks = parse_allowed_networks(args.allow_ip, args.allow_cidr)
+    except ValueError as exc:
+        print(str(exc))
+        return 2
+
+    auth_token = str(args.auth_token or "").strip() or None
+    is_loopback = is_loopback_host(args.host)
+    if not is_loopback and not allowed_networks and not auth_token:
+        print("Refusing to bind to a non-loopback host without any access controls.")
+        print("Add at least one of: --allow-ip / --allow-cidr / --auth-token")
+        return 2
+
+    handler = build_app(
+        index_paths,
+        library_roots,
+        destination_roots,
+        allowed_networks=allowed_networks,
+        auth_token=auth_token,
+    )
     try:
         server = ThreadingHTTPServer((args.host, args.port), handler)
     except OSError as exc:
