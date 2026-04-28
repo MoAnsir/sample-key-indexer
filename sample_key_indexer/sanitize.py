@@ -18,11 +18,34 @@ from sample_key_indexer.discovery import SUPPORTED_EXTENSIONS
 IGNORED_NAME_PATTERNS: tuple[str, ...] = (
     "fullmix",
     "full mix",
+    "mainmix",
+    "main mix",
     "musicloop",
     "music loop",
+    # Common "this is a full track" naming baggage in sample packs.
+    # We treat these as "always removable" rather than duration-gated, because they are
+    # almost never the reusable one-shot/loop content.
+    "original mix",
+    "extended mix",
+    "radio edit",
+    "instrumental",
+    "a cappella",
+    "acapella",
+    "album version",
+    "clean version",
+    "dirty version",
+    "stereo mix",
+    "2 track",
+    "2track",
+    "mix master",
+    "premaster",
+    "pre master",
+    "mastered",
 )
 
 DEMO_MIN_SECONDS_DEFAULT = 60.0
+MIX_MIN_SECONDS_DEFAULT = 60.0
+SONG_MIN_SECONDS_DEFAULT = 60.0
 
 PACK_BAGGAGE_EXTENSIONS: frozenset[str] = frozenset(
     {
@@ -55,6 +78,9 @@ class SanitizeItem:
     reason: str
 
 
+SUSPICIOUS_EXAMPLE_LIMIT = 50
+
+
 @dataclass(frozen=True)
 class _ProbeRequest:
     path: Path
@@ -62,6 +88,8 @@ class _ProbeRequest:
     extension: str
     bytes: int
     wants_demo_check: bool
+    wants_mix_check: bool
+    wants_song_check: bool
     wants_openable_check: bool
 
 
@@ -92,6 +120,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="When a supported audio filename contains the word 'demo', remove it only if its duration exceeds this many seconds. Default: 60.",
     )
     parser.add_argument(
+        "--mix-min-seconds",
+        type=float,
+        default=MIX_MIN_SECONDS_DEFAULT,
+        help="When a supported audio filename contains the word 'mix', remove it only if its duration exceeds this many seconds. Default: 60.",
+    )
+    parser.add_argument(
+        "--song-min-seconds",
+        type=float,
+        default=SONG_MIN_SECONDS_DEFAULT,
+        help="When a supported audio filename contains the word 'song' or 'track', remove it only if its duration exceeds this many seconds. Default: 60.",
+    )
+    parser.add_argument(
         "--remove-unopenable-audio",
         action="store_true",
         help="Also remove/quarantine supported audio files that ffprobe cannot open (corrupt/unhandled). Default: off.",
@@ -114,16 +154,23 @@ def main(argv: list[str] | None = None) -> int:
     validation_error = validate_input_root(input_root, quarantine_dir)
     if validation_error:
         print(validation_error)
+        _ensure_cursor_visible()
         return 2
 
     started = time.time()
-    scan = scan_sanitization_candidates(
-        input_root,
-        demo_min_seconds=float(args.demo_min_seconds),
-        remove_unopenable_audio=bool(args.remove_unopenable_audio),
-        workers=int(args.workers),
-    )
-    print_pre_action_report(input_root, scan)
+    try:
+        scan = scan_sanitization_candidates(
+            input_root,
+            demo_min_seconds=float(args.demo_min_seconds),
+            mix_min_seconds=float(args.mix_min_seconds),
+            song_min_seconds=float(args.song_min_seconds),
+            remove_unopenable_audio=bool(args.remove_unopenable_audio),
+            workers=int(args.workers),
+        )
+        print_pre_action_report(input_root, scan)
+    finally:
+        # tqdm/input combos can sometimes leave the cursor hidden; be explicit.
+        _ensure_cursor_visible()
 
     if int(scan["removable_count"]) == 0:
         report = build_report(
@@ -223,6 +270,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _ensure_cursor_visible() -> None:
+    if not sys.stderr.isatty():
+        return
+    try:
+        sys.stderr.write("\033[?25h")
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
 def validate_input_root(input_root: Path, quarantine_dir: Path) -> str | None:
     if not input_root.exists():
         return f"Input directory does not exist: {input_root}"
@@ -301,11 +358,16 @@ def default_quarantine_dir(input_root: Path) -> Path:
 def scan_sanitization_candidates(
     input_root: Path,
     demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT,
+    mix_min_seconds: float = MIX_MIN_SECONDS_DEFAULT,
+    song_min_seconds: float = SONG_MIN_SECONDS_DEFAULT,
     remove_unopenable_audio: bool = False,
     workers: int = 1,
 ) -> dict[str, object]:
     items: list[SanitizeItem] = []
     probe_requests: list[_ProbeRequest] = []
+    suspicious_counts: Counter[str] = Counter()
+    suspicious_bytes: Counter[str] = Counter()
+    suspicious_examples: list[dict[str, object]] = []
     kept_supported = 0
     kept_supported_bytes = 0
     total_bytes = 0
@@ -329,6 +391,8 @@ def scan_sanitization_candidates(
             path,
             size,
             demo_min_seconds=demo_min_seconds,
+            mix_min_seconds=mix_min_seconds,
+            song_min_seconds=song_min_seconds,
             remove_unopenable_audio=remove_unopenable_audio,
         )
         if removable is not None:
@@ -340,6 +404,23 @@ def scan_sanitization_candidates(
         if path.suffix.lower() in SUPPORTED_EXTENSIONS:
             kept_supported += 1
             kept_supported_bytes += size
+
+    def record_suspicious(match: str, req: _ProbeRequest, duration: float | None, openable: bool | None) -> None:
+        suspicious_counts[match] += 1
+        suspicious_bytes[match] += req.bytes
+        if len(suspicious_examples) >= SUSPICIOUS_EXAMPLE_LIMIT:
+            return
+        suspicious_examples.append(
+            {
+                "match": match,
+                "relative_path": req.relative_path,
+                "path": str(req.path),
+                "extension": req.extension,
+                "bytes": req.bytes,
+                "duration_seconds": duration,
+                "openable": openable,
+            }
+        )
 
     if probe_requests:
         with ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
@@ -378,6 +459,49 @@ def scan_sanitization_candidates(
                         )
                     )
                     continue
+                if req.wants_mix_check and duration is not None and duration > float(mix_min_seconds):
+                    items.append(
+                        SanitizeItem(
+                            path=str(req.path),
+                            relative_path=req.relative_path,
+                            extension=req.extension,
+                            bytes=req.bytes,
+                            reason="mix_long_audio",
+                        )
+                    )
+                    continue
+                if req.wants_song_check and duration is not None and duration > float(song_min_seconds):
+                    items.append(
+                        SanitizeItem(
+                            path=str(req.path),
+                            relative_path=req.relative_path,
+                            extension=req.extension,
+                            bytes=req.bytes,
+                            reason="song_long_audio",
+                        )
+                    )
+                    continue
+                if req.wants_demo_check:
+                    record_suspicious(
+                        "demo_kept_short_or_unknown",
+                        req,
+                        duration,
+                        openable if req.wants_openable_check else None,
+                    )
+                elif req.wants_mix_check:
+                    record_suspicious(
+                        "mix_kept_short_or_unknown",
+                        req,
+                        duration,
+                        openable if req.wants_openable_check else None,
+                    )
+                elif req.wants_song_check:
+                    record_suspicious(
+                        "song_or_track_kept_short_or_unknown",
+                        req,
+                        duration,
+                        openable if req.wants_openable_check else None,
+                    )
                 kept_supported += 1
                 kept_supported_bytes += req.bytes
 
@@ -397,6 +521,13 @@ def scan_sanitization_candidates(
         "removable_count": len(items),
         "removable_bytes": sum(item.bytes for item in items),
         "items": items,
+        "suspicious_count": int(sum(suspicious_counts.values())),
+        "suspicious_bytes": int(sum(suspicious_bytes.values())),
+        "suspicious_by_match": [
+            {"match": match, "count": suspicious_counts[match], "bytes": suspicious_bytes[match]}
+            for match, _ in suspicious_counts.most_common()
+        ],
+        "suspicious_examples": suspicious_examples,
         "by_reason": [
             {"reason": reason, "count": reason_counts[reason], "bytes": reason_bytes[reason]}
             for reason, _ in reason_counts.most_common()
@@ -415,6 +546,8 @@ def classify_sanitize_item(
     size: int,
     *,
     demo_min_seconds: float = DEMO_MIN_SECONDS_DEFAULT,
+    mix_min_seconds: float = MIX_MIN_SECONDS_DEFAULT,
+    song_min_seconds: float = SONG_MIN_SECONDS_DEFAULT,
     remove_unopenable_audio: bool = False,
 ) -> tuple[SanitizeItem | None, _ProbeRequest | None]:
     extension = normalized_extension(path)
@@ -445,8 +578,10 @@ def classify_sanitize_item(
             None,
         )
     wants_demo = is_demo_name(stem_text)
+    wants_mix = is_mix_name(stem_text)
+    wants_song = is_song_name(stem_text)
     wants_openable = bool(remove_unopenable_audio)
-    if not wants_demo and not wants_openable:
+    if not wants_demo and not wants_mix and not wants_song and not wants_openable:
         return None, None
     return (
         None,
@@ -456,6 +591,8 @@ def classify_sanitize_item(
             extension=extension,
             bytes=size,
             wants_demo_check=wants_demo,
+            wants_mix_check=wants_mix,
+            wants_song_check=wants_song,
             wants_openable_check=wants_openable,
         ),
     )
@@ -502,6 +639,37 @@ def is_demo_name(normalized_stem_text: str) -> bool:
             return True
         if token.startswith("demo") and token[4:].isdigit():
             return True
+    return False
+
+
+def is_song_name(normalized_stem_text: str) -> bool:
+    for token in normalized_stem_text.split():
+        if token in {"song", "track"}:
+            return True
+        if token.startswith("song") and token[4:].isdigit():
+            return True
+        if token.startswith("track") and token[5:].isdigit():
+            return True
+    return False
+
+
+def is_mix_name(normalized_stem_text: str) -> bool:
+    # "mix" by itself is extremely common in pack loop names (e.g. "perc mix") and
+    # would create a ton of unnecessary duration probes. Instead, only flag mix-like
+    # names that are strongly associated with full arrangements.
+    if "mixdown" in normalized_stem_text:
+        return True
+    if "final mix" in normalized_stem_text:
+        return True
+
+    for token in normalized_stem_text.split():
+        # Patterns like "clubmix01", "extendedmix2", etc.
+        for prefix in ("clubmix", "extendedmix", "originalmix", "radiomix"):
+            if token.startswith(prefix) and token[len(prefix) :].isdigit():
+                return True
+        for prefix in ("mixdown", "finalmix"):
+            if token.startswith(prefix) and token[len(prefix) :].isdigit():
+                return True
     return False
 
 
@@ -747,6 +915,17 @@ def print_pre_action_report(input_root: Path, scan: dict[str, object]) -> None:
         print("Examples:")
         for item in scan["examples"][:10]:
             print(f"  - {item['reason']} | {item['relative_path']}")
+    suspicious_by_match = scan.get("suspicious_by_match") or []
+    if suspicious_by_match:
+        print("")
+        print("Kept but suspicious (matched demo/mix/song/track heuristics, but kept as short/unknown):")
+        for item in suspicious_by_match[:8]:
+            print(f"  - {item['match']}: {item['count']} files ({format_gb(int(item['bytes']))})")
+        suspicious_examples = scan.get("suspicious_examples") or []
+        if suspicious_examples:
+            print("Examples:")
+            for item in suspicious_examples[:8]:
+                print(f"  - {item.get('match')} | {item.get('relative_path')}")
 
 
 def print_final_report(report_path: Path, report: dict[str, object]) -> None:

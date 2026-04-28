@@ -18,6 +18,7 @@ from typing import Any
 from sample_key_indexer.audio_analysis import NOTE_NAMES, _normalise_key_name, analyze_file, normalize_engines
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.web_app import _flatten_sample, _playback_info, _playable_path, parse_library_roots
+from tqdm import tqdm
 
 NON_HARMONIC_REVIEW_TYPES = {"Kick", "Snare", "Hat", "Perc", "DrumLoops", "FX", "FXLoops"}
 NON_HARMONIC_REVIEW_TEXT = (
@@ -3017,8 +3018,9 @@ def run_deep_analysis_execution(
     route_counts = Counter()
     error_codes = Counter()
     index = None if dry_run else open_writable_index(index_path)
+    progress = tqdm(selected, desc="Deep analysis", unit="file") if selected else ()
     try:
-        for sample in selected:
+        for sample in progress:
             plan = _deep_analysis_route(sample, mode)
             route_counts[plan["route"]] += 1
             if deep_analysis_is_current(sample, plan, mode=mode, scope=scope):
@@ -3121,6 +3123,8 @@ def run_deep_analysis_execution(
         if not dry_run and export_json and isinstance(index, SQLiteMetadataIndex):
             index.export_json(index_path.with_suffix(".json"))
     finally:
+        if selected and hasattr(progress, "close"):
+            progress.close()
         if index is not None:
             close_index(index)
     report["route_counts"] = [{"route": route, "count": count} for route, count in route_counts.most_common()]

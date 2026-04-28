@@ -4,7 +4,9 @@ import argparse
 import json
 import mimetypes
 import os
+import shutil
 import socket
+import subprocess
 import threading
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -13,8 +15,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
+from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
 
 STATIC_ROOT = Path(__file__).with_name("web_static")
+BROWSER_TRANSCODE_EXTENSIONS = {".aif", ".aiff"}
 
 
 def load_samples(
@@ -135,6 +139,8 @@ def build_app(
                 )
             elif parsed.path == "/api/sample":
                 self._send_sample(parsed.query)
+            elif parsed.path == "/api/sample-midi":
+                self._send_sample_midi(parsed.query)
             elif parsed.path == "/api/samples":
                 params = parse_qs(parsed.query)
                 library_id = (params.get("library_id") or [""])[0].strip() or None
@@ -285,6 +291,19 @@ def build_app(
                 self.send_error(HTTPStatus.NOT_FOUND, "Audio file not found")
                 return
 
+            if should_transcode_for_browser(path):
+                transcoded = ffmpeg_transcode_for_browser(path)
+                if transcoded is not None:
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(transcoded)))
+                    self.end_headers()
+                    try:
+                        self.wfile.write(transcoded)
+                    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                        return
+                    return
+
             content_type = mimetypes.guess_type(path.name)[0] or "audio/wav"
             file_size = path.stat().st_size
             start, end = _range_from_header(self.headers.get("Range"), file_size)
@@ -324,7 +343,45 @@ def build_app(
                 self.send_error(HTTPStatus.NOT_FOUND, "Sample not found")
                 return
             # Playback info is already computed at load time; don't redo filesystem probing here.
-            self._send_json({"sample": public_sample(sample)})
+            self._send_json({"sample": public_sample(sample, include_musical_context=True)})
+
+        def _send_sample_midi(self, query: str) -> None:
+            params = parse_qs(query)
+            try:
+                sample_id = int(params.get("id", [""])[0])
+            except ValueError:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid sample id")
+                return
+            try:
+                progression_index = int(params.get("progression", ["0"])[0] or 0)
+            except ValueError:
+                progression_index = 0
+            sample = samples_by_id.get(sample_id)
+            if not sample:
+                self.send_error(HTTPStatus.NOT_FOUND, "Sample not found")
+                return
+            try:
+                body = midi_bytes_for_progression(sample, progression_index)
+            except RuntimeError as exc:
+                message = str(exc)
+                if message.startswith("missing_backend:"):
+                    self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "MIDI backend not installed")
+                    return
+                if message == "no_progression_available":
+                    self.send_error(HTTPStatus.CONFLICT, "No progression available for sample")
+                    return
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to generate MIDI")
+                return
+            filename = f"{Path(sample.get('name') or 'sample').stem}_progression_{max(0, progression_index) + 1}.mid"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "audio/midi")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
 
     return SampleBrowserHandler
 
@@ -622,6 +679,39 @@ def parse_library_roots(values: list[str], option_name: str = "--library-root") 
     return roots
 
 
+def should_transcode_for_browser(path: Path) -> bool:
+    return path.suffix.lower() in BROWSER_TRANSCODE_EXTENSIONS
+
+
+def ffmpeg_transcode_for_browser(path: Path) -> bytes | None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return None
+    command = [
+        ffmpeg,
+        "-v",
+        "error",
+        "-i",
+        str(path),
+        "-f",
+        "wav",
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        "pipe:1",
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, check=False, timeout=30)
+    except Exception:
+        return None
+    if completed.returncode != 0 or not completed.stdout:
+        return None
+    return completed.stdout
+
+
 def is_index_writable(index_path: Path) -> bool:
     suffix = index_path.suffix.lower()
     if suffix not in {".db", ".sqlite", ".sqlite3", ".json"}:
@@ -679,10 +769,12 @@ def _record_path_value(record: dict) -> str:
     return str(record.get("file_path") or "")
 
 
-def public_sample(sample: dict) -> dict:
+def public_sample(sample: dict, include_musical_context: bool = False) -> dict:
     """Return a JSON-safe sample payload for the browser (omit huge structured record)."""
     cleaned = dict(sample)
     cleaned.pop("structured", None)
+    if include_musical_context:
+        cleaned.update(build_musical_context(cleaned))
     return cleaned
 
 

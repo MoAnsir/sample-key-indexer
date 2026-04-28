@@ -13,6 +13,7 @@ dependencies = [
   "essentia>=2.1b6.dev1389",
   "librosa>=0.10.0",
   "numpy>=1.23",
+  "pretty_midi>=0.2.10",
   "soundfile>=0.12",
   "tqdm>=4.66",
 ]

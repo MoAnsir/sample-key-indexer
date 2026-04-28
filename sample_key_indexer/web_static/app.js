@@ -440,6 +440,7 @@ function sortValue(sample, key) {
   if (key === "status") return sample.playback_status || "";
   if (key === "path") return sample.playable_path || sample.file_path || "";
   if (key === "key") return sample.key || sample.root_note || "Unsorted";
+  if (key === "duration") return Number(sample.duration || -1);
   if (key === "bpm") return Number(sample.bpm || -1);
   if (key === "confidence") return Number(sample.confidence || 0);
   return sample[key] || "";
@@ -650,6 +651,7 @@ function renderList() {
     const library = sample.library_name || sample.library_id || "-";
     const status = isPlayable ? "Playable" : "Missing";
     const playbackSource = sourceLabel(sample.playback_source);
+    const duration = hasValue(sample.duration) ? formatClock(sample.duration) : "-";
     row.innerHTML = `
       <button class="play-button" type="button">${isPlayable ? "Play" : "Missing"}</button>
       <span class="sample-name" title="${escapeHtml(fileName(sample))}">${escapeHtml(fileName(sample))}</span>
@@ -659,8 +661,11 @@ function renderList() {
       <span class="sample-cell" title="${escapeHtml(keyOrRoot)}">${escapeHtml(keyOrRoot)}</span>
       <span class="sample-cell" title="${escapeHtml(sample.category || "Unknown")}">${escapeHtml(sample.category || "Unknown")}</span>
       <span class="sample-cell" title="${escapeHtml(sample.type || "Unknown")}">${escapeHtml(sample.type || "Unknown")}</span>
+      <span class="sample-cell" title="${escapeHtml(sample.subtype || "Unknown")}">${escapeHtml(sample.subtype || "-")}</span>
       <span class="sample-cell" title="${escapeHtml(sample.source || "Unknown")}">${escapeHtml(sample.source || "-")}</span>
       <span class="sample-cell" title="${escapeHtml(sample.brightness || "Unknown")}">${escapeHtml(sample.brightness || "-")}</span>
+      <span class="sample-cell" title="${escapeHtml(sample.warmth || "Unknown")}">${escapeHtml(sample.warmth || "-")}</span>
+      <span class="sample-cell" title="${escapeHtml(hasValue(sample.duration) ? `${Number(sample.duration).toFixed(3)} sec` : "Unknown")}">${escapeHtml(duration)}</span>
       <span class="sample-cell" title="${escapeHtml(sample.bpm ? `${sample.bpm} BPM` : "Unknown")}">${sample.bpm ? `${escapeHtml(sample.bpm)} BPM` : "-"}</span>
       <span class="sample-cell ${confidence < 0.35 ? "low" : ""}" title="${confidence.toFixed(2)}">${confidence.toFixed(2)}</span>
     `;
@@ -791,6 +796,8 @@ function selectSample(sample, autoPlay = false) {
 
   if (sample.playback_status === "available") {
     els.player.src = `/api/audio?id=${sample.id}`;
+    els.player.preload = "metadata";
+    els.player.load();
     if (autoPlay) {
       els.player.play().catch(() => undefined);
     }
@@ -999,6 +1006,15 @@ function hasValue(value) {
   return value !== undefined && value !== null && value !== "";
 }
 
+function formatClock(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return "-";
+  const rounded = Math.round(value);
+  const mins = Math.floor(rounded / 60);
+  const secs = rounded % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
 function previewList(values, limit = 8) {
   if (!Array.isArray(values) || !values.length) return "-";
   const shown = values.slice(0, limit).map((value) => String(value));
@@ -1007,10 +1023,13 @@ function previewList(values, limit = 8) {
 }
 
 function renderPiano(sample) {
-  const root = normalizeNote(sample.root_note || noteFromKey(sample.key) || sample.deep_root || noteFromKey(sample.deep_key));
-  const notesSource = Array.isArray(sample.notes) && sample.notes.length
+  const musicalRecord = sample.musical_record || {};
+  const root = normalizeNote(musicalRecord.tonic || sample.root_note || noteFromKey(sample.key) || sample.deep_root || noteFromKey(sample.deep_key));
+  const notesSource = Array.isArray(musicalRecord.notes) && musicalRecord.notes.length
+    ? musicalRecord.notes
+    : (Array.isArray(sample.notes) && sample.notes.length
     ? sample.notes
-    : (Array.isArray(sample.deep_notes) ? sample.deep_notes : []);
+    : (Array.isArray(sample.deep_notes) ? sample.deep_notes : []));
   const notes = notesSource.map(normalizeNote).filter(Boolean);
   const activeNotes = new Set(notes);
   if (root) activeNotes.add(root);
@@ -1030,19 +1049,105 @@ function renderPiano(sample) {
 }
 
 function renderSuggestions(sample) {
-  const root = normalizeNote(sample.root_note || noteFromKey(sample.key) || sample.deep_root || noteFromKey(sample.deep_key));
-  const mode = modeFromKey(sample.key || sample.deep_key);
-  if (!root) {
-    els.suggestions.innerHTML = `<div class="suggestion-row">No key suggestion yet</div>`;
+  const context = musicalContextForSample(sample);
+  const musicalRecord = context.musical_record || {};
+  const compatibility = context.compatibility || {};
+  const mood = context.mood_profile || {};
+  const transitions = Array.isArray(context.transition_suggestions) ? context.transition_suggestions : [];
+  const keySuggestions = Array.isArray(compatibility.keys) ? compatibility.keys : [];
+  const progressions = Array.isArray(compatibility.progressions) ? compatibility.progressions : [];
+
+  if (!musicalRecord.tonic && !musicalRecord.key) {
+    els.suggestions.innerHTML = `<div class="suggestion-empty">No musical suggestions yet</div>`;
     return;
   }
 
-  const suggestions = relatedKeys(root, mode);
-  els.suggestions.innerHTML = suggestions.map((item) => `
-    <div class="suggestion-row" title="${escapeHtml(item.label)}: ${escapeHtml(item.notes.join(", "))}">
-      ${escapeHtml(item.label)} · ${escapeHtml(item.notes.join(" "))} · ${escapeHtml(item.chords.join(" / "))}
-    </div>
-  `).join("");
+  const noteLine = Array.isArray(musicalRecord.notes) && musicalRecord.notes.length
+    ? musicalRecord.notes.join(" ")
+    : "-";
+  const recordScale = musicalRecord.scale || (musicalRecord.tonic && musicalRecord.mode ? `${musicalRecord.tonic} ${musicalRecord.mode}` : "-");
+  const recordKey = musicalRecord.key || "-";
+  const bpmText = hasValue(musicalRecord.bpm) ? `${Number(musicalRecord.bpm).toFixed(2)} BPM` : "-";
+  const tuningText = hasValue(musicalRecord.tuning_hz) ? `${Number(musicalRecord.tuning_hz).toFixed(2)} Hz` : "-";
+  const confidenceText = hasValue(musicalRecord.confidence) ? Number(musicalRecord.confidence).toFixed(2) : "-";
+
+  const recordCard = `
+    <section class="suggestion-card suggestion-record">
+      <div class="suggestion-card-title">Musical Record</div>
+      <div class="suggestion-grid">
+        <div><span>Key</span><strong>${escapeHtml(recordKey)}</strong></div>
+        <div><span>Tonic</span><strong>${escapeHtml(musicalRecord.tonic || "-")}</strong></div>
+        <div><span>Scale</span><strong>${escapeHtml(recordScale)}</strong></div>
+        <div><span>BPM</span><strong>${escapeHtml(bpmText)}</strong></div>
+        <div><span>Tuning</span><strong>${escapeHtml(tuningText)}</strong></div>
+        <div><span>Confidence</span><strong>${escapeHtml(confidenceText)}</strong></div>
+      </div>
+      <div class="suggestion-notes"><span>Notes</span><strong>${escapeHtml(noteLine)}</strong></div>
+    </section>
+  `;
+
+  const keyCards = keySuggestions.length ? `
+    <section class="suggestion-card suggestion-keys">
+      <div class="suggestion-card-title">Compatible Keys</div>
+      ${keySuggestions.map((item) => `
+        <div class="suggestion-row" title="${escapeHtml(item.label)}: ${escapeHtml((item.notes || []).join(", "))}">
+          <div>
+            <strong>${escapeHtml(item.label)}</strong>
+            <div>${escapeHtml(item.key || item.scale || "-")}</div>
+          </div>
+          <div class="suggestion-meta">${escapeHtml((item.chords || []).join(" / ") || "-")}</div>
+        </div>
+      `).join("")}
+    </section>
+  ` : "";
+
+  const progressionCards = progressions.length ? `
+    <section class="suggestion-card suggestion-progressions">
+      <div class="suggestion-card-title">Progressions To Try</div>
+      ${progressions.map((item, index) => `
+        <div class="suggestion-progression">
+          <div class="suggestion-row">
+            <div>
+              <strong>${escapeHtml(item.name || `Progression ${index + 1}`)}</strong>
+              <div>${escapeHtml((item.roman || []).join(" - ") || "-")}</div>
+            </div>
+            <button class="midi-button" type="button" data-midi-progress="${index}">MIDI</button>
+          </div>
+          <div class="suggestion-meta">${escapeHtml((item.progression || []).join(" -> ") || "-")}</div>
+          <div class="suggestion-meta">Play: ${escapeHtml((item.play_order || item.notes_to_play || []).join(" -> ") || "-")}</div>
+          <div class="suggestion-meta">Mood: ${escapeHtml(item.mood || "-")}</div>
+        </div>
+      `).join("")}
+    </section>
+  ` : "";
+
+  const moodCard = (mood.primary || transitions.length) ? `
+    <section class="suggestion-card suggestion-mood">
+      <div class="suggestion-card-title">Mood & Transitions</div>
+      <div class="suggestion-row">
+        <div>
+          <strong>${escapeHtml(mood.primary || "neutral")}</strong>
+          <div>${escapeHtml((mood.supporting || []).join(", ") || "No supporting moods yet")}</div>
+        </div>
+      </div>
+      ${transitions.map((item) => `
+        <div class="suggestion-row">
+          <div>
+            <strong>${escapeHtml(item.label || "-")}</strong>
+            <div>${escapeHtml(item.why || "-")}</div>
+          </div>
+        </div>
+      `).join("")}
+    </section>
+  ` : "";
+
+  els.suggestions.innerHTML = `${recordCard}${keyCards}${progressionCards}${moodCard}`;
+  els.suggestions.querySelectorAll("[data-midi-progress]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const progressionIndex = Number(button.dataset.midiProgress || 0);
+      downloadProgressionMidi(sample, progressionIndex);
+    });
+  });
 }
 
 function renderFrequencyChart(sample) {
@@ -1274,6 +1379,56 @@ function diatonicChords(root, mode) {
     return [notes[0], `${notes[1]}m`, `${notes[2]}m`, notes[3], notes[4], `${notes[5]}m`];
   }
   return [`${notes[0]}m`, `${notes[2]}`, `${notes[3]}m`, `${notes[4]}m`, `${notes[5]}`];
+}
+
+function musicalContextForSample(sample) {
+  if (sample.musical_record || sample.compatibility || sample.mood_profile) {
+    return {
+      musical_record: sample.musical_record || {},
+      compatibility: sample.compatibility || {},
+      mood_profile: sample.mood_profile || {},
+      transition_suggestions: sample.transition_suggestions || [],
+    };
+  }
+  const root = normalizeNote(sample.root_note || noteFromKey(sample.key) || sample.deep_root || noteFromKey(sample.deep_key));
+  const mode = modeFromKey(sample.deep_key || sample.key) || "minor";
+  return {
+    musical_record: {
+      tonic: root || "",
+      mode,
+      key: sample.deep_key || sample.key || "",
+      scale: root ? `${root} ${mode}` : "",
+      notes: Array.isArray(sample.deep_notes) && sample.deep_notes.length ? sample.deep_notes : (sample.notes || []),
+      chords: Array.isArray(sample.deep_chords) && sample.deep_chords.length ? sample.deep_chords : (sample.chords || []),
+      bpm: sample.deep_bpm || sample.bpm || null,
+      tuning_hz: sample.deep_tuning_hz || null,
+      confidence: sample.deep_analysis_confidence || sample.confidence || null,
+    },
+    compatibility: root ? { keys: relatedKeys(root, mode), progressions: [] } : {},
+    mood_profile: {},
+    transition_suggestions: [],
+  };
+}
+
+async function downloadProgressionMidi(sample, progressionIndex) {
+  try {
+    const response = await fetchWithTimeout(
+      `/api/sample-midi?id=${encodeURIComponent(sample.id)}&progression=${encodeURIComponent(progressionIndex)}`,
+      60 * 1000,
+    );
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const baseName = String(fileName(sample) || "sample").replace(/\.[^.]+$/, "");
+    link.href = url;
+    link.download = `${baseName}_progression_${progressionIndex + 1}.mid`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    showToast("Could not generate MIDI for this progression yet.", { title: "MIDI Failed", kind: "error" });
+  }
 }
 
 function drawCanvasTitle(ctx, text, x, y) {

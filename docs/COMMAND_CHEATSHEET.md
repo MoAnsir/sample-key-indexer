@@ -71,7 +71,7 @@ sample-key-indexer-review /path/to/metadata_index.sqlite --v3-health
 
 ## Index A New Device Or Folder
 
-Sanitize a messy source folder in place before scanning (removes unsupported files, pack baggage like ReadMe/artwork/PDFs, Mac artifacts, `fullmix`/`musicloop` mixes, and long demo files with `demo*` in the filename and duration > 60s):
+Sanitize a messy source folder in place before scanning (removes unsupported files, pack baggage like ReadMe/artwork/PDFs, Mac artifacts, full-arrangement mixes like `fullmix`/`main mix`/`musicloop`, common track-title baggage like `original mix` / `extended mix` / `radio edit` / `stereo mix` / `2track`, and long demo/song/track files when duration > 60s):
 
 ```bash
 sample-key-indexer-sanitize /Users/mohammedansir/Desktop/Samples_to_detect
@@ -117,6 +117,10 @@ caffeinate -dimsu sample-key-indexer-kitchen-sink \
   --write-every 25 \
   --probe-backend auto \
   --keyfinder-convert-retry
+
+Notes:
+- For resumable reruns, use `--keyfinder-scope missing` (default) so KeyFinder skips samples that already have a successful KeyFinder result stored.
+- You can parallelize KeyFinder with `--keyfinder-workers N` (start around 8-16; too high can become IO-bound).
 
 # Speed up KeyFinder with parallel workers (start with 8):
 #   --keyfinder-workers 8

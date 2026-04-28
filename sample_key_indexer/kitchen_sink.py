@@ -118,6 +118,67 @@ def _patch_run_report_with_keyfinder_rollups(run_report_path: Path, keyfinder_re
         return
 
 
+def _patch_run_report_with_kitchen_sink_summary(
+    run_report_path: Path,
+    *,
+    index_seconds: float,
+    keyfinder_seconds: float,
+    deep_analysis_seconds: float | None,
+    keyfinder_report_path: Path,
+    deep_analysis_report_path: Path,
+) -> None:
+    if not run_report_path.exists():
+        return
+    try:
+        run_report = json.loads(run_report_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    kitchen: dict[str, object] = dict(run_report.get("kitchen_sink") or {})
+    kitchen["timing_seconds"] = {
+        "index": round(float(index_seconds), 2),
+        "keyfinder": round(float(keyfinder_seconds), 2),
+        "deep_analysis": round(float(deep_analysis_seconds), 2) if deep_analysis_seconds is not None else None,
+    }
+
+    # Add compact resumability hints: selected/processed/updated/error counts.
+    if keyfinder_report_path.exists():
+        try:
+            payload = json.loads(keyfinder_report_path.read_text(encoding="utf-8"))
+            kitchen["keyfinder"] = {
+                "scope": payload.get("scope"),
+                "selected": payload.get("selected"),
+                "processed": payload.get("processed"),
+                "successes": payload.get("successes"),
+                "updated": payload.get("updated"),
+                "errors": payload.get("errors"),
+                "missing_audio": payload.get("missing_audio"),
+            }
+        except Exception:
+            pass
+    if deep_analysis_report_path.exists():
+        try:
+            payload = json.loads(deep_analysis_report_path.read_text(encoding="utf-8"))
+            kitchen["deep_analysis"] = {
+                "scope": payload.get("scope"),
+                "mode": payload.get("mode"),
+                "selected": payload.get("selected"),
+                "processed": payload.get("processed"),
+                "updated": payload.get("updated"),
+                "errors": payload.get("errors"),
+                "skipped_up_to_date": payload.get("skipped_up_to_date"),
+                "routes": payload.get("route_counts") or payload.get("routes"),
+            }
+        except Exception:
+            pass
+
+    run_report["kitchen_sink"] = kitchen
+    try:
+        run_report_path.write_text(json.dumps(run_report, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -165,6 +226,11 @@ def main(argv: list[str] | None = None) -> int:
     t2 = time.time()
     deep_rc = 0
     if known.deep_analysis != "off":
+        print(
+            "Deep analysis starting: "
+            f"mode {known.deep_analysis}, scope {known.deep_analysis_scope}. "
+            "This phase can take a while on large libraries."
+        )
         deep_args: list[str] = [
             str(sqlite_path),
             "--deep-analysis-run",
@@ -181,6 +247,14 @@ def main(argv: list[str] | None = None) -> int:
     t3 = time.time()
     run_report_path = _infer_run_report_path(passthrough, output_root)
     _patch_run_report_with_keyfinder_rollups(run_report_path, keyfinder_json)
+    _patch_run_report_with_kitchen_sink_summary(
+        run_report_path,
+        index_seconds=t1 - t0,
+        keyfinder_seconds=t2 - t1,
+        deep_analysis_seconds=(t3 - t2) if known.deep_analysis != "off" else None,
+        keyfinder_report_path=keyfinder_json,
+        deep_analysis_report_path=deep_analysis_json,
+    )
     if known.deep_analysis != "off":
         print(f"Kitchen sink timing: index {t1 - t0:.1f}s, keyfinder {t2 - t1:.1f}s, deep-analysis {t3 - t2:.1f}s")
     else:

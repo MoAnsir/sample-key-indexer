@@ -139,7 +139,7 @@ body {
 }
 
 .shell {
-  width: min(1240px, calc(100% - 32px));
+  width: min(1980px, calc(100% - 24px));
   margin: 0 auto;
   padding: 24px 0 48px;
 }
@@ -415,17 +415,30 @@ canvas {
 }
 
 .player-bar {
-  grid-template-columns: minmax(340px, 1.1fr) minmax(420px, 1.9fr);
+  grid-template-columns: minmax(420px, 0.95fr) minmax(860px, 1.55fr);
+  grid-template-areas:
+    "info stack"
+    "info suggestions";
   align-items: start;
   padding: 14px;
 }
 
+/* Wide-screen layout: use a true 3-column "Info | Visuals | Suggestions" so we waste less space. */
+@media (min-width: 1500px) {
+  .player-bar {
+    grid-template-columns: minmax(360px, 0.85fr) minmax(760px, 1.6fr) minmax(420px, 1fr);
+    grid-template-areas: "info stack suggestions";
+  }
+}
+
 .player-bar.is-empty {
-  grid-template-columns: minmax(180px, 0.7fr) minmax(280px, 1.3fr);
+  grid-template-columns: minmax(240px, 0.75fr) minmax(360px, 1.25fr);
+  grid-template-areas: "info stack";
 }
 
 .player-bar.is-empty .now-playing-details,
 .player-bar.is-empty .music-panel,
+.player-bar.is-empty .suggestion-sidebar,
 .player-bar.is-empty #waveformCanvas,
 .player-bar.is-empty #frequencyCanvas,
 .player-bar.is-empty #mfccCanvas {
@@ -437,6 +450,13 @@ audio {
 }
 
 .player-info {
+  grid-area: info;
+  min-width: 0;
+}
+
+.suggestion-sidebar {
+  grid-area: suggestions;
+  align-self: start;
   min-width: 0;
 }
 
@@ -516,6 +536,7 @@ audio {
 .detail-panels {
   grid-column: 1 / -1;
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 4px;
 }
@@ -547,6 +568,7 @@ audio {
 }
 
 .player-stack {
+  grid-area: stack;
   display: grid;
   gap: 8px;
   min-width: 0;
@@ -576,6 +598,7 @@ audio {
 
 .music-panel {
   display: grid;
+  grid-template-columns: 1fr;
   gap: 10px;
   margin-top: 12px;
 }
@@ -630,10 +653,22 @@ audio {
 
 .suggestion-view {
   display: grid;
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.suggestion-record,
+.suggestion-progressions,
+.suggestion-mood {
+  grid-column: 1 / -1;
 }
 
 .suggestion-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
   min-width: 0;
   padding: 7px 8px;
   border: 1px solid var(--line);
@@ -641,9 +676,94 @@ audio {
   background: var(--wash);
   font-size: 12px;
   font-weight: 800;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.suggestion-row strong,
+.suggestion-meta,
+.suggestion-notes strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.suggestion-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.suggestion-card-title {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.suggestion-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.suggestion-grid span,
+.suggestion-notes span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.suggestion-grid strong,
+.suggestion-notes strong {
+  font-size: 13px;
+}
+
+.suggestion-notes {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--wash);
+}
+
+.suggestion-progression {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--wash);
+}
+
+.suggestion-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.suggestion-empty {
+  padding: 8px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.midi-button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 6px 10px;
 }
 
 .sample-table {
@@ -710,11 +830,11 @@ audio {
 .sample-header,
 .sample-row {
   display: grid;
-  grid-template-columns: 72px minmax(180px, 1.35fr) minmax(120px, 0.85fr) 82px minmax(220px, 1.75fr) 70px 92px 110px 86px 98px 76px 86px;
+  grid-template-columns: 72px minmax(180px, 1.35fr) minmax(120px, 0.85fr) 82px minmax(220px, 1.75fr) 70px 92px 110px 110px 86px 98px 92px 92px 76px 86px;
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--line);
-  min-width: 1320px;
+  min-width: 1580px;
 }
 
 .sample-header {
@@ -972,6 +1092,7 @@ audio {
   .review-overview,
   .review-grid {
     grid-template-columns: 1fr;
+    grid-template-areas: none;
   }
 
   .summary {
@@ -983,6 +1104,15 @@ audio {
   }
 
   .review-example {
+    grid-template-columns: 1fr;
+  }
+
+  .music-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-panels,
+  .suggestion-view {
     grid-template-columns: 1fr;
   }
 

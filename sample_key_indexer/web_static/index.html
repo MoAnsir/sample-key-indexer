@@ -121,18 +121,18 @@
               <p class="panel-title">Piano / Notes</p>
               <div id="pianoView" class="piano-view"></div>
             </div>
-            <div>
-              <p class="panel-title">Suggestions</p>
-              <div id="suggestionView" class="suggestion-view"></div>
-            </div>
           </div>
         </div>
         <div class="player-stack">
           <canvas id="waveformCanvas" width="900" height="96" aria-label="Audio waveform"></canvas>
           <canvas id="frequencyCanvas" width="900" height="170" aria-label="Frequency feature chart"></canvas>
           <canvas id="mfccCanvas" width="900" height="150" aria-label="MFCC timbre chart"></canvas>
-          <audio id="audioPlayer" controls preload="none"></audio>
+          <audio id="audioPlayer" controls preload="metadata"></audio>
         </div>
+        <aside class="suggestion-sidebar" aria-label="Musical suggestions">
+          <p class="panel-title">Suggestions</p>
+          <div id="suggestionView" class="suggestion-view"></div>
+        </aside>
       </section>
 
       <section id="browseTab" class="tab-panel is-active" aria-label="Browse samples">
@@ -167,8 +167,11 @@
             <button type="button" data-sort="key">Key</button>
             <button type="button" data-sort="category">Category</button>
             <button type="button" data-sort="type">Type</button>
+            <button type="button" data-sort="subtype">Subtype</button>
             <button type="button" data-sort="source">Source</button>
             <button type="button" data-sort="brightness">Brightness</button>
+            <button type="button" data-sort="warmth">Warmth</button>
+            <button type="button" data-sort="duration">Duration</button>
             <button type="button" data-sort="bpm">BPM</button>
             <button type="button" data-sort="confidence">Confidence</button>
           </div>
