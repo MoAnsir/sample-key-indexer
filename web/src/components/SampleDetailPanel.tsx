@@ -50,6 +50,16 @@ export default function SampleDetailPanel() {
     }, ANIM_DURATION);
   }, [setSelectedSampleId]);
 
+  // Escape key to close
+  useEffect(() => {
+    if (!visible) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [visible, handleClose]);
+
   const { data: detail, isLoading, error } = useQuery<SampleDetail>({
     queryKey: ["sample-detail", selectedId],
     queryFn: () => fetchSampleDetail(selectedId!),
@@ -62,7 +72,7 @@ export default function SampleDetailPanel() {
     return (
       <div className={`fixed inset-0 z-40 flex ${closing ? "animate-fade-out" : "animate-fade-in"}`}>
         <div className="absolute inset-0 bg-black/30" onClick={handleClose} />
-        <div className={`relative ml-auto w-full max-w-3xl bg-white shadow-2xl p-6 ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
+        <div className={`relative ml-auto w-full max-w-3xl bg-white dark:bg-gray-900 shadow-2xl p-6 ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
           <p className="text-red-600">Error loading sample: {String(error)}</p>
           <button onClick={handleClose} className="mt-4 text-sm text-gray-500 underline">Close</button>
         </div>
@@ -79,7 +89,7 @@ export default function SampleDetailPanel() {
       />
 
       {/* Panel */}
-      <div className={`relative ml-auto w-full max-w-3xl bg-white shadow-2xl overflow-y-auto ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
+      <div className={`relative ml-auto w-full max-w-3xl bg-white dark:bg-gray-900 shadow-2xl overflow-y-auto ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
         <PanelHeader
           name={detail?.name}
           detail={detail}
@@ -215,7 +225,7 @@ function MetadataGrid({ detail }: { detail: SampleDetail }) {
         value != null && value !== "" ? (
           <div
             key={label}
-            className="rounded border border-gray-200 bg-gray-50 px-2.5 py-1.5"
+            className="rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5"
           >
             <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
               {label}
@@ -300,7 +310,7 @@ function DeepAnalysisSection({ detail }: { detail: SampleDetail }) {
           value != null && value !== "" ? (
             <div
               key={label}
-              className="rounded border border-gray-200 bg-gray-50 px-2.5 py-1.5"
+              className="rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5"
             >
               <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
                 {label}
@@ -337,7 +347,7 @@ function MusicalRecordCard({ record }: { record: NonNullable<SampleDetail["music
       <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
         Musical Record
       </h3>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3">
         <Chip label="Key" value={record.key} />
         <Chip label="Tonic" value={record.tonic} />
         <Chip label="Scale" value={record.scale} />
@@ -392,7 +402,7 @@ function PanelHeader({
   }, [sampleId, isReviewed, queryClient, samples, setSamples]);
 
   return (
-    <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3">
+    <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
@@ -455,7 +465,7 @@ function CompatibleKeysCard({ keys }: { keys: CompatibleKey[] }) {
         {keys.map((k) => (
           <div
             key={k.label}
-            className="rounded-lg border border-gray-200 bg-gray-50 p-3"
+            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3"
           >
             <div className="flex items-baseline gap-2">
               <span className="text-xs font-semibold text-gray-700">{k.label}</span>
@@ -488,7 +498,7 @@ function ProgressionsCard({
         {progressions.map((p, i) => (
           <div
             key={p.name}
-            className="rounded-lg border border-gray-200 bg-gray-50 p-3"
+            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3"
           >
             <div className="flex items-center justify-between">
               <div>
@@ -532,7 +542,7 @@ function MoodCard({
       <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
         Mood & Transitions
       </h3>
-      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3 space-y-2">
         <p className="text-sm text-gray-800">
           <span className="font-semibold">{primary}</span>
           {supporting.length > 0 && (

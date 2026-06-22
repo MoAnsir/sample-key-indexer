@@ -25,6 +25,8 @@ export default function App() {
   const loading = useAppStore((s) => s.loading);
   const loadingMessage = useAppStore((s) => s.loadingMessage);
   const setLoading = useAppStore((s) => s.setLoading);
+  const darkMode = useAppStore((s) => s.darkMode);
+  const toggleDarkMode = useAppStore((s) => s.toggleDarkMode);
 
   if (catalog && !useAppStore.getState().catalog) {
     setCatalog(catalog);
@@ -59,15 +61,15 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <p className="text-lg text-gray-500">Loading catalog...</p>
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-lg text-gray-500 dark:text-gray-400">Loading catalog...</p>
       </div>
     );
   }
 
   if (error || !catalog) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+      <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <p className="text-lg text-red-600">Failed to load catalog</p>
           <p className="text-sm text-gray-500 mt-2">{String(error ?? "No data")}</p>
@@ -79,26 +81,26 @@ export default function App() {
   const hasLibrary = samples.length > 0;
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50 max-w-[1600px] mx-auto w-full">
+    <div className="flex flex-col min-h-screen max-w-[1600px] mx-auto w-full">
       {/* Loading overlay */}
       {loading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg px-8 py-6 shadow-xl text-center">
+          <div className="bg-white dark:bg-gray-800 rounded-lg px-8 py-6 shadow-xl text-center">
             <div className="animate-spin h-8 w-8 border-4 border-teal-600 border-t-transparent rounded-full mx-auto" />
-            <p className="mt-3 text-sm text-gray-600">{loadingMessage}</p>
+            <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">{loadingMessage}</p>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-3 flex-shrink-0">
+      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div>
               <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
                 Sample Library
               </p>
-              <h1 className="text-xl font-bold text-gray-900">
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                 Key Index Browser
               </h1>
             </div>
@@ -121,15 +123,24 @@ export default function App() {
             )}
           </div>
 
-          <div className="text-right">
-            <p className="text-2xl font-bold text-gray-900">
-              {(catalog.total ?? 0).toLocaleString()}
-            </p>
-            <p className="text-xs text-gray-500">
-              {hasLibrary
-                ? `${samples.length.toLocaleString()} loaded`
-                : `${catalog.total === 1 ? "sample" : "samples"}`}
-            </p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={toggleDarkMode}
+              className="text-lg px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {darkMode ? "☀️" : "🌙"}
+            </button>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {(catalog.total ?? 0).toLocaleString()}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {hasLibrary
+                  ? `${samples.length.toLocaleString()} loaded`
+                  : `${catalog.total === 1 ? "sample" : "samples"}`}
+              </p>
+            </div>
           </div>
         </div>
       </header>
@@ -147,9 +158,11 @@ export default function App() {
       {/* Browse / Review content */}
       {hasLibrary && (
         <div className="flex flex-col flex-1 min-h-0">
-          <FilterBar />
           {activeTab === "browse" ? (
-            <SampleTable />
+            <>
+              <FilterBar />
+              <SampleTable />
+            </>
           ) : (
             <ReviewTab />
           )}
@@ -174,7 +187,7 @@ function TabButton({
       className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
         active
           ? "bg-teal-600 text-white"
-          : "text-gray-600 hover:bg-gray-100"
+          : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
       }`}
     >
       {children}

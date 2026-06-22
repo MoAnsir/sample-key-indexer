@@ -1,4 +1,4 @@
-import { useMemo, memo, useCallback } from "react";
+import { useMemo, memo, useCallback, useEffect, useRef } from "react";
 import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
 import PaginationBar from "./PaginationBar";
 import type { Sample } from "../types/api";
@@ -71,15 +71,15 @@ const SampleRow = memo(function SampleRow({
 }) {
   return (
     <tr
-      className={`hover:bg-teal-50 cursor-pointer transition-colors ${
-        isSelected ? "bg-teal-100" : ""
+      className={`hover:bg-teal-50 dark:hover:bg-teal-950 cursor-pointer transition-colors ${
+        isSelected ? "bg-teal-100 dark:bg-teal-900" : ""
       }`}
       onClick={onClick}
     >
       {COLUMNS.map((col) => (
         <td
           key={col.key}
-          className={`px-3 py-2 text-gray-700 whitespace-nowrap ${col.className ?? ""}`}
+          className={`px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap ${col.className ?? ""}`}
         >
           <CellValue sample={sample} column={col.key} />
         </td>
@@ -110,10 +110,43 @@ export default function SampleTable() {
   const start = (page - 1) * pageSize;
   const pageRows = filtered.slice(start, start + pageSize);
 
+  const tableRef = useRef<HTMLDivElement>(null);
+
   const handleRowClick = useCallback(
     (id: number) => setSelectedSampleId(id),
     [setSelectedSampleId],
   );
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when typing in inputs
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      // Don't intercept when detail panel is open
+      if (useAppStore.getState().selectedSampleId != null) return;
+
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const currentId = useAppStore.getState().selectedSampleId;
+        const currentIndex = currentId != null
+          ? pageRows.findIndex((s) => s.id === currentId)
+          : -1;
+        const nextIndex = e.key === "ArrowDown"
+          ? Math.min(currentIndex + 1, pageRows.length - 1)
+          : Math.max(currentIndex - 1, 0);
+        if (pageRows[nextIndex]) {
+          setSelectedSampleId(pageRows[nextIndex].id);
+          // Scroll row into view
+          const row = tableRef.current?.querySelectorAll("tbody tr")[nextIndex];
+          row?.scrollIntoView({ block: "nearest" });
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pageRows, setSelectedSampleId]);
 
   const showingFrom = filtered.length > 0 ? start + 1 : 0;
   const showingTo = Math.min(start + pageSize, filtered.length);
@@ -135,14 +168,14 @@ export default function SampleTable() {
       <PaginationBar position="top" {...paginationProps} />
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
+      <div ref={tableRef} className="flex-1 overflow-auto">
         <table className="w-full text-sm border-collapse">
-          <thead className="sticky top-0 bg-gray-50 z-10">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
             <tr>
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
-                  className={`px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-800 whitespace-nowrap ${col.className ?? ""}`}
+                  className={`px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-800 dark:hover:text-gray-200 whitespace-nowrap ${col.className ?? ""}`}
                   onClick={() => setSort(col.key)}
                 >
                   {col.label}
@@ -155,7 +188,7 @@ export default function SampleTable() {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {pageRows.map((sample) => (
               <SampleRow
                 key={sample.id}

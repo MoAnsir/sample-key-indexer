@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
   }
   * {
     scroll-behavior: smooth;
@@ -11,7 +13,7 @@
 
 @layer components {
   .input-base {
-    @apply rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700
+    @apply rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-700 dark:text-gray-200
       focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500;
   }
 }
