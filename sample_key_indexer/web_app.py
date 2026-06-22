@@ -18,7 +18,9 @@ from urllib.parse import parse_qs, urlparse
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
 
-STATIC_ROOT = Path(__file__).with_name("web_static")
+STATIC_ROOT_LEGACY = Path(__file__).with_name("web_static")
+REACT_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+STATIC_ROOT = REACT_DIST if (REACT_DIST / "index.html").exists() else STATIC_ROOT_LEGACY
 BROWSER_TRANSCODE_EXTENSIONS = {".aif", ".aiff"}
 
 
@@ -172,6 +174,8 @@ def build_app(
             if parsed.path in {"/", "/index.html"}:
                 self._send_static("index.html")
             elif parsed.path in {"/app.css", "/app.js"}:
+                self._send_static(parsed.path.lstrip("/"))
+            elif parsed.path.startswith("/assets/"):
                 self._send_static(parsed.path.lstrip("/"))
             elif parsed.path == "/api/catalog":
                 self._send_json(

@@ -14,7 +14,7 @@ You have thousands of audio samples — kicks, snares, bass hits, melody loops, 
 
 **Dashboard** — library overview with sample type breakdown and distribution charts:
 
-![Dashboard](docs/screenshots/Bashboard.png)
+![Dashboard](docs/screenshots/DashBoard.png)
 
 **Browse** — search, filter by key/type/BPM/confidence, sort by any column, and preview audio inline:
 
