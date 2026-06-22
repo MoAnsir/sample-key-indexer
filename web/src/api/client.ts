@@ -34,7 +34,8 @@ export async function fetchSamples(
 export async function fetchSampleDetail(id: number): Promise<SampleDetail> {
   const res = await fetch(`${BASE}/api/sample?id=${id}`);
   if (!res.ok) throw new Error(`sample detail: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  return (data.sample ?? data) as SampleDetail;
 }
 
 export function getAudioUrl(id: number): string {

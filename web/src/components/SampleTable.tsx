@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, memo, useCallback } from "react";
 import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
 import type { Sample } from "../types/api";
 
@@ -59,6 +59,34 @@ function CellValue({ sample, column }: { sample: Sample; column: string }) {
   return <>{String(value)}</>;
 }
 
+const SampleRow = memo(function SampleRow({
+  sample,
+  isSelected,
+  onClick,
+}: {
+  sample: Sample;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <tr
+      className={`hover:bg-teal-50 cursor-pointer transition-colors ${
+        isSelected ? "bg-teal-100" : ""
+      }`}
+      onClick={onClick}
+    >
+      {COLUMNS.map((col) => (
+        <td
+          key={col.key}
+          className={`px-3 py-2 text-gray-700 whitespace-nowrap ${col.className ?? ""}`}
+        >
+          <CellValue sample={sample} column={col.key} />
+        </td>
+      ))}
+    </tr>
+  );
+});
+
 export default function SampleTable() {
   const samples = useAppStore((s) => s.samples);
   const filters = useAppStore((s) => s.filters);
@@ -81,17 +109,36 @@ export default function SampleTable() {
   const start = (page - 1) * pageSize;
   const pageRows = filtered.slice(start, start + pageSize);
 
-  return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* Pagination header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
-        <div className="text-sm text-gray-600">
-          <span className="font-medium">
-            {filtered.length.toLocaleString()}
-          </span>{" "}
-          of {samples.length.toLocaleString()} matching samples
-        </div>
-        <div className="flex items-center gap-3">
+  const handleRowClick = useCallback(
+    (id: number) => setSelectedSampleId(id),
+    [setSelectedSampleId],
+  );
+
+  const showingFrom = start + 1;
+  const showingTo = Math.min(start + pageSize, filtered.length);
+
+  const paginationBar = (position: "top" | "bottom") => (
+    <div
+      className={`flex items-center justify-between px-4 py-3 bg-white flex-shrink-0 ${
+        position === "top" ? "border-b border-gray-200" : "border-t border-gray-200"
+      }`}
+    >
+      <div className="text-sm text-gray-600">
+        Showing{" "}
+        <span className="font-semibold text-gray-900">
+          {showingFrom.toLocaleString()}–{showingTo.toLocaleString()}
+        </span>{" "}
+        of{" "}
+        <span className="font-semibold text-gray-900">
+          {filtered.length.toLocaleString()}
+        </span>{" "}
+        samples
+        {filtered.length < samples.length && (
+          <span className="text-gray-400"> (filtered from {samples.length.toLocaleString()})</span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        {position === "top" && (
           <label className="text-xs text-gray-500">
             Rows
             <select
@@ -106,25 +153,31 @@ export default function SampleTable() {
               ))}
             </select>
           </label>
-          <button
-            className="text-sm text-gray-500 hover:text-gray-800 disabled:opacity-30"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            Previous
-          </button>
-          <span className="text-xs text-gray-500">
-            Page {page} of {totalPages}
-          </span>
-          <button
-            className="text-sm text-gray-500 hover:text-gray-800 disabled:opacity-30"
-            disabled={page >= totalPages}
-            onClick={() => setPage(page + 1)}
-          >
-            Next
-          </button>
-        </div>
+        )}
+        <button
+          className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          disabled={page <= 1}
+          onClick={() => setPage(page - 1)}
+        >
+          ← Previous
+        </button>
+        <span className="text-sm font-medium text-gray-700 min-w-[100px] text-center">
+          Page {page} of {totalPages}
+        </span>
+        <button
+          className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          disabled={page >= totalPages}
+          onClick={() => setPage(page + 1)}
+        >
+          Next →
+        </button>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      {paginationBar("top")}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
@@ -149,22 +202,12 @@ export default function SampleTable() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {pageRows.map((sample) => (
-              <tr
+              <SampleRow
                 key={sample.id}
-                className={`hover:bg-teal-50 cursor-pointer transition-colors ${
-                  selectedSampleId === sample.id ? "bg-teal-100" : ""
-                }`}
-                onClick={() => setSelectedSampleId(sample.id)}
-              >
-                {COLUMNS.map((col) => (
-                  <td
-                    key={col.key}
-                    className={`px-3 py-2 text-gray-700 whitespace-nowrap ${col.className ?? ""}`}
-                  >
-                    <CellValue sample={sample} column={col.key} />
-                  </td>
-                ))}
-              </tr>
+                sample={sample}
+                isSelected={selectedSampleId === sample.id}
+                onClick={() => handleRowClick(sample.id)}
+              />
             ))}
             {pageRows.length === 0 && (
               <tr>
@@ -179,6 +222,8 @@ export default function SampleTable() {
           </tbody>
         </table>
       </div>
+
+      {paginationBar("bottom")}
     </div>
   );
 }
