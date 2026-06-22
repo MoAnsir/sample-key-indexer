@@ -89,7 +89,7 @@ export const useAppStore = create<AppState>((set) => ({
     })),
 
   page: 1,
-  pageSize: 500,
+  pageSize: 100,
   setPage: (page) => set({ page }),
   setPageSize: (pageSize) => set({ pageSize, page: 1 }),
 

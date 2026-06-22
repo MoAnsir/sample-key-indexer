@@ -5,6 +5,7 @@ import { useAppStore } from "./store/useAppStore";
 import Dashboard from "./components/Dashboard";
 import FilterBar from "./components/FilterBar";
 import SampleTable from "./components/SampleTable";
+import SampleDetailPanel from "./components/SampleDetailPanel";
 import type { CatalogResponse } from "./types/api";
 
 export default function App() {
@@ -138,6 +139,9 @@ export default function App() {
         activeLibraryId={filters.libraryId}
         onLibrarySelect={loadLibrary}
       />
+
+      {/* Sample detail slide-over */}
+      <SampleDetailPanel />
 
       {/* Browse / Review content */}
       {hasLibrary && (

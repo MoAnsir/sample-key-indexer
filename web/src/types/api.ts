@@ -39,13 +39,14 @@ export interface SampleDetail extends Sample {
   sample_rate: number | null;
   notes: string[];
   chords: string[];
-  loudness_rms: number | null;
-  peak: number | null;
-  frequency_range: number | null;
-  centroid: number | null;
-  fundamental: number | null;
-  bandwidth: number | null;
+  rms_db: number | null;
+  peak_db: number | null;
+  dynamic_range_db: number | null;
+  spectral_centroid: number | null;
+  fundamental_freq: number | null;
+  spectral_bandwidth: number | null;
   rolloff: number | null;
+  scale_confidence: number | null;
   mfcc: number[];
   deep_review: Record<string, unknown>;
   deep_analysis: Record<string, unknown>;
@@ -120,8 +121,11 @@ export interface Compatibility {
 export interface CompatibleKey {
   label: string;
   key: string;
+  scale: string;
+  notes: string[];
   scale_notes: string[];
   diatonic_chords: string[];
+  chords: string[];
 }
 
 export interface Progression {
