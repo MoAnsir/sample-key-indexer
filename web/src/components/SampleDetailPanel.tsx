@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { fetchSampleDetail, getMidiUrl } from "../api/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchSampleDetail, getMidiUrl, postReview } from "../api/client";
 import { useAppStore } from "../store/useAppStore";
 import AudioPlayer from "./AudioPlayer";
+import FrequencyChart from "./FrequencyChart";
+import MFCCChart from "./MFCCChart";
+import ReviewDiagnostic from "./ReviewDiagnostic";
 import type { SampleDetail, CompatibleKey, Progression } from "../types/api";
 
 const NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -77,22 +80,12 @@ export default function SampleDetailPanel() {
 
       {/* Panel */}
       <div className={`relative ml-auto w-full max-w-3xl bg-white shadow-2xl overflow-y-auto ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
-        <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-          <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
-              Now Playing
-            </p>
-            <h2 className="text-sm font-semibold text-gray-900 truncate">
-              {detail?.name ?? "Loading..."}
-            </h2>
-          </div>
-          <button
-            onClick={handleClose}
-            className="ml-4 text-gray-400 hover:text-gray-700 text-xl leading-none"
-          >
-            ✕
-          </button>
-        </div>
+        <PanelHeader
+          name={detail?.name}
+          detail={detail}
+          sampleId={selectedId}
+          onClose={handleClose}
+        />
 
         {isLoading || !detail ? (
           <div className="flex flex-col items-center justify-center h-64 gap-3">
@@ -102,50 +95,83 @@ export default function SampleDetailPanel() {
         ) : (
           <div className="p-6 space-y-6">
             {/* Audio Player */}
-            {detail.playback_status === "available" && (
-              <AudioPlayer sampleId={selectedId} autoPlay />
-            )}
-            {detail.playback_status !== "available" && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-                Audio unavailable — source media not mounted
-              </div>
-            )}
+            {/* Review diagnostics — above everything */}
+            <ReviewDiagnostic detail={detail} />
+
+            {/* Audio Player */}
+            <div id="section-audio">
+              {detail.playback_status === "available" && (
+                <AudioPlayer sampleId={selectedId} autoPlay />
+              )}
+              {detail.playback_status !== "available" && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                  Audio unavailable — source media not mounted
+                </div>
+              )}
+            </div>
 
             {/* Metadata grid */}
-            <MetadataGrid detail={detail} />
+            <div id="section-metadata">
+              <MetadataGrid detail={detail} />
+            </div>
+
+            {/* Frequency & MFCC charts */}
+            <div id="section-frequency">
+            <FrequencyChart
+              fundamental={detail.fundamental_freq}
+              centroid={detail.spectral_centroid}
+              bandwidth={detail.spectral_bandwidth}
+              rolloff={detail.rolloff}
+            />
+            </div>
+            <div id="section-mfcc">
+              <MFCCChart mfcc={detail.mfcc ?? []} />
+            </div>
 
             {/* Piano keyboard */}
-            {((detail.notes?.length ?? 0) > 0 || detail.root_note) && (
-              <PianoKeyboard
-                rootNote={detail.root_note}
-                notes={detail.notes ?? []}
-              />
-            )}
+            <div id="section-piano">
+              {((detail.notes?.length ?? 0) > 0 || detail.root_note) && (
+                <PianoKeyboard
+                  rootNote={detail.root_note}
+                  notes={detail.notes ?? []}
+                />
+              )}
+            </div>
 
             {/* Deep analysis */}
-            {detail.deep_analysis_status && (
-              <DeepAnalysisSection detail={detail} />
-            )}
+            <div id="section-deep-analysis">
+              {detail.deep_analysis_status && (
+                <DeepAnalysisSection detail={detail} />
+              )}
+            </div>
 
             {/* Musical context */}
             {detail.musical_record && (
               <>
-                <MusicalRecordCard record={detail.musical_record} />
+                <div id="section-musical-record">
+                  <MusicalRecordCard record={detail.musical_record} />
+                </div>
                 {detail.compatibility && (
                   <>
-                    <CompatibleKeysCard keys={detail.compatibility.keys} />
-                    <ProgressionsCard
-                      progressions={detail.compatibility.progressions}
-                      sampleId={selectedId}
-                    />
+                    <div id="section-compatible-keys">
+                      <CompatibleKeysCard keys={detail.compatibility.keys} />
+                    </div>
+                    <div id="section-progressions">
+                      <ProgressionsCard
+                        progressions={detail.compatibility.progressions}
+                        sampleId={selectedId}
+                      />
+                    </div>
                   </>
                 )}
                 {detail.mood_profile && (
-                  <MoodCard
-                    primary={detail.mood_profile.primary}
-                    supporting={detail.mood_profile.supporting}
-                    transitions={detail.transition_suggestions ?? []}
-                  />
+                  <div id="section-mood">
+                    <MoodCard
+                      primary={detail.mood_profile.primary}
+                      supporting={detail.mood_profile.supporting}
+                      transitions={detail.transition_suggestions ?? []}
+                    />
+                  </div>
                 )}
               </>
             )}
@@ -323,6 +349,96 @@ function MusicalRecordCard({ record }: { record: NonNullable<SampleDetail["music
         <p className="mt-2 text-xs text-gray-500">
           Notes: {record.notes.join(" ")}
         </p>
+      )}
+    </div>
+  );
+}
+
+function PanelHeader({
+  name,
+  detail,
+  sampleId,
+  onClose,
+}: {
+  name: string | undefined;
+  detail: SampleDetail | undefined;
+  sampleId: number;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const samples = useAppStore((s) => s.samples);
+  const setSamples = useAppStore((s) => s.setSamples);
+  const [reviewing, setReviewing] = useState(false);
+
+  const isReviewed = detail?.reviewed ?? false;
+  const isWritable = detail?.index_writable ?? false;
+  const reasons = detail?.review_reasons ?? [];
+
+  const handleReview = useCallback(async () => {
+    setReviewing(true);
+    try {
+      await postReview(sampleId, !isReviewed);
+      queryClient.invalidateQueries({ queryKey: ["sample-detail", sampleId] });
+      setSamples(
+        samples.map((s) =>
+          s.id === sampleId ? { ...s, reviewed: !isReviewed } : s,
+        ),
+      );
+    } catch (err) {
+      console.error("Review failed:", err);
+    } finally {
+      setReviewing(false);
+    }
+  }, [sampleId, isReviewed, queryClient, samples, setSamples]);
+
+  return (
+    <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3">
+      <div className="flex items-center justify-between">
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
+            Now Playing
+          </p>
+          <h2 className="text-sm font-semibold text-gray-900 truncate">
+            {name ?? "Loading..."}
+          </h2>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 ml-4">
+          {detail && isWritable && (
+            <button
+              onClick={handleReview}
+              disabled={reviewing}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 ${
+                isReviewed
+                  ? "border border-gray-300 text-gray-600 hover:bg-gray-100"
+                  : "bg-teal-600 text-white hover:bg-teal-700"
+              }`}
+            >
+              {reviewing
+                ? "Saving..."
+                : isReviewed
+                  ? "Mark unreviewed"
+                  : "Mark reviewed"}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+      {reasons.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {reasons.map((r) => (
+            <span
+              key={r}
+              className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200"
+            >
+              {r}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

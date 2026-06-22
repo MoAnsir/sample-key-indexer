@@ -6,6 +6,7 @@ import Dashboard from "./components/Dashboard";
 import FilterBar from "./components/FilterBar";
 import SampleTable from "./components/SampleTable";
 import SampleDetailPanel from "./components/SampleDetailPanel";
+import ReviewTab from "./components/ReviewTab";
 import type { CatalogResponse } from "./types/api";
 
 export default function App() {
@@ -150,9 +151,7 @@ export default function App() {
           {activeTab === "browse" ? (
             <SampleTable />
           ) : (
-            <div className="p-6 text-gray-500 text-center">
-              Review tab coming soon
-            </div>
+            <ReviewTab />
           )}
         </div>
       )}
