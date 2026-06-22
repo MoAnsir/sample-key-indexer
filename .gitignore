@@ -9,3 +9,7 @@ __pycache__/
 dist/
 build/
 *.tmp
+
+# Web frontend
+web/node_modules/
+web/dist/
