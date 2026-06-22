@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { fetchSampleDetail, getMidiUrl } from "../api/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchSampleDetail, getMidiUrl, postReview } from "../api/client";
 import { useAppStore } from "../store/useAppStore";
 import AudioPlayer from "./AudioPlayer";
 import FrequencyChart from "./FrequencyChart";
@@ -79,22 +79,12 @@ export default function SampleDetailPanel() {
 
       {/* Panel */}
       <div className={`relative ml-auto w-full max-w-3xl bg-white shadow-2xl overflow-y-auto ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
-        <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-          <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
-              Now Playing
-            </p>
-            <h2 className="text-sm font-semibold text-gray-900 truncate">
-              {detail?.name ?? "Loading..."}
-            </h2>
-          </div>
-          <button
-            onClick={handleClose}
-            className="ml-4 text-gray-400 hover:text-gray-700 text-xl leading-none"
-          >
-            ✕
-          </button>
-        </div>
+        <PanelHeader
+          name={detail?.name}
+          detail={detail}
+          sampleId={selectedId}
+          onClose={handleClose}
+        />
 
         {isLoading || !detail ? (
           <div className="flex flex-col items-center justify-center h-64 gap-3">
@@ -334,6 +324,96 @@ function MusicalRecordCard({ record }: { record: NonNullable<SampleDetail["music
         <p className="mt-2 text-xs text-gray-500">
           Notes: {record.notes.join(" ")}
         </p>
+      )}
+    </div>
+  );
+}
+
+function PanelHeader({
+  name,
+  detail,
+  sampleId,
+  onClose,
+}: {
+  name: string | undefined;
+  detail: SampleDetail | undefined;
+  sampleId: number;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const samples = useAppStore((s) => s.samples);
+  const setSamples = useAppStore((s) => s.setSamples);
+  const [reviewing, setReviewing] = useState(false);
+
+  const isReviewed = detail?.reviewed ?? false;
+  const isWritable = detail?.index_writable ?? false;
+  const reasons = detail?.review_reasons ?? [];
+
+  const handleReview = useCallback(async () => {
+    setReviewing(true);
+    try {
+      await postReview(sampleId, !isReviewed);
+      queryClient.invalidateQueries({ queryKey: ["sample-detail", sampleId] });
+      setSamples(
+        samples.map((s) =>
+          s.id === sampleId ? { ...s, reviewed: !isReviewed } : s,
+        ),
+      );
+    } catch (err) {
+      console.error("Review failed:", err);
+    } finally {
+      setReviewing(false);
+    }
+  }, [sampleId, isReviewed, queryClient, samples, setSamples]);
+
+  return (
+    <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3">
+      <div className="flex items-center justify-between">
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
+            Now Playing
+          </p>
+          <h2 className="text-sm font-semibold text-gray-900 truncate">
+            {name ?? "Loading..."}
+          </h2>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 ml-4">
+          {detail && isWritable && (
+            <button
+              onClick={handleReview}
+              disabled={reviewing}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 ${
+                isReviewed
+                  ? "border border-gray-300 text-gray-600 hover:bg-gray-100"
+                  : "bg-teal-600 text-white hover:bg-teal-700"
+              }`}
+            >
+              {reviewing
+                ? "Saving..."
+                : isReviewed
+                  ? "Mark unreviewed"
+                  : "Mark reviewed"}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+      {reasons.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {reasons.map((r) => (
+            <span
+              key={r}
+              className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200"
+            >
+              {r}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );
