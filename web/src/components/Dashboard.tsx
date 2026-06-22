@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CatalogResponse } from "../types/api";
+import TypePieChart from "./TypePieChart";
 
 interface DashboardProps {
   catalog: CatalogResponse;
@@ -64,27 +65,32 @@ export default function Dashboard({ catalog, activeLibraryId, onLibrarySelect }:
 
         {/* Type distribution — collapsible */}
         {!collapsed && stats.length > 0 && (
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
-              Sample Types
-            </h2>
-            <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
-              {stats.map((stat) => (
-                <div key={stat.type} className="flex items-center gap-2">
-                  <span className="w-24 text-xs text-gray-600 text-right shrink-0">
-                    {stat.type}
-                  </span>
-                  <div className="flex-1 h-4 bg-gray-200 rounded overflow-hidden">
-                    <div
-                      className="h-full bg-teal-600 rounded"
-                      style={{ width: `${stat.percentage}%` }}
-                    />
+          <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                Sample Types
+              </h2>
+              <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+                {stats.map((stat) => (
+                  <div key={stat.type} className="flex items-center gap-2">
+                    <span className="w-24 text-xs text-gray-600 text-right shrink-0">
+                      {stat.type}
+                    </span>
+                    <div className="flex-1 h-4 bg-gray-200 rounded overflow-hidden">
+                      <div
+                        className="h-full bg-teal-600 rounded"
+                        style={{ width: `${stat.percentage}%` }}
+                      />
+                    </div>
+                    <span className="w-28 text-xs text-gray-500 shrink-0">
+                      {(stat.count ?? 0).toLocaleString()} ({stat.percentage}%)
+                    </span>
                   </div>
-                  <span className="w-28 text-xs text-gray-500 shrink-0">
-                    {(stat.count ?? 0).toLocaleString()} ({stat.percentage}%)
-                  </span>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <TypePieChart stats={stats} total={catalog.total} />
             </div>
           </div>
         )}

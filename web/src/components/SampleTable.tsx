@@ -1,5 +1,6 @@
 import { useMemo, memo, useCallback } from "react";
 import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
+import PaginationBar from "./PaginationBar";
 import type { Sample } from "../types/api";
 
 const COLUMNS: { key: string; label: string; className?: string }[] = [
@@ -114,70 +115,24 @@ export default function SampleTable() {
     [setSelectedSampleId],
   );
 
-  const showingFrom = start + 1;
+  const showingFrom = filtered.length > 0 ? start + 1 : 0;
   const showingTo = Math.min(start + pageSize, filtered.length);
 
-  const paginationBar = (position: "top" | "bottom") => (
-    <div
-      className={`flex items-center justify-between px-4 py-3 bg-white flex-shrink-0 ${
-        position === "top" ? "border-b border-gray-200" : "border-t border-gray-200"
-      }`}
-    >
-      <div className="text-sm text-gray-600">
-        Showing{" "}
-        <span className="font-semibold text-gray-900">
-          {showingFrom.toLocaleString()}–{showingTo.toLocaleString()}
-        </span>{" "}
-        of{" "}
-        <span className="font-semibold text-gray-900">
-          {filtered.length.toLocaleString()}
-        </span>{" "}
-        samples
-        {filtered.length < samples.length && (
-          <span className="text-gray-400"> (filtered from {samples.length.toLocaleString()})</span>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        {position === "top" && (
-          <label className="text-xs text-gray-500">
-            Rows
-            <select
-              className="ml-1.5 input-base"
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-            >
-              {[100, 250, 500, 1000].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <button
-          className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-          disabled={page <= 1}
-          onClick={() => setPage(page - 1)}
-        >
-          ← Previous
-        </button>
-        <span className="text-sm font-medium text-gray-700 min-w-[100px] text-center">
-          Page {page} of {totalPages}
-        </span>
-        <button
-          className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-          disabled={page >= totalPages}
-          onClick={() => setPage(page + 1)}
-        >
-          Next →
-        </button>
-      </div>
-    </div>
-  );
+  const paginationProps = {
+    page,
+    totalPages,
+    pageSize,
+    showingFrom,
+    showingTo,
+    totalFiltered: filtered.length,
+    totalAll: samples.length,
+    onPageChange: setPage,
+    onPageSizeChange: setPageSize,
+  };
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {paginationBar("top")}
+      <PaginationBar position="top" {...paginationProps} />
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
@@ -223,7 +178,7 @@ export default function SampleTable() {
         </table>
       </div>
 
-      {paginationBar("bottom")}
+      <PaginationBar position="bottom" {...paginationProps} />
     </div>
   );
 }
