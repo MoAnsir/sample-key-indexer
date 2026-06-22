@@ -2,13 +2,30 @@ const state = {
   samples: [],
   filtered: [],
   stats: [],
+  libraries: [],
   sortKey: "name",
   sortDirection: "asc",
+  activeTab: "browse",
+  page: 1,
+  pageSize: 500,
   audioContext: null,
+  selectedSampleId: null,
+  reviewIncludeReviewed: false,
+  filtersActive: false,
+  libraryCache: new Map(),
+  activeLoadId: 0,
 };
 
 const els = {
+  tabButtons: document.querySelectorAll("[data-tab]"),
+  loadingOverlay: document.querySelector("#loadingOverlay"),
+  loadingTitle: document.querySelector("#loadingTitle"),
+  loadingDetail: document.querySelector("#loadingDetail"),
+  browseTab: document.querySelector("#browseTab"),
+  reviewTab: document.querySelector("#reviewTab"),
   search: document.querySelector("#searchInput"),
+  library: document.querySelector("#libraryFilter"),
+  playback: document.querySelector("#playbackFilter"),
   category: document.querySelector("#categoryFilter"),
   type: document.querySelector("#typeFilter"),
   key: document.querySelector("#keyFilter"),
@@ -23,9 +40,12 @@ const els = {
   visibleCount: document.querySelector("#visibleCount"),
   totalCount: document.querySelector("#totalCount"),
   list: document.querySelector("#sampleList"),
+  playerBar: document.querySelector("#playerBar"),
   chart: document.querySelector("#typeChart"),
   pieChart: document.querySelector("#pieChart"),
   pieLegend: document.querySelector("#pieLegend"),
+  librarySummary: document.querySelector("#librarySummary"),
+  libraryCards: document.querySelector("#libraryCards"),
   player: document.querySelector("#audioPlayer"),
   waveform: document.querySelector("#waveformCanvas"),
   frequency: document.querySelector("#frequencyCanvas"),
@@ -33,38 +53,87 @@ const els = {
   piano: document.querySelector("#pianoView"),
   suggestions: document.querySelector("#suggestionView"),
   nowPlaying: document.querySelector("#nowPlaying"),
+  reviewActions: document.querySelector("#reviewActions"),
   nowPlayingDetails: document.querySelector("#nowPlayingDetails"),
+  pageSummary: document.querySelector("#pageSummary"),
+  pageSize: document.querySelector("#pageSizeSelect"),
+  pageIndicator: document.querySelector("#pageIndicator"),
+  prevPage: document.querySelector("#prevPageButton"),
+  nextPage: document.querySelector("#nextPageButton"),
+  reviewTotal: document.querySelector("#reviewTotal"),
+  reviewPercent: document.querySelector("#reviewPercent"),
+  reviewReasonCount: document.querySelector("#reviewReasonCount"),
+  reviewLowestConfidence: document.querySelector("#reviewLowestConfidence"),
+  reviewKeyDisagreements: document.querySelector("#reviewKeyDisagreements"),
+  reviewReasonList: document.querySelector("#reviewReasonList"),
+  reviewTypeList: document.querySelector("#reviewTypeList"),
+  reviewExampleList: document.querySelector("#reviewExampleList"),
+  reviewIncludeReviewed: document.querySelector("#reviewIncludeReviewed"),
+  toastHost: document.querySelector("#toastHost"),
 };
 
 const NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const BLACK_KEYS = new Set(["C#", "D#", "F#", "G#", "A#"]);
 
 async function boot() {
-  const response = await fetch("/api/samples");
-  const data = await response.json();
-  state.samples = data.samples;
-  state.stats = data.stats;
+  const catalogResponse = await fetch("/api/catalog");
+  const catalog = await catalogResponse.json();
+  state.libraries = catalog.libraries || [];
+  state.stats = catalog.stats || [];
   populateFilters();
   bindEvents();
-  applyFilters();
+
+  if (state.libraries.length === 1) {
+    await loadLibrary(state.libraries[0].id);
+  } else {
+    state.samples = [];
+    state.filtered = [];
+    state.page = 1;
+    render();
+  }
 }
 
 function bindEvents() {
-  [els.search, els.category, els.type, els.key, els.source, els.brightness, els.warmth, els.bpmMin, els.bpmMax, els.confidence, els.unsortedOnly].forEach((element) => {
+  [els.search, els.playback, els.category, els.type, els.key, els.source, els.brightness, els.warmth, els.bpmMin, els.bpmMax, els.confidence, els.unsortedOnly].forEach((element) => {
     element.addEventListener("input", applyFilters);
+  });
+  els.library.addEventListener("change", async () => {
+    const selection = els.library.value || "";
+    if (!selection) return;
+    const library = state.libraries.find((item) => libraryOptionValue(item) === selection);
+    if (!library) return;
+    await loadLibrary(library.id);
   });
   document.querySelectorAll("[data-sort]").forEach((button) => {
     button.addEventListener("click", () => setSort(button.dataset.sort));
   });
+  els.pageSize.addEventListener("change", () => {
+    state.pageSize = Number(els.pageSize.value);
+    state.page = 1;
+    render();
+  });
+  els.prevPage.addEventListener("click", () => setPage(state.page - 1));
+  els.nextPage.addEventListener("click", () => setPage(state.page + 1));
+  els.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => setActiveTab(button.dataset.tab));
+  });
+  if (els.reviewIncludeReviewed) {
+    els.reviewIncludeReviewed.addEventListener("change", () => {
+      state.reviewIncludeReviewed = Boolean(els.reviewIncludeReviewed.checked);
+      renderReview();
+    });
+  }
 }
 
 function populateFilters() {
-  setOptions(els.category, ["All categories", ...uniqueValues("category")]);
-  setOptions(els.type, ["All types", ...uniqueValues("type")]);
-  setOptions(els.key, ["All keys", ...uniqueKeys()]);
-  setOptions(els.source, ["All sources", ...uniqueValues("source")]);
-  setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
-  setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
+  const libraryValues = state.libraries.length ? ["Select a library", ...libraryOptions()] : ["No catalogs loaded"];
+  setOptions(els.library, libraryValues);
+  setOptions(els.category, ["All categories"]);
+  setOptions(els.type, ["All types"]);
+  setOptions(els.key, ["All keys"]);
+  setOptions(els.source, ["All sources"]);
+  setOptions(els.brightness, ["Any brightness"]);
+  setOptions(els.warmth, ["Any warmth"]);
 }
 
 function setOptions(select, values) {
@@ -85,18 +154,71 @@ function uniqueKeys() {
   return [...new Set(state.samples.map((sample) => sample.key || sample.root_note || "Unsorted"))].sort();
 }
 
+function libraryOptions() {
+  return state.libraries.map((library) => libraryOptionValue(library));
+}
+
+function libraryOptionValue(library) {
+  return `${library.name || library.id} (${library.id})`;
+}
+
+function sampleLibraryOption(sample) {
+  const libraryId = sample.library_id || "unknown";
+  const library = state.libraries.find((item) => item.id === libraryId);
+  return library ? libraryOptionValue(library) : `${sample.library_name || libraryId} (${libraryId})`;
+}
+
 function applyFilters() {
+  if (!state.samples.length) {
+    state.filtered = [];
+    state.page = 1;
+    render();
+    return;
+  }
   const search = els.search.value.trim().toLowerCase();
   const minConfidence = Number(els.confidence.value);
   const bpmMin = Number(els.bpmMin.value || 0);
   const bpmMax = Number(els.bpmMax.value || Number.MAX_SAFE_INTEGER);
   els.confidenceValue.textContent = minConfidence.toFixed(2);
 
+  const hasBpmFilter = Boolean(els.bpmMin.value || els.bpmMax.value);
+  const hasOtherFilters = Boolean(
+    search ||
+    els.playback.value ||
+    els.category.value ||
+    els.type.value ||
+    els.key.value ||
+    els.source.value ||
+    els.brightness.value ||
+    els.warmth.value ||
+    els.unsortedOnly.checked ||
+    hasBpmFilter ||
+    minConfidence > 0
+  );
+  state.filtersActive = hasOtherFilters;
+
+  // Fast path: when no filters are active, avoid building large search haystacks.
+  if (!hasOtherFilters) {
+    state.filtered = state.samples;
+    state.page = 1;
+    // Sorting 100k+ rows by filename can take a long time; keep scan order unless the user explicitly sorts.
+    if (state.filtered.length <= 50000) {
+      sortFiltered();
+    }
+    render();
+    return;
+  }
+
   state.filtered = state.samples.filter((sample) => {
     const keyOrRoot = sample.key || sample.root_note || "Unsorted";
     const haystack = [
+      sample.name,
       sample.file_path,
       sample.destination,
+      sample.relative_path,
+      sample.library_id,
+      sample.library_name,
+      sample.playback_status,
       sample.category,
       sample.type,
       sample.root_note,
@@ -106,13 +228,12 @@ function applyFilters() {
       sample.brightness,
       sample.warmth,
       sample.bpm,
-      Array.isArray(sample.notes) ? sample.notes.join(" ") : "",
-      Array.isArray(sample.chords) ? sample.chords.join(" ") : "",
     ].join(" ").toLowerCase();
     const bpm = Number(sample.bpm || 0);
-    const bpmMatches = !sample.bpm ? !els.bpmMin.value && !els.bpmMax.value : bpm >= bpmMin && bpm <= bpmMax;
+    const bpmMatches = !sample.bpm ? !hasBpmFilter : bpm >= bpmMin && bpm <= bpmMax;
 
     return (!search || haystack.includes(search)) &&
+      (!els.playback.value || sample.playback_status === els.playback.value) &&
       (!els.category.value || (sample.category || "Unknown") === els.category.value) &&
       (!els.type.value || (sample.type || "Unknown") === els.type.value) &&
       (!els.key.value || keyOrRoot === els.key.value) &&
@@ -124,8 +245,176 @@ function applyFilters() {
       (Number(sample.confidence || 0) >= minConfidence);
   });
 
+  state.page = 1;
   sortFiltered();
   render();
+}
+
+async function loadLibrary(libraryId) {
+  const loadId = ++state.activeLoadId;
+  const library = state.libraries.find((item) => item.id === libraryId);
+  const label = library ? `${library.name || library.id} (${library.id})` : libraryId;
+  showLoading(`Loading ${label}`, "Fetching samples…");
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const cached = state.libraryCache.get(libraryId);
+    if (cached && Array.isArray(cached.samples) && cached.samples.length) {
+      showLoading(`Loading ${label}`, "Loading from cache…");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      state.samples = cached.samples;
+      state.filtered = [];
+      state.stats = cached.stats || [];
+      state.page = 1;
+      render();
+      showLoading(`Loading ${label}`, "Building filters…");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      setOptions(els.category, ["All categories", ...uniqueValues("category")]);
+      setOptions(els.type, ["All types", ...uniqueValues("type")]);
+      setOptions(els.key, ["All keys", ...uniqueKeys()]);
+      setOptions(els.source, ["All sources", ...uniqueValues("source")]);
+      setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
+      setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
+      showLoading(`Loading ${label}`, "Rendering…");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      applyFilters();
+      return;
+    }
+
+    state.samples = [];
+    state.filtered = [];
+    state.stats = [];
+    state.page = 1;
+    render();
+
+    const pageSize = 15000;
+    let offset = 0;
+    let total = null;
+    let stats = [];
+    while (total === null || offset < total) {
+      if (loadId !== state.activeLoadId) return;
+      const response = await fetchWithTimeout(
+        `/api/samples?library_id=${encodeURIComponent(libraryId)}&offset=${offset}&limit=${pageSize}`,
+        10 * 60 * 1000
+      );
+      showLoading(`Loading ${label}`, total === null ? "Parsing first chunk…" : `Parsing… (${offset.toLocaleString()} loaded)`);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const data = await response.json();
+      if (loadId !== state.activeLoadId) return;
+      if (total === null) {
+        total = Number(data.total || 0);
+        stats = data.stats || [];
+        state.stats = stats;
+      }
+      const chunk = data.samples || [];
+      state.samples.push(...chunk);
+      offset += chunk.length;
+      showLoading(`Loading ${label}`, `Loaded ${offset.toLocaleString()} / ${Number(total || 0).toLocaleString()} samples…`);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      if (!chunk.length) break;
+    }
+
+    state.libraryCache.set(libraryId, { samples: state.samples, stats: state.stats });
+
+    showLoading(`Loading ${label}`, "Building filters…");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    setOptions(els.category, ["All categories", ...uniqueValues("category")]);
+    setOptions(els.type, ["All types", ...uniqueValues("type")]);
+    setOptions(els.key, ["All keys", ...uniqueKeys()]);
+    setOptions(els.source, ["All sources", ...uniqueValues("source")]);
+    setOptions(els.brightness, ["Any brightness", ...uniqueValues("brightness")]);
+    setOptions(els.warmth, ["Any warmth", ...uniqueValues("warmth")]);
+    showLoading(`Loading ${label}`, "Rendering…");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    applyFilters();
+  } catch (error) {
+    state.samples = [];
+    state.filtered = [];
+    state.page = 1;
+    render();
+    alert(`Failed to load ${label}. ${String(error || "")}`.trim());
+  } finally {
+    if (loadId === state.activeLoadId) {
+      hideLoading();
+    }
+  }
+}
+
+function isInViewport(element) {
+  if (!element) return true;
+  const rect = element.getBoundingClientRect();
+  const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  return rect.top >= 0 && rect.top < viewHeight * 0.4;
+}
+
+function scrollToPlayerBar() {
+  if (!els.playerBar) return;
+  if (isInViewport(els.playerBar)) return;
+  els.playerBar.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function markSelectedInLists(sampleId) {
+  document.querySelectorAll(".sample-row.is-selected, .review-example.is-selected").forEach((row) => {
+    row.classList.remove("is-selected");
+    row.removeAttribute("aria-selected");
+  });
+  const selectors = [
+    `.sample-row[data-sample-id="${sampleId}"]`,
+    `.review-example[data-sample-id="${sampleId}"]`,
+  ];
+  selectors.forEach((selector) => {
+    const row = document.querySelector(selector);
+    if (!row) return;
+    row.classList.add("is-selected");
+    row.setAttribute("aria-selected", "true");
+  });
+}
+
+function showLoading(title, detail) {
+  if (!els.loadingOverlay) return;
+  if (els.loadingTitle) els.loadingTitle.textContent = title || "Loading";
+  if (els.loadingDetail) els.loadingDetail.textContent = detail || "Working…";
+  els.loadingOverlay.hidden = false;
+}
+
+function hideLoading() {
+  if (!els.loadingOverlay) return;
+  els.loadingOverlay.hidden = true;
+}
+
+function showToast(message, { title = "Notice", kind = "error", timeoutMs = 6500 } = {}) {
+  if (!els.toastHost) return;
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${kind}`;
+  toast.innerHTML = `
+    <div class="toast-title">${escapeHtml(title)}</div>
+    <div class="toast-message">${escapeHtml(String(message || ""))}</div>
+  `;
+  els.toastHost.appendChild(toast);
+  const timeout = Math.max(1500, Number(timeoutMs || 0));
+  setTimeout(() => toast.remove(), timeout);
+}
+
+function setDetailsLoading(isLoading, message = "Loading details…") {
+  if (!els.nowPlayingDetails) return;
+  const el = els.nowPlayingDetails.querySelector("#detailsLoading");
+  if (!el) return;
+  el.hidden = !isLoading;
+  if (isLoading) el.textContent = message || "Loading details…";
+}
+
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1, Number(timeoutMs || 0)));
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function setSort(key) {
@@ -135,6 +424,7 @@ function setSort(key) {
     state.sortKey = key;
     state.sortDirection = "asc";
   }
+  state.page = 1;
   sortFiltered();
   render();
 }
@@ -146,8 +436,11 @@ function sortFiltered() {
 
 function sortValue(sample, key) {
   if (key === "name") return fileName(sample);
+  if (key === "library") return sample.library_name || sample.library_id || "";
+  if (key === "status") return sample.playback_status || "";
   if (key === "path") return sample.playable_path || sample.file_path || "";
   if (key === "key") return sample.key || sample.root_note || "Unsorted";
+  if (key === "duration") return Number(sample.duration || -1);
   if (key === "bpm") return Number(sample.bpm || -1);
   if (key === "confidence") return Number(sample.confidence || 0);
   return sample[key] || "";
@@ -163,8 +456,78 @@ function render() {
   els.totalCount.textContent = `of ${state.samples.length.toLocaleString()} samples`;
   renderChart();
   renderPieChart();
+  renderLibraries();
   renderSortHeaders();
   renderList();
+  renderReview();
+}
+
+function renderLibraries() {
+  els.librarySummary.textContent = `${state.libraries.length.toLocaleString()} ${state.libraries.length === 1 ? "library" : "libraries"} loaded`;
+  if (!state.libraries.length) {
+    els.libraryCards.innerHTML = `<p class="empty-state">No libraries loaded.</p>`;
+    return;
+  }
+
+  const visibleByLibrary = new Map(countsFor(state.filtered.map((sample) => sample.library_id || "unknown")));
+  els.libraryCards.innerHTML = state.libraries.map((library) => {
+    const visible = visibleByLibrary.get(library.id) || 0;
+    const status = library.available ? `${library.available.toLocaleString()} playable` : "metadata only";
+    const missing = library.missing ? `${library.missing.toLocaleString()} missing` : "none missing";
+    const sources = (library.sources || []).slice(0, 2).map((item) => `${sourceLabel(item.source)} ${item.count.toLocaleString()}`).join(" / ");
+    return `
+      <button class="library-card" type="button" data-library="${escapeHtml(libraryOptionValue(library))}" title="${escapeHtml((library.index_paths || []).join("\n"))}">
+        <span>${escapeHtml(library.name || library.id)}</span>
+        <strong>${visible.toLocaleString()} visible / ${library.total.toLocaleString()} total</strong>
+        <small>${escapeHtml(status)} · ${escapeHtml(missing)}</small>
+        <small>${escapeHtml(sources || "No playback roots")}</small>
+      </button>
+    `;
+  }).join("");
+
+  els.libraryCards.querySelectorAll("[data-library]").forEach((button) => {
+    button.addEventListener("click", () => {
+      els.library.value = button.dataset.library || "";
+      const library = state.libraries.find((item) => libraryOptionValue(item) === els.library.value);
+      if (!library) {
+        applyFilters();
+        return;
+      }
+      loadLibrary(library.id);
+    });
+  });
+}
+
+function sourceLabel(source) {
+  const labels = {
+    organized_stored_path: "organised path",
+    organized_mounted_root: "organised mount",
+    source_stored_path: "source path",
+    source_stored_library_root: "stored source root",
+    source_mounted_root: "source mount",
+    missing: "missing",
+  };
+  return labels[source] || source || "unknown";
+}
+
+function setActiveTab(tab) {
+  state.activeTab = tab === "review" ? "review" : "browse";
+  const isReview = state.activeTab === "review";
+  els.browseTab.hidden = isReview;
+  els.reviewTab.hidden = !isReview;
+  els.browseTab.classList.toggle("is-active", !isReview);
+  els.reviewTab.classList.toggle("is-active", isReview);
+  els.tabButtons.forEach((button) => {
+    const selected = button.dataset.tab === state.activeTab;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-selected", String(selected));
+  });
+}
+
+function setPage(page) {
+  const totalPages = pageCount();
+  state.page = Math.min(Math.max(1, page), totalPages);
+  render();
 }
 
 function renderSortHeaders() {
@@ -177,7 +540,7 @@ function renderSortHeaders() {
 function renderChart() {
   const canvas = els.chart;
   const ctx = canvas.getContext("2d");
-  const stats = statsFor(state.filtered, state.samples.length);
+  const stats = state.filtersActive ? statsFor(state.filtered, state.samples.length) : (state.stats || []);
   const rowHeight = 22;
   canvas.height = Math.max(320, 60 + stats.length * rowHeight);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -216,7 +579,7 @@ function renderChart() {
 function renderPieChart() {
   const canvas = els.pieChart;
   const ctx = canvas.getContext("2d");
-  const stats = statsFor(state.filtered, state.samples.length);
+  const stats = state.filtersActive ? statsFor(state.filtered, state.samples.length) : (state.stats || []);
   canvas.height = 240;
   const visibleTotal = Math.max(1, state.filtered.length);
   let angle = -Math.PI / 2;
@@ -269,46 +632,313 @@ function renderPieChart() {
 
 function renderList() {
   els.list.innerHTML = "";
-  state.filtered.slice(0, 500).forEach((sample) => {
+  const totalPages = pageCount();
+  state.page = Math.min(Math.max(1, state.page), totalPages);
+  const start = (state.page - 1) * state.pageSize;
+  const pageSamples = state.filtered.slice(start, start + state.pageSize);
+  pageSamples.forEach((sample) => {
     const row = document.createElement("article");
     row.className = "sample-row";
+    row.dataset.sampleId = String(sample.id);
+    if (sample.id === state.selectedSampleId) {
+      row.classList.add("is-selected");
+      row.setAttribute("aria-selected", "true");
+    }
     const keyOrRoot = sample.key || sample.root_note || "Unsorted";
     const confidence = Number(sample.confidence || 0);
     const playablePath = sample.playable_path || sample.file_path || "";
+    const isPlayable = sample.playback_status === "available";
+    const library = sample.library_name || sample.library_id || "-";
+    const status = isPlayable ? "Playable" : "Missing";
+    const playbackSource = sourceLabel(sample.playback_source);
+    const duration = hasValue(sample.duration) ? formatClock(sample.duration) : "-";
     row.innerHTML = `
-      <button class="play-button" type="button">Play</button>
+      <button class="play-button" type="button">${isPlayable ? "Play" : "Missing"}</button>
       <span class="sample-name" title="${escapeHtml(fileName(sample))}">${escapeHtml(fileName(sample))}</span>
+      <span class="sample-cell" title="${escapeHtml(library)}">${escapeHtml(library)}</span>
+      <span class="sample-cell ${isPlayable ? "" : "missing"}" title="${escapeHtml(playbackSource)}">${escapeHtml(status)}</span>
       <span class="sample-path sample-meta" title="${escapeHtml(playablePath)}">${escapeHtml(playablePath)}</span>
       <span class="sample-cell" title="${escapeHtml(keyOrRoot)}">${escapeHtml(keyOrRoot)}</span>
       <span class="sample-cell" title="${escapeHtml(sample.category || "Unknown")}">${escapeHtml(sample.category || "Unknown")}</span>
       <span class="sample-cell" title="${escapeHtml(sample.type || "Unknown")}">${escapeHtml(sample.type || "Unknown")}</span>
+      <span class="sample-cell" title="${escapeHtml(sample.subtype || "Unknown")}">${escapeHtml(sample.subtype || "-")}</span>
       <span class="sample-cell" title="${escapeHtml(sample.source || "Unknown")}">${escapeHtml(sample.source || "-")}</span>
       <span class="sample-cell" title="${escapeHtml(sample.brightness || "Unknown")}">${escapeHtml(sample.brightness || "-")}</span>
+      <span class="sample-cell" title="${escapeHtml(sample.warmth || "Unknown")}">${escapeHtml(sample.warmth || "-")}</span>
+      <span class="sample-cell" title="${escapeHtml(hasValue(sample.duration) ? `${Number(sample.duration).toFixed(3)} sec` : "Unknown")}">${escapeHtml(duration)}</span>
       <span class="sample-cell" title="${escapeHtml(sample.bpm ? `${sample.bpm} BPM` : "Unknown")}">${sample.bpm ? `${escapeHtml(sample.bpm)} BPM` : "-"}</span>
       <span class="sample-cell ${confidence < 0.35 ? "low" : ""}" title="${confidence.toFixed(2)}">${confidence.toFixed(2)}</span>
     `;
-    row.querySelector("button").addEventListener("click", () => playSample(sample));
+    row.addEventListener("click", () => selectSample(sample, false));
+    row.querySelector("button").addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (isPlayable) {
+        playSample(sample);
+      } else {
+        selectSample(sample, false);
+      }
+    });
     els.list.appendChild(row);
   });
 
-  if (state.filtered.length > 500) {
-    const note = document.createElement("p");
-    note.className = "sample-meta";
-    note.textContent = `Showing first 500 of ${state.filtered.length.toLocaleString()} matching samples. Use filters to narrow the list.`;
-    els.list.appendChild(note);
+  renderPagination(start, pageSamples.length, totalPages);
+}
+
+function renderPagination(start, renderedCount, totalPages) {
+  if (!state.filtered.length) {
+    els.pageSummary.textContent = "Showing 0 samples";
+  } else {
+    const end = start + renderedCount;
+    els.pageSummary.textContent = `Showing ${(start + 1).toLocaleString()}-${end.toLocaleString()} of ${state.filtered.length.toLocaleString()} matching samples`;
   }
+  els.pageIndicator.textContent = `Page ${state.page.toLocaleString()} of ${totalPages.toLocaleString()}`;
+  els.prevPage.disabled = state.page <= 1;
+  els.nextPage.disabled = state.page >= totalPages;
+}
+
+function pageCount() {
+  return Math.max(1, Math.ceil(state.filtered.length / state.pageSize));
+}
+
+function renderReview() {
+  const reviewSamples = state.samples
+    .filter((sample) => sample.needs_review && (state.reviewIncludeReviewed || !sample.reviewed))
+    .sort((a, b) => Number(a.confidence || 0) - Number(b.confidence || 0) || fileName(a).localeCompare(fileName(b)));
+  const reasonCounts = countsFor(reviewSamples.flatMap((sample) => sample.review_reasons || []));
+  const typeCounts = countsFor(reviewSamples.map((sample) => sample.type || "Unknown"));
+  const keyDisagreements = reviewSamples.filter((sample) => (sample.review_reasons || []).some((reason) => reason.includes("key_disagreement"))).length;
+  const lowestConfidence = reviewSamples.length ? Number(reviewSamples[0].confidence || 0).toFixed(3) : "-";
+  const percentage = state.samples.length ? (reviewSamples.length / state.samples.length) * 100 : 0;
+
+  els.reviewTotal.textContent = reviewSamples.length.toLocaleString();
+  els.reviewPercent.textContent = `${percentage.toFixed(1)}%`;
+  els.reviewReasonCount.textContent = reasonCounts.length.toLocaleString();
+  els.reviewLowestConfidence.textContent = lowestConfidence;
+  els.reviewKeyDisagreements.textContent = keyDisagreements.toLocaleString();
+  renderCountList(els.reviewReasonList, reasonCounts, "No review reasons yet");
+  renderCountList(els.reviewTypeList, typeCounts, "No flagged types yet");
+  renderReviewExamples(reviewSamples.slice(0, 25));
+}
+
+function renderCountList(container, rows, emptyText) {
+  if (!rows.length) {
+    container.innerHTML = `<p class="empty-state">${escapeHtml(emptyText)}</p>`;
+    return;
+  }
+
+  container.innerHTML = rows.map(([label, count]) => `
+    <div class="review-row" title="${escapeHtml(label)}: ${count.toLocaleString()} samples">
+      <span>${escapeHtml(label)}</span>
+      <strong>${count.toLocaleString()}</strong>
+    </div>
+  `).join("");
+}
+
+function renderReviewExamples(samples) {
+  els.reviewExampleList.innerHTML = "";
+  if (!samples.length) {
+    els.reviewExampleList.innerHTML = `<p class="empty-state">No samples need review.</p>`;
+    return;
+  }
+
+  samples.forEach((sample) => {
+    const row = document.createElement("article");
+    row.className = "review-example";
+    row.dataset.sampleId = String(sample.id);
+    if (sample.id === state.selectedSampleId) {
+      row.classList.add("is-selected");
+      row.setAttribute("aria-selected", "true");
+    }
+    const reasons = (sample.review_reasons || []).join(", ") || "needs_review";
+    const isPlayable = sample.playback_status === "available";
+    row.innerHTML = `
+      <button class="play-button" type="button">${isPlayable ? "Play" : "Missing"}</button>
+      <span class="sample-name" title="${escapeHtml(fileName(sample))}">${escapeHtml(fileName(sample))}</span>
+      <span class="sample-cell" title="${escapeHtml(sample.key || sample.root_note || "Unsorted")}">${escapeHtml(sample.key || sample.root_note || "Unsorted")}</span>
+      <span class="sample-cell ${Number(sample.confidence || 0) < 0.55 ? "low" : ""}" title="${Number(sample.confidence || 0).toFixed(3)}">${Number(sample.confidence || 0).toFixed(3)}</span>
+      <span class="review-reasons" title="${escapeHtml(reasons)}">${escapeHtml(reasons)}</span>
+    `;
+    row.addEventListener("click", () => selectSample(sample, false));
+    row.querySelector("button").addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (isPlayable) {
+        playSample(sample);
+      } else {
+        selectSample(sample, false);
+      }
+    });
+    els.reviewExampleList.appendChild(row);
+  });
+}
+
+function countsFor(values) {
+  const counts = new Map();
+  values.filter(Boolean).forEach((value) => {
+    counts.set(value, (counts.get(value) || 0) + 1);
+  });
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
 }
 
 function playSample(sample) {
+  selectSample(sample, true);
+}
+
+function selectSample(sample, autoPlay = false) {
+  state.selectedSampleId = sample.id;
+  markSelectedInLists(sample.id);
+  scrollToPlayerBar();
+  els.playerBar.classList.remove("is-empty");
   els.nowPlaying.textContent = fileName(sample);
   els.nowPlaying.title = fileName(sample);
+  renderReviewActions(sample);
   renderNowPlayingDetails(sample);
-  els.player.src = `/api/audio?id=${sample.id}`;
-  els.player.play();
-  drawWaveform(sample);
+  setDetailsLoading(false);
+
+  if (sample.playback_status === "available") {
+    els.player.src = `/api/audio?id=${sample.id}`;
+    els.player.preload = "metadata";
+    els.player.load();
+    if (autoPlay) {
+      els.player.play().catch(() => undefined);
+    }
+    drawWaveform(sample);
+  } else {
+    els.player.pause();
+    els.player.removeAttribute("src");
+    els.player.load();
+    drawWaveformUnavailable();
+  }
+  ensureSampleDetails(sample.id);
+}
+
+async function ensureSampleDetails(sampleId) {
+  const current = state.samples.find((item) => item.id === sampleId) || null;
+  if (current && (Array.isArray(current.mfcc) || Array.isArray(current.notes) || Array.isArray(current.chords))) {
+    return;
+  }
+  try {
+    if (state.selectedSampleId === sampleId) {
+      setDetailsLoading(true, "Loading details…");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const response = await fetchWithTimeout(`/api/sample?id=${encodeURIComponent(sampleId)}`, 60 * 1000);
+    const data = await response.json();
+    const full = data.sample;
+    if (!full) return;
+    const merged = { ...(current || {}), ...full };
+    const idx = state.samples.findIndex((item) => item.id === sampleId);
+    if (idx >= 0) {
+      state.samples[idx] = merged;
+    }
+    if (state.selectedSampleId === sampleId) {
+      setDetailsLoading(false);
+      renderNowPlayingDetails(merged);
+      if (merged.playback_status === "available") {
+        drawWaveform(merged);
+      }
+    }
+  } catch (_) {
+    if (state.selectedSampleId === sampleId) {
+      setDetailsLoading(false);
+      showToast("Could not load sample details. Try clicking the sample again.", { title: "Details Failed", kind: "error" });
+    }
+    return;
+  }
+}
+
+function renderReviewActions(sample) {
+  if (!els.reviewActions) return;
+  const writable = Boolean(sample.index_writable);
+  const reviewed = Boolean(sample.reviewed);
+  const label = reviewed ? "Mark unreviewed" : "Mark reviewed";
+  const note = writable ? "" : "Review state is read-only (open a .sqlite index to edit).";
+  els.reviewActions.innerHTML = `
+    <button class="review-button" type="button" ${writable ? "" : "disabled"}>${escapeHtml(label)}</button>
+    <span class="review-note">${escapeHtml(note)}</span>
+  `;
+  const button = els.reviewActions.querySelector("button");
+  if (button) {
+    button.addEventListener("click", () => {
+      if (!writable) return;
+      setReviewed(sample.id, !reviewed);
+    });
+  }
+}
+
+async function setReviewed(sampleId, reviewed) {
+  const response = await fetch("/api/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: sampleId, reviewed }),
+  });
+  if (!response.ok) {
+    let message = `Failed to update review state (${response.status})`;
+    try {
+      message = await response.text();
+    } catch (_) {}
+    alert(message);
+    return;
+  }
+  const data = await response.json();
+  const updated = data.sample;
+  if (!updated) return;
+  const idx = state.samples.findIndex((item) => item.id === updated.id);
+  if (idx >= 0) {
+    state.samples[idx] = { ...state.samples[idx], ...updated };
+  }
+  applyFilters();
+  const refreshed = state.samples.find((item) => item.id === updated.id) || null;
+  if (refreshed) selectSample(refreshed, false);
 }
 
 function renderNowPlayingDetails(sample) {
+  const deepOverallConfidence = hasValue(sample.deep_analysis_confidence)
+    ? Number(sample.deep_analysis_confidence).toFixed(2)
+    : "-";
+  const deepKey = sample.deep_key || sample.deep_root || "-";
+  const deepKeyConfidence = hasValue(sample.deep_key_confidence)
+    ? Number(sample.deep_key_confidence).toFixed(2)
+    : "-";
+  const deepBpm = hasValue(sample.deep_bpm) ? `${Number(sample.deep_bpm).toFixed(2)} BPM` : "-";
+  const deepBpmConfidence = hasValue(sample.deep_bpm_confidence)
+    ? Number(sample.deep_bpm_confidence).toFixed(2)
+    : "-";
+  const deepTimingConfidence = hasValue(sample.deep_timing_confidence)
+    ? Number(sample.deep_timing_confidence).toFixed(2)
+    : "-";
+  const deepNoteConfidence = hasValue(sample.deep_note_confidence)
+    ? Number(sample.deep_note_confidence).toFixed(2)
+    : "-";
+  const deepTuning = hasValue(sample.deep_tuning_hz) ? `${Number(sample.deep_tuning_hz).toFixed(2)} Hz` : "-";
+  const deepRoute = sample.deep_route_family || sample.deep_note_backend || sample.deep_tonal_backend || "-";
+  const deepNotesPreview = previewList(sample.deep_notes, 12);
+  const deepChordsPreview = previewList(sample.deep_chords, 8);
+  const deepTickCount = Array.isArray(sample.deep_ticks) ? sample.deep_ticks.length : 0;
+  const deepOnsetCount = hasValue(sample.deep_onset_count)
+    ? Number(sample.deep_onset_count).toLocaleString()
+    : (Array.isArray(sample.deep_onsets) ? sample.deep_onsets.length.toLocaleString() : "-");
+  const deepNoteCount = hasValue(sample.deep_note_count)
+    ? Number(sample.deep_note_count).toLocaleString()
+    : (Array.isArray(sample.deep_note_events) ? sample.deep_note_events.length.toLocaleString() : "-");
+  const deepEngineSummary = [
+    sample.deep_tonal_backend ? `tonal ${sample.deep_tonal_backend}` : "",
+    sample.deep_note_backend ? `notes ${sample.deep_note_backend}` : "",
+    sample.deep_timing_backend ? `timing ${sample.deep_timing_backend}` : "",
+    sample.deep_tuning_backend ? `tuning ${sample.deep_tuning_backend}` : "",
+  ].filter(Boolean).join(" · ") || "-";
+  const deepStatusSummary = [
+    sample.deep_analysis_status ? `overall ${sample.deep_analysis_status}` : "",
+    sample.deep_note_backend_status ? `note backend ${sample.deep_note_backend_status}` : "",
+    sample.deep_note_backend_error ? `note error ${sample.deep_note_backend_error}` : "",
+    sample.deep_rhythm_status ? `rhythm ${sample.deep_rhythm_status}` : "",
+    sample.deep_rhythm_error ? `rhythm error ${sample.deep_rhythm_error}` : "",
+  ].filter(Boolean).join(" · ") || "-";
+  const deepBreakdown = sample.deep_analysis_confidence_breakdown?.components || {};
+  const deepBreakdownSummary = [
+    hasValue(deepBreakdown.tonal) ? `tonal ${Number(deepBreakdown.tonal).toFixed(2)}` : "",
+    hasValue(deepBreakdown.rhythm) ? `rhythm ${Number(deepBreakdown.rhythm).toFixed(2)}` : "",
+    hasValue(deepBreakdown.note) ? `notes ${Number(deepBreakdown.note).toFixed(2)}` : "",
+  ].filter(Boolean).join(" · ") || "-";
   const details = [
     ["Key", sample.key || sample.root_note || "Unsorted"],
     ["Notes", Array.isArray(sample.notes) && sample.notes.length ? sample.notes.join(", ") : "-"],
@@ -321,15 +951,51 @@ function renderNowPlayingDetails(sample) {
     ["Fundamental", hasValue(sample.fundamental_freq) ? `${sample.fundamental_freq} Hz` : "-"],
     ["Timbre", [sample.brightness, sample.warmth, sample.roughness].filter(Boolean).join(" / ") || "-"],
     ["Source", sample.source || "-"],
+    ["Library", sample.library_name || sample.library_id || "-"],
+    ["Playback", sample.playback_status === "available" ? `Available / ${sourceLabel(sample.playback_source)}` : "Missing"],
+    ["Reviewed", sample.reviewed ? "Yes" : "No"],
     ["Confidence", hasValue(sample.confidence) ? Number(sample.confidence).toFixed(2) : "-"],
+    ["Deep overall", deepOverallConfidence],
+    ["Deep key", deepKey],
+    ["Deep key conf", deepKeyConfidence],
+    ["Deep BPM", deepBpm],
+    ["Deep BPM conf", deepBpmConfidence],
+    ["Deep note conf", deepNoteConfidence],
+    ["Deep timing conf", deepTimingConfidence],
+    ["Deep tuning", deepTuning],
+    ["Deep route", deepRoute],
+    ["Deep note count", deepNoteCount],
+    ["Deep onsets", deepOnsetCount],
   ];
 
-  els.nowPlayingDetails.innerHTML = details.map(([label, value]) => `
-    <div class="detail-chip" title="${escapeHtml(label)}: ${escapeHtml(value)}">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
-    </div>
-  `).join("");
+  const deepPanels = [
+    ["Deep notes", deepNotesPreview],
+    ["Deep chords", deepChordsPreview],
+    ["Deep timing", deepTickCount ? `${deepTickCount.toLocaleString()} ticks · ${deepBpm}` : (deepOnsetCount !== "-" ? `${deepOnsetCount} onsets` : deepBpm)],
+    ["Deep confidence", deepBreakdownSummary],
+    ["Deep engines", deepEngineSummary],
+    ["Deep status", deepStatusSummary],
+  ].filter(([, value]) => value && value !== "-");
+
+  els.nowPlayingDetails.innerHTML = `
+    <div id="detailsLoading" class="details-loading" hidden>Loading details…</div>
+    ${details.map(([label, value]) => `
+      <div class="detail-chip" title="${escapeHtml(label)}: ${escapeHtml(value)}">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(value)}</strong>
+      </div>
+    `).join("")}
+    ${deepPanels.length ? `
+      <div class="detail-panels">
+        ${deepPanels.map(([label, value]) => `
+          <section class="detail-panel" title="${escapeHtml(label)}: ${escapeHtml(value)}">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </section>
+        `).join("")}
+      </div>
+    ` : ""}
+  `;
   renderPiano(sample);
   renderSuggestions(sample);
   renderFrequencyChart(sample);
@@ -340,9 +1006,31 @@ function hasValue(value) {
   return value !== undefined && value !== null && value !== "";
 }
 
+function formatClock(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return "-";
+  const rounded = Math.round(value);
+  const mins = Math.floor(rounded / 60);
+  const secs = rounded % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function previewList(values, limit = 8) {
+  if (!Array.isArray(values) || !values.length) return "-";
+  const shown = values.slice(0, limit).map((value) => String(value));
+  const suffix = values.length > limit ? ` +${values.length - limit} more` : "";
+  return `${shown.join(", ")}${suffix}`;
+}
+
 function renderPiano(sample) {
-  const root = normalizeNote(sample.root_note || noteFromKey(sample.key));
-  const notes = Array.isArray(sample.notes) ? sample.notes.map(normalizeNote).filter(Boolean) : [];
+  const musicalRecord = sample.musical_record || {};
+  const root = normalizeNote(musicalRecord.tonic || sample.root_note || noteFromKey(sample.key) || sample.deep_root || noteFromKey(sample.deep_key));
+  const notesSource = Array.isArray(musicalRecord.notes) && musicalRecord.notes.length
+    ? musicalRecord.notes
+    : (Array.isArray(sample.notes) && sample.notes.length
+    ? sample.notes
+    : (Array.isArray(sample.deep_notes) ? sample.deep_notes : []));
+  const notes = notesSource.map(normalizeNote).filter(Boolean);
   const activeNotes = new Set(notes);
   if (root) activeNotes.add(root);
 
@@ -361,19 +1049,105 @@ function renderPiano(sample) {
 }
 
 function renderSuggestions(sample) {
-  const root = normalizeNote(sample.root_note || noteFromKey(sample.key));
-  const mode = modeFromKey(sample.key);
-  if (!root) {
-    els.suggestions.innerHTML = `<div class="suggestion-row">No key suggestion yet</div>`;
+  const context = musicalContextForSample(sample);
+  const musicalRecord = context.musical_record || {};
+  const compatibility = context.compatibility || {};
+  const mood = context.mood_profile || {};
+  const transitions = Array.isArray(context.transition_suggestions) ? context.transition_suggestions : [];
+  const keySuggestions = Array.isArray(compatibility.keys) ? compatibility.keys : [];
+  const progressions = Array.isArray(compatibility.progressions) ? compatibility.progressions : [];
+
+  if (!musicalRecord.tonic && !musicalRecord.key) {
+    els.suggestions.innerHTML = `<div class="suggestion-empty">No musical suggestions yet</div>`;
     return;
   }
 
-  const suggestions = relatedKeys(root, mode);
-  els.suggestions.innerHTML = suggestions.map((item) => `
-    <div class="suggestion-row" title="${escapeHtml(item.label)}: ${escapeHtml(item.notes.join(", "))}">
-      ${escapeHtml(item.label)} · ${escapeHtml(item.notes.join(" "))} · ${escapeHtml(item.chords.join(" / "))}
-    </div>
-  `).join("");
+  const noteLine = Array.isArray(musicalRecord.notes) && musicalRecord.notes.length
+    ? musicalRecord.notes.join(" ")
+    : "-";
+  const recordScale = musicalRecord.scale || (musicalRecord.tonic && musicalRecord.mode ? `${musicalRecord.tonic} ${musicalRecord.mode}` : "-");
+  const recordKey = musicalRecord.key || "-";
+  const bpmText = hasValue(musicalRecord.bpm) ? `${Number(musicalRecord.bpm).toFixed(2)} BPM` : "-";
+  const tuningText = hasValue(musicalRecord.tuning_hz) ? `${Number(musicalRecord.tuning_hz).toFixed(2)} Hz` : "-";
+  const confidenceText = hasValue(musicalRecord.confidence) ? Number(musicalRecord.confidence).toFixed(2) : "-";
+
+  const recordCard = `
+    <section class="suggestion-card suggestion-record">
+      <div class="suggestion-card-title">Musical Record</div>
+      <div class="suggestion-grid">
+        <div><span>Key</span><strong>${escapeHtml(recordKey)}</strong></div>
+        <div><span>Tonic</span><strong>${escapeHtml(musicalRecord.tonic || "-")}</strong></div>
+        <div><span>Scale</span><strong>${escapeHtml(recordScale)}</strong></div>
+        <div><span>BPM</span><strong>${escapeHtml(bpmText)}</strong></div>
+        <div><span>Tuning</span><strong>${escapeHtml(tuningText)}</strong></div>
+        <div><span>Confidence</span><strong>${escapeHtml(confidenceText)}</strong></div>
+      </div>
+      <div class="suggestion-notes"><span>Notes</span><strong>${escapeHtml(noteLine)}</strong></div>
+    </section>
+  `;
+
+  const keyCards = keySuggestions.length ? `
+    <section class="suggestion-card suggestion-keys">
+      <div class="suggestion-card-title">Compatible Keys</div>
+      ${keySuggestions.map((item) => `
+        <div class="suggestion-row" title="${escapeHtml(item.label)}: ${escapeHtml((item.notes || []).join(", "))}">
+          <div>
+            <strong>${escapeHtml(item.label)}</strong>
+            <div>${escapeHtml(item.key || item.scale || "-")}</div>
+          </div>
+          <div class="suggestion-meta">${escapeHtml((item.chords || []).join(" / ") || "-")}</div>
+        </div>
+      `).join("")}
+    </section>
+  ` : "";
+
+  const progressionCards = progressions.length ? `
+    <section class="suggestion-card suggestion-progressions">
+      <div class="suggestion-card-title">Progressions To Try</div>
+      ${progressions.map((item, index) => `
+        <div class="suggestion-progression">
+          <div class="suggestion-row">
+            <div>
+              <strong>${escapeHtml(item.name || `Progression ${index + 1}`)}</strong>
+              <div>${escapeHtml((item.roman || []).join(" - ") || "-")}</div>
+            </div>
+            <button class="midi-button" type="button" data-midi-progress="${index}">MIDI</button>
+          </div>
+          <div class="suggestion-meta">${escapeHtml((item.progression || []).join(" -> ") || "-")}</div>
+          <div class="suggestion-meta">Play: ${escapeHtml((item.play_order || item.notes_to_play || []).join(" -> ") || "-")}</div>
+          <div class="suggestion-meta">Mood: ${escapeHtml(item.mood || "-")}</div>
+        </div>
+      `).join("")}
+    </section>
+  ` : "";
+
+  const moodCard = (mood.primary || transitions.length) ? `
+    <section class="suggestion-card suggestion-mood">
+      <div class="suggestion-card-title">Mood & Transitions</div>
+      <div class="suggestion-row">
+        <div>
+          <strong>${escapeHtml(mood.primary || "neutral")}</strong>
+          <div>${escapeHtml((mood.supporting || []).join(", ") || "No supporting moods yet")}</div>
+        </div>
+      </div>
+      ${transitions.map((item) => `
+        <div class="suggestion-row">
+          <div>
+            <strong>${escapeHtml(item.label || "-")}</strong>
+            <div>${escapeHtml(item.why || "-")}</div>
+          </div>
+        </div>
+      `).join("")}
+    </section>
+  ` : "";
+
+  els.suggestions.innerHTML = `${recordCard}${keyCards}${progressionCards}${moodCard}`;
+  els.suggestions.querySelectorAll("[data-midi-progress]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const progressionIndex = Number(button.dataset.midiProgress || 0);
+      downloadProgressionMidi(sample, progressionIndex);
+    });
+  });
 }
 
 function renderFrequencyChart(sample) {
@@ -472,10 +1246,17 @@ async function drawWaveform(sample) {
     const channel = audioBuffer.getChannelData(0);
     renderWaveform(channel);
   } catch (error) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#c74343";
-    ctx.fillText("Waveform unavailable", 16, 28);
+    drawWaveformUnavailable(true);
   }
+}
+
+function drawWaveformUnavailable(isError = false) {
+  const canvas = els.waveform;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = isError ? "#c74343" : "#60706b";
+  ctx.font = "700 13px system-ui";
+  ctx.fillText("Waveform unavailable", 16, 28);
 }
 
 function renderWaveform(channel) {
@@ -526,8 +1307,10 @@ function statsFor(samples, denominator = samples.length) {
 }
 
 function fileName(sample) {
+  const name = sample.name;
+  if (name) return String(name);
   const path = sample.playable_path || sample.destination || sample.file_path || "Unknown";
-  return path.split("/").pop();
+  return String(path).split("/").pop();
 }
 
 function colorForIndex(index) {
@@ -596,6 +1379,56 @@ function diatonicChords(root, mode) {
     return [notes[0], `${notes[1]}m`, `${notes[2]}m`, notes[3], notes[4], `${notes[5]}m`];
   }
   return [`${notes[0]}m`, `${notes[2]}`, `${notes[3]}m`, `${notes[4]}m`, `${notes[5]}`];
+}
+
+function musicalContextForSample(sample) {
+  if (sample.musical_record || sample.compatibility || sample.mood_profile) {
+    return {
+      musical_record: sample.musical_record || {},
+      compatibility: sample.compatibility || {},
+      mood_profile: sample.mood_profile || {},
+      transition_suggestions: sample.transition_suggestions || [],
+    };
+  }
+  const root = normalizeNote(sample.root_note || noteFromKey(sample.key) || sample.deep_root || noteFromKey(sample.deep_key));
+  const mode = modeFromKey(sample.deep_key || sample.key) || "minor";
+  return {
+    musical_record: {
+      tonic: root || "",
+      mode,
+      key: sample.deep_key || sample.key || "",
+      scale: root ? `${root} ${mode}` : "",
+      notes: Array.isArray(sample.deep_notes) && sample.deep_notes.length ? sample.deep_notes : (sample.notes || []),
+      chords: Array.isArray(sample.deep_chords) && sample.deep_chords.length ? sample.deep_chords : (sample.chords || []),
+      bpm: sample.deep_bpm || sample.bpm || null,
+      tuning_hz: sample.deep_tuning_hz || null,
+      confidence: sample.deep_analysis_confidence || sample.confidence || null,
+    },
+    compatibility: root ? { keys: relatedKeys(root, mode), progressions: [] } : {},
+    mood_profile: {},
+    transition_suggestions: [],
+  };
+}
+
+async function downloadProgressionMidi(sample, progressionIndex) {
+  try {
+    const response = await fetchWithTimeout(
+      `/api/sample-midi?id=${encodeURIComponent(sample.id)}&progression=${encodeURIComponent(progressionIndex)}`,
+      60 * 1000,
+    );
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const baseName = String(fileName(sample) || "sample").replace(/\.[^.]+$/, "");
+    link.href = url;
+    link.download = `${baseName}_progression_${progressionIndex + 1}.mid`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    showToast("Could not generate MIDI for this progression yet.", { title: "MIDI Failed", kind: "error" });
+  }
 }
 
 function drawCanvasTitle(ctx, text, x, y) {

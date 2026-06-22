@@ -1,22 +1,28 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "sample-key-indexer"
-version = "0.1.0"
+version = "0.4.0"
 description = "Local audio sample library key indexing and organisation tool."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "basic-pitch>=0.4.0",
+  "essentia>=2.1b6.dev1389",
   "librosa>=0.10.0",
   "numpy>=1.23",
+  "pretty_midi>=0.2.10",
   "soundfile>=0.12",
   "tqdm>=4.66",
 ]
 
 [project.scripts]
 sample-key-indexer = "sample_key_indexer.cli:main"
+sample-key-indexer-review = "sample_key_indexer.review_report:main"
+sample-key-indexer-kitchen-sink = "sample_key_indexer.kitchen_sink:main"
+sample-key-indexer-sanitize = "sample_key_indexer.sanitize:main"
 sample-key-indexer-web = "sample_key_indexer.web_app:main"
 
 [tool.setuptools.package-data]

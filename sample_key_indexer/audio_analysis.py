@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
+import json
 from pathlib import Path
+import re
+import shutil
+import subprocess
+import warnings
+import os
+import tempfile
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -12,9 +21,24 @@ from sample_key_indexer.models import AnalysisResult, file_signature
 NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 MAJOR_PROFILE = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
 MINOR_PROFILE = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
+DRUM_OR_NOISE_TYPES = {"Kick", "Snare", "Hat", "Perc", "DrumLoops", "FX", "FXLoops"}
+FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
+ENGINE_PRESETS = {
+    "fast": ("librosa",),
+    "balanced": ("librosa", "essentia"),
+    "deep": ("librosa", "essentia"),
+}
 
 
-def validate_audio_backend() -> None:
+@dataclass(frozen=True)
+class AudioProbe:
+    duration: float | None = None
+    sample_rate: int | None = None
+    backend: str = "unknown"
+    error: str | None = None
+
+
+def validate_audio_backend(engines: tuple[str, ...] | None = None) -> list[str]:
     import lzma
 
     import librosa
@@ -22,87 +46,537 @@ def validate_audio_backend() -> None:
     import soundfile
 
     _ = (lzma, librosa, numpy, soundfile)
+    warnings: list[str] = []
+    for engine in engines or ("librosa",):
+        if engine == "essentia" and not _essentia_available():
+            warnings.append("Essentia is not installed; V2 will keep using librosa-only decisions for now.")
+    return warnings
 
 
-def analyze_file(path: Path, analysis_duration: float = 30.0, sample_rate: int = 22050) -> AnalysisResult:
+def analyze_file(
+    path: Path,
+    analysis_duration: float = 30.0,
+    sample_rate: int = 22050,
+    analysis_profile: str = "fast",
+    engines: tuple[str, ...] | None = None,
+) -> AnalysisResult:
     try:
-        import librosa
-
-        y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
-        if y.size == 0:
-            return _error_result(path, "empty audio")
-
-        duration, original_sample_rate = audio_file_info(path, fallback_duration=float(librosa.get_duration(y=y, sr=sr)), fallback_sr=sr)
-        root_note, root_confidence, fundamental_freq = detect_root_note(y, sr)
-        key, key_confidence = detect_key(y, sr, root_note)
-        category, sample_type = classify_sample(path, duration, y, sr)
-        confidence = confidence_for(root_confidence, key_confidence, sample_type, key)
-        features = extract_audio_features(y, sr, fundamental_freq)
-        notes = detect_notes(y, sr)
-        bpm = detect_bpm(y, sr, duration)
-        signature = file_signature(path)
-
-        return AnalysisResult(
-            file_path=str(path),
-            root_note=root_note,
-            key=key,
-            confidence=confidence,
-            category=category,
-            type=sample_type,
-            sample_rate=original_sample_rate,
-            format=path.suffix.lower().lstrip("."),
-            scale_confidence=key_confidence,
-            notes=notes,
-            chords=estimate_chords(key, notes, duration, category),
-            bpm=bpm,
-            rms_db=features["rms_db"],
-            peak_db=features["peak_db"],
-            dynamic_range_db=features["dynamic_range_db"],
-            spectral_centroid=features["spectral_centroid"],
-            spectral_bandwidth=features["spectral_bandwidth"],
-            rolloff=features["rolloff"],
-            fundamental_freq=features["fundamental_freq"],
-            brightness=features["brightness"],
-            warmth=features["warmth"],
-            roughness=features["roughness"],
-            mfcc=features["mfcc"],
-            subtype=estimate_subtype(sample_type, path),
-            source=estimate_source(sample_type, path),
-            librosa_root=root_note,
-            librosa_root_confidence=root_confidence,
-            librosa_key=key,
-            librosa_key_confidence=key_confidence,
-            duration=round(duration, 3),
-            size=int(signature["size"]),
-            mtime=float(signature["mtime"]),
-        )
+        with warnings.catch_warnings(record=True) as captured_warnings:
+            warnings.simplefilter("always")
+            result = _analyze_file(path, analysis_duration, sample_rate, analysis_profile, engines)
+        warning_messages = summarize_warnings(captured_warnings)
+        if warning_messages:
+            result = replace(result, analysis_warnings=unique_strings([*result.analysis_warnings, *warning_messages]))
+        return result
     except Exception as exc:
         return _error_result(path, str(exc))
 
 
+def _analyze_file(
+    path: Path,
+    analysis_duration: float,
+    sample_rate: int,
+    analysis_profile: str,
+    engines: tuple[str, ...] | None,
+) -> AnalysisResult:
+    import librosa
+
+    selected_engines = normalize_engines(analysis_profile, engines)
+    analysis_warnings: list[str] = []
+    try:
+        # Some decoders (notably libmpg123) write directly to fd=2, bypassing Python's sys.stderr.
+        # Capture that so large runs don't get spammed, while keeping a diagnostic trail in metadata.
+        if path.suffix.lower() == ".mp3":
+            with capture_stderr_fd(max_bytes=4096) as captured:
+                y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
+            record_decoder_stderr(analysis_warnings, captured.text)
+        else:
+            y, sr = librosa.load(path, sr=sample_rate, mono=True, duration=analysis_duration)
+    except Exception as exc:
+        return _error_result(path, str(exc), analysis_warnings=analysis_warnings)
+    if y.size == 0:
+        return _error_result(path, "empty audio")
+
+    duration, original_sample_rate = audio_file_info(path, fallback_duration=float(librosa.get_duration(y=y, sr=sr)), fallback_sr=sr)
+    tiny_reason = tiny_audio_reason(y, sr, duration)
+    if tiny_reason:
+        return tiny_audio_result(path, y, sr, duration, original_sample_rate, selected_engines, analysis_profile, tiny_reason)
+
+    root_note, root_confidence, fundamental_freq = detect_root_note(y, sr)
+    key, key_confidence = detect_key(y, sr, root_note)
+    category, sample_type = classify_sample(path, duration, y, sr)
+    confidence = confidence_for(root_confidence, key_confidence, sample_type, key)
+    filename_key = detect_filename_key(path)
+    features = extract_audio_features(y, sr, fundamental_freq)
+    notes = detect_notes(y, sr)
+    filename_bpm = detect_filename_bpm(path)
+    bpm, bpm_review_reasons = detect_bpm_with_review(y, sr, duration, expected_bpm=filename_bpm, sample_type=sample_type)
+    signature = file_signature(path)
+    essentia_key, essentia_root, essentia_confidence, essentia_warning = analyze_with_essentia(y, sr, selected_engines)
+    if essentia_warning:
+        analysis_warnings.append(essentia_warning)
+    final_key, final_root, final_confidence, review_reasons = choose_consensus_key(
+        librosa_key=key,
+        librosa_root=root_note,
+        librosa_confidence=confidence,
+        librosa_key_confidence=key_confidence,
+        librosa_root_confidence=root_confidence,
+        essentia_key=essentia_key,
+        essentia_root=essentia_root,
+        essentia_confidence=essentia_confidence,
+        filename_key=filename_key,
+        sample_type=sample_type,
+    )
+    review_reasons = [*review_reasons, *bpm_review_reasons]
+    final_scale_confidence = key_confidence
+    if final_key == essentia_key:
+        final_scale_confidence = max(final_scale_confidence, essentia_confidence)
+
+    return AnalysisResult(
+        file_path=str(path),
+        root_note=final_root,
+        key=final_key,
+        confidence=final_confidence,
+        category=category,
+        type=sample_type,
+        sample_rate=original_sample_rate,
+        format=path.suffix.lower().lstrip("."),
+        scale_confidence=round(final_scale_confidence, 3),
+        notes=notes,
+        chords=estimate_chords(final_key, notes, duration, category),
+        bpm=bpm,
+        rms_db=features["rms_db"],
+        peak_db=features["peak_db"],
+        dynamic_range_db=features["dynamic_range_db"],
+        spectral_centroid=features["spectral_centroid"],
+        spectral_bandwidth=features["spectral_bandwidth"],
+        rolloff=features["rolloff"],
+        fundamental_freq=features["fundamental_freq"],
+        brightness=features["brightness"],
+        warmth=features["warmth"],
+        roughness=features["roughness"],
+        mfcc=features["mfcc"],
+        subtype=estimate_subtype(sample_type, path),
+        source=estimate_source(sample_type, path),
+        librosa_root=root_note,
+        librosa_root_confidence=root_confidence,
+        librosa_key=key,
+        librosa_key_confidence=key_confidence,
+        essentia_root=essentia_root,
+        essentia_key=essentia_key,
+        essentia_key_confidence=essentia_confidence,
+        filename_key=filename_key,
+        analysis_profile=analysis_profile,
+        analysis_engines=list(selected_engines),
+        analysis_warnings=analysis_warnings,
+        needs_review=bool(review_reasons),
+        review_reasons=review_reasons,
+        duration=round(duration, 3),
+        size=int(signature["size"]),
+        mtime=float(signature["mtime"]),
+    )
+
+
 def audio_file_info(path: Path, fallback_duration: float, fallback_sr: int) -> tuple[float, int]:
+    probe = probe_audio_file(path)
+    if probe.duration is not None:
+        return round(float(probe.duration), 3), int(probe.sample_rate or fallback_sr)
+    return round(float(fallback_duration), 3), int(fallback_sr)
+
+
+def tiny_audio_reason(y: np.ndarray, sr: int, duration: float) -> str | None:
+    import numpy as np
+
+    if duration < 0.08 or y.size < int(sr * 0.08):
+        return "tiny_audio"
+    if float(np.nanmax(np.abs(y))) < 1e-5:
+        return "near_silence"
+    return None
+
+
+def tiny_audio_result(
+    path: Path,
+    y: np.ndarray,
+    sr: int,
+    duration: float,
+    original_sample_rate: int,
+    selected_engines: tuple[str, ...],
+    analysis_profile: str,
+    reason: str,
+) -> AnalysisResult:
+    import numpy as np
+
+    category, sample_type = classify_sample(path, duration, None, None)
+    signature = file_signature(path)
+    peak_amp = float(np.nanmax(np.abs(y))) if y.size else 0.0
+    rms_amp = float(np.sqrt(np.nanmean(np.square(y)))) if y.size else 0.0
+    filename_key = detect_filename_key(path)
+    return AnalysisResult(
+        file_path=str(path),
+        root_note=None,
+        key=None,
+        confidence=0.0,
+        category=category,
+        type=sample_type,
+        sample_rate=original_sample_rate,
+        format=path.suffix.lower().lstrip("."),
+        filename_key=filename_key,
+        analysis_profile=analysis_profile,
+        analysis_engines=list(selected_engines),
+        analysis_warnings=[reason],
+        needs_review=True,
+        review_reasons=[reason],
+        duration=round(duration, 3),
+        rms_db=round(_amp_to_db(rms_amp), 2),
+        peak_db=round(_amp_to_db(peak_amp), 2),
+        dynamic_range_db=round(max(0.0, _amp_to_db(peak_amp) - _amp_to_db(rms_amp)), 2),
+        brightness="unknown",
+        warmth="unknown",
+        roughness="unknown",
+        size=int(signature["size"]),
+        mtime=float(signature["mtime"]),
+    )
+
+
+def summarize_warnings(captured_warnings: list[warnings.WarningMessage]) -> list[str]:
+    messages: list[str] = []
+    for warning in captured_warnings:
+        text = str(warning.message)
+        if "PySoundFile failed. Trying audioread instead." in text:
+            messages.append("decoder_fallback_audioread")
+        elif "n_fft=" in text and "too large for input signal" in text:
+            messages.append("short_signal_fft_adjusted")
+        elif "Trying to estimate tuning from empty frequency set" in text:
+            messages.append("empty_frequency_set")
+        elif warning.category.__name__ == "DeprecationWarning" and any(
+            marker in text for marker in ("'aifc' is deprecated", "'audioop' is deprecated", "'sunau' is deprecated")
+        ):
+            continue
+        else:
+            messages.append(f"{warning.category.__name__}: {text}")
+    return unique_strings(messages)
+
+
+def unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            unique.append(value)
+    return unique
+
+
+def quick_audio_duration(path: Path, probe_backend: str = "auto") -> float | None:
+    return probe_audio_file(path, probe_backend).duration
+
+
+def probe_audio_file(path: Path, probe_backend: str = "auto") -> AudioProbe:
+    if probe_backend not in {"auto", "ffprobe", "python"}:
+        raise ValueError(f"Unsupported probe backend: {probe_backend}")
+
+    if probe_backend in {"auto", "ffprobe"}:
+        ffprobe_result = ffprobe_audio_file(path)
+        if ffprobe_result.duration is not None or probe_backend == "ffprobe":
+            return ffprobe_result
+
+    return python_audio_file_info(path)
+
+
+def ffprobe_audio_file(path: Path) -> AudioProbe:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return AudioProbe(backend="ffprobe", error="ffprobe_not_found")
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=duration,sample_rate:format=duration",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, check=False, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return AudioProbe(backend="ffprobe", error="ffprobe_timeout")
+    except OSError as exc:
+        return AudioProbe(backend="ffprobe", error=f"ffprobe_error:{exc}")
+    if completed.returncode != 0:
+        detail = completed.stderr.strip().splitlines()[0] if completed.stderr.strip() else f"exit_{completed.returncode}"
+        return AudioProbe(backend="ffprobe", error=f"ffprobe_error:{detail}")
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return AudioProbe(backend="ffprobe", error="ffprobe_invalid_json")
+
+    streams = payload.get("streams") or []
+    stream = streams[0] if streams else {}
+    duration = _float_or_none(stream.get("duration")) or _float_or_none((payload.get("format") or {}).get("duration"))
+    sample_rate = _int_or_none(stream.get("sample_rate"))
+    if duration is None:
+        return AudioProbe(sample_rate=sample_rate, backend="ffprobe", error="ffprobe_missing_duration")
+    return AudioProbe(duration=round(duration, 3), sample_rate=sample_rate, backend="ffprobe")
+
+
+def python_audio_file_info(path: Path) -> AudioProbe:
     try:
         import soundfile as sf
 
         info = sf.info(path)
-        return round(float(info.frames / info.samplerate), 3), int(info.samplerate)
+        return AudioProbe(duration=round(float(info.frames / info.samplerate), 3), sample_rate=int(info.samplerate), backend="soundfile")
     except Exception:
-        return round(float(fallback_duration), 3), int(fallback_sr)
+        try:
+            import librosa
+
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="PySoundFile failed. Trying audioread instead.", category=FutureWarning)
+                warnings.filterwarnings("ignore", message="Audioread support is deprecated in librosa 0.10.0 and will be removed in version 1.0.", category=FutureWarning)
+                duration = round(float(librosa.get_duration(path=str(path))), 3)
+            return AudioProbe(duration=duration, backend="librosa")
+        except Exception as exc:
+            message = str(exc).strip()
+            if not message:
+                message = exc.__class__.__name__
+            # Prefix so higher layers can categorize "python" probe failures deterministically.
+            return AudioProbe(backend="python", error=f"python_error:{exc.__class__.__name__}:{message}")
+
+
+def _float_or_none(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_engines(analysis_profile: str, engines: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    if engines:
+        selected = engines
+    else:
+        selected = ENGINE_PRESETS.get(analysis_profile, ENGINE_PRESETS["fast"])
+    normalized: list[str] = []
+    for engine in selected:
+        engine_name = engine.strip().lower()
+        if engine_name and engine_name not in normalized:
+            normalized.append(engine_name)
+    if "librosa" not in normalized:
+        normalized.insert(0, "librosa")
+    return tuple(normalized)
+
+
+def analyze_with_essentia(y: np.ndarray, sr: int, engines: tuple[str, ...]) -> tuple[str | None, str | None, float, str | None]:
+    if "essentia" not in engines:
+        return None, None, 0.0, None
+    try:
+        import numpy as np
+        from essentia.standard import KeyExtractor
+
+        audio = np.asarray(y, dtype="float32")
+        key, scale, strength = KeyExtractor(sampleRate=sr)(audio)
+        normalized_key = _normalise_key_name(key, scale)
+        root = key if key in NOTE_NAMES else None
+        return normalized_key, root, round(float(strength), 3), None
+    except ModuleNotFoundError:
+        return None, None, 0.0, "essentia unavailable"
+    except Exception as exc:
+        return None, None, 0.0, f"essentia failed: {exc}"
+
+
+def detect_filename_key(path: Path) -> str | None:
+    name = path.stem
+    text = re.sub(r"[_\-.]+", " ", name)
+    note = r"(?P<note>[A-Ga-g])(?P<accidental>#|b)?"
+    minor = r"(?:min(?:or)?|m)"
+    major = r"(?:maj(?:or)?|major)"
+    patterns = (
+        rf"(?<![A-Za-z]){note}\s+{minor}(?![A-Za-z])",
+        rf"(?<![A-Za-z]){note}\s+{major}(?![A-Za-z])",
+        rf"(?<![A-Za-z]){note}{minor}(?![A-Za-z])",
+        rf"(?<![A-Za-z]){note}{major}(?![A-Za-z])",
+        rf"\(({note})\)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            note_name = _normalise_note(match.group("note"), match.groupdict().get("accidental"))
+            if not note_name:
+                continue
+            token = match.group(0).lower()
+            if "min" in token or token.rstrip(")").endswith("m"):
+                return f"{note_name}_minor"
+            if "maj" in token or "major" in token:
+                return f"{note_name}_major"
+            return note_name
+    return None
+
+
+def detect_filename_bpm(path: Path) -> float | None:
+    name = path.stem
+    patterns = (
+        r"(?<!\d)(?P<bpm>\d{2,3})\s*bpm(?![A-Za-z])",
+        r"(?<!\d)(?P<bpm>\d{2,3})(?!\d)",
+    )
+    for pattern in patterns:
+        matches: list[float] = []
+        for match in re.finditer(pattern, name, flags=re.IGNORECASE):
+            value = float(match.group("bpm"))
+            if 40 <= value <= 240:
+                matches.append(value)
+        if matches:
+            return matches[-1]
+    return None
+
+
+def choose_consensus_key(
+    librosa_key: str | None,
+    librosa_root: str | None,
+    librosa_confidence: float,
+    librosa_key_confidence: float,
+    librosa_root_confidence: float,
+    essentia_key: str | None,
+    essentia_root: str | None,
+    essentia_confidence: float,
+    filename_key: str | None,
+    sample_type: str,
+) -> tuple[str | None, str | None, float, list[str]]:
+    review_reasons = review_reasons_for(
+        librosa_key=librosa_key,
+        librosa_root=librosa_root,
+        librosa_root_confidence=librosa_root_confidence,
+        essentia_key=essentia_key,
+        essentia_root=essentia_root,
+        filename_key=filename_key,
+        sample_type=sample_type,
+    )
+    if essentia_key and librosa_key == essentia_key:
+        final_root = root_from_key(librosa_key) or librosa_root or essentia_root
+        final_confidence = round(min(1.0, max(librosa_confidence, essentia_confidence) + 0.08), 3)
+        return librosa_key, final_root, final_confidence, key_review_reasons_with_severity(review_reasons, librosa_key, final_confidence, filename_key, sample_type)
+    if (
+        essentia_key
+        and not librosa_key
+        and essentia_root
+        and librosa_root == essentia_root
+        and librosa_key_confidence >= 0.85
+        and librosa_root_confidence >= 0.4
+        and sample_type not in DRUM_OR_NOISE_TYPES
+    ):
+        confidence = max(essentia_confidence * 0.85, min(0.84, (essentia_confidence + librosa_key_confidence) / 2))
+        final_confidence = round(confidence, 3)
+        return essentia_key, root_from_key(essentia_key) or essentia_root, final_confidence, key_review_reasons_with_severity(review_reasons, essentia_key, final_confidence, filename_key, sample_type)
+    if essentia_key and not librosa_key and essentia_confidence >= 0.45:
+        final_root = root_from_key(essentia_key) or essentia_root or librosa_root
+        final_confidence = round(min(1.0, essentia_confidence * 0.85), 3)
+        return essentia_key, final_root, final_confidence, key_review_reasons_with_severity(review_reasons, essentia_key, final_confidence, filename_key, sample_type)
+    if essentia_key and librosa_key and essentia_confidence > librosa_confidence + 0.2:
+        final_root = root_from_key(essentia_key) or essentia_root or librosa_root
+        final_confidence = round(min(1.0, essentia_confidence * 0.8), 3)
+        return essentia_key, final_root, final_confidence, key_review_reasons_with_severity(review_reasons, essentia_key, final_confidence, filename_key, sample_type)
+    return librosa_key, root_from_key(librosa_key) or librosa_root, librosa_confidence, key_review_reasons_with_severity(review_reasons, librosa_key, librosa_confidence, filename_key, sample_type)
+
+
+def review_reasons_for(
+    librosa_key: str | None,
+    librosa_root: str | None,
+    librosa_root_confidence: float,
+    essentia_key: str | None,
+    essentia_root: str | None,
+    filename_key: str | None,
+    sample_type: str,
+) -> list[str]:
+    reasons: list[str] = []
+    if librosa_key and essentia_key and librosa_key != essentia_key:
+        reasons.append("engine_key_disagreement")
+    if (
+        not librosa_key
+        and librosa_root
+        and essentia_root
+        and librosa_root != essentia_root
+        and librosa_root_confidence >= 0.3
+        and sample_type not in DRUM_OR_NOISE_TYPES
+    ):
+        reasons.append("engine_root_disagreement")
+    if filename_key and sample_type not in DRUM_OR_NOISE_TYPES:
+        engine_keys = [key for key in (librosa_key, essentia_key) if key]
+        if engine_keys and filename_key not in engine_keys:
+            reasons.append("filename_key_disagreement")
+    return reasons
+
+
+def key_review_reasons_with_severity(
+    reasons: list[str],
+    final_key: str | None,
+    final_confidence: float,
+    filename_key: str | None,
+    sample_type: str,
+) -> list[str]:
+    if not filename_key or sample_type in DRUM_OR_NOISE_TYPES or not final_key or final_key == filename_key:
+        return reasons
+    if "filename_key_disagreement" not in reasons:
+        return reasons
+    severity = "filename_key_disagreement_confident" if final_confidence >= 0.75 else "filename_key_disagreement_weak"
+    return [*reasons, severity]
+
+
+def _essentia_available() -> bool:
+    try:
+        import essentia.standard  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _normalise_key_name(key: str, scale: str) -> str | None:
+    if key not in NOTE_NAMES:
+        return None
+    mode = scale.lower()
+    if mode not in {"major", "minor"}:
+        return key
+    return f"{key}_{mode}"
+
+
+def root_from_key(key: str | None) -> str | None:
+    if not key:
+        return None
+    root = key.split("_", maxsplit=1)[0]
+    if root in NOTE_NAMES:
+        return root
+    return None
+
+
+def _normalise_note(note: str, accidental: str | None) -> str | None:
+    note_name = note.upper()
+    if accidental:
+        note_name = f"{note_name}{accidental}"
+    note_name = FLAT_TO_SHARP.get(note_name, note_name)
+    if note_name not in NOTE_NAMES:
+        return None
+    return note_name
 
 
 def extract_audio_features(y: np.ndarray, sr: int, fundamental_freq: float | None) -> dict:
     import librosa
     import numpy as np
 
-    rms = librosa.feature.rms(y=y)
+    n_fft = _adaptive_n_fft(y)
+    rms = librosa.feature.rms(y=y, frame_length=n_fft)
     rms_amp = float(np.nanmean(rms))
     peak_amp = float(np.nanmax(np.abs(y)))
     rms_db = _amp_to_db(rms_amp)
     peak_db = _amp_to_db(peak_amp)
-    centroid = float(np.nanmean(librosa.feature.spectral_centroid(y=y, sr=sr)))
-    bandwidth = float(np.nanmean(librosa.feature.spectral_bandwidth(y=y, sr=sr)))
-    rolloff = float(np.nanmean(librosa.feature.spectral_rolloff(y=y, sr=sr)))
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+    centroid = float(np.nanmean(librosa.feature.spectral_centroid(y=y, sr=sr, n_fft=n_fft)))
+    bandwidth = float(np.nanmean(librosa.feature.spectral_bandwidth(y=y, sr=sr, n_fft=n_fft)))
+    rolloff = float(np.nanmean(librosa.feature.spectral_rolloff(y=y, sr=sr, n_fft=n_fft)))
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, n_fft=n_fft)
     mfcc_mean = [round(float(value), 4) for value in np.nanmean(mfcc, axis=1)]
     roughness_value = float(np.nanvar(librosa.feature.zero_crossing_rate(y)))
     low_energy, total_energy = _low_frequency_energy(y, sr)
@@ -134,20 +608,60 @@ def detect_notes(y: np.ndarray, sr: int, limit: int = 5) -> list[str]:
     return [NOTE_NAMES[int(index)] for index in indexes if chroma_sum[int(index)] > 0]
 
 
-def detect_bpm(y: np.ndarray, sr: int, duration: float) -> float | None:
+def detect_bpm(y: np.ndarray, sr: int, duration: float, expected_bpm: float | None = None) -> float | None:
+    bpm, _ = detect_bpm_with_review(y, sr, duration, expected_bpm)
+    return bpm
+
+
+def detect_bpm_with_review(
+    y: np.ndarray,
+    sr: int,
+    duration: float,
+    expected_bpm: float | None = None,
+    sample_type: str | None = None,
+) -> tuple[float | None, list[str]]:
     if duration < 2.0:
-        return None
+        return None, []
     try:
         import librosa
         import numpy as np
 
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
         value = float(np.asarray(tempo).reshape(-1)[0])
         if value <= 0:
-            return None
-        return round(value, 2)
+            return None, []
+        normalized, reason = _normalise_bpm_with_reason(value, expected_bpm)
+        if reason == "filename_bpm_anchor" and sample_type in DRUM_OR_NOISE_TYPES:
+            reason = None
+        return round(normalized, 2), ([reason] if reason else [])
     except Exception:
-        return None
+        return None, []
+
+
+def _normalise_bpm(value: float, expected_bpm: float | None = None) -> float:
+    normalized, _ = _normalise_bpm_with_reason(value, expected_bpm)
+    return normalized
+
+
+def _normalise_bpm_with_reason(value: float, expected_bpm: float | None = None) -> tuple[float, str | None]:
+    if value <= 0:
+        return value, None
+    candidates = [value]
+    for factor in (0.25, 0.5, 2.0, 4.0):
+        candidate = value * factor
+        if 40 <= candidate <= 220:
+            candidates.append(candidate)
+    if expected_bpm:
+        closest = min(candidates, key=lambda candidate: abs(candidate - expected_bpm))
+        if abs(closest - expected_bpm) / expected_bpm <= 0.12:
+            return expected_bpm, None
+        if abs(closest - expected_bpm) / expected_bpm > 0.15:
+            return expected_bpm, "filename_bpm_anchor"
+    in_range = [candidate for candidate in candidates if 40 <= candidate <= 220]
+    if in_range:
+        return min(in_range, key=lambda candidate: abs(candidate - min(max(value, 70), 180))), None
+    return value, None
 
 
 def detect_root_note(y: np.ndarray, sr: int) -> tuple[str | None, float, float | None]:
@@ -172,7 +686,7 @@ def detect_root_note(y: np.ndarray, sr: int) -> tuple[str | None, float, float |
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     chroma_sum = np.nan_to_num(chroma.sum(axis=1))
     if float(chroma_sum.sum()) <= 0:
-        return None, 0.0
+        return None, 0.0, None
     root_idx = int(np.argmax(chroma_sum))
     confidence = float(chroma_sum[root_idx] / chroma_sum.sum())
     return NOTE_NAMES[root_idx], round(min(1.0, confidence), 3), None
@@ -289,7 +803,18 @@ def _low_frequency_energy(y: np.ndarray, sr: int) -> tuple[float, float]:
     return low, total
 
 
-def _error_result(path: Path, error: str) -> AnalysisResult:
+def _adaptive_n_fft(y: np.ndarray) -> int:
+    import numpy as np
+
+    length = int(y.size)
+    if length <= 0:
+        return 16
+    if length >= 2048:
+        return 2048
+    return max(16, 2 ** int(np.floor(np.log2(length))))
+
+
+def _error_result(path: Path, error: str, analysis_warnings: list[str] | None = None) -> AnalysisResult:
     signature = file_signature(path) if path.exists() else {"size": None, "mtime": None}
     return AnalysisResult(
         file_path=str(path),
@@ -300,7 +825,55 @@ def _error_result(path: Path, error: str) -> AnalysisResult:
         type="FX",
         duration=0.0,
         format=path.suffix.lower().lstrip("."),
+        analysis_warnings=analysis_warnings or [],
         error=error,
         size=signature["size"],
         mtime=signature["mtime"],
     )
+
+
+class _CapturedStderr:
+    def __init__(self) -> None:
+        self.text: str = ""
+
+
+@contextmanager
+def capture_stderr_fd(max_bytes: int = 4096):
+    """
+    Capture OS-level stderr (fd=2). This is required for C/C++ libs that print directly to stderr.
+    Only use in narrow scopes because it swaps process-wide fd=2 briefly.
+    """
+    captured = _CapturedStderr()
+    original_fd = os.dup(2)
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as tmp:
+            os.dup2(tmp.fileno(), 2)
+            try:
+                yield captured
+            finally:
+                os.dup2(original_fd, 2)
+                tmp.seek(0)
+                data = tmp.read(max(0, int(max_bytes)))
+                try:
+                    captured.text = data.decode("utf-8", errors="replace")
+                except Exception:
+                    captured.text = ""
+    finally:
+        try:
+            os.close(original_fd)
+        except Exception:
+            pass
+
+
+def record_decoder_stderr(warnings_out: list[str], stderr_text: str) -> None:
+    text = (stderr_text or "").strip()
+    if not text:
+        return
+    lowered = text.lower()
+    code = "decoder_stderr"
+    if "libmpg123" in lowered or "layer i decoding" in lowered or "layer1.c" in lowered:
+        code = "decoder_stderr_mpg123"
+    warnings_out.append(code)
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if first_line:
+        warnings_out.append(f"decoder_stderr_snippet:{first_line[:200]}")
