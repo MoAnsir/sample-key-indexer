@@ -77,7 +77,7 @@ export default function App() {
   const hasLibrary = samples.length > 0;
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
+    <div className="flex flex-col min-h-screen bg-gray-50 max-w-[1600px] mx-auto w-full">
       {/* Loading overlay */}
       {loading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
