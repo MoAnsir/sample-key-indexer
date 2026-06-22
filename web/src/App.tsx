@@ -124,7 +124,7 @@ export default function App() {
               {(catalog.total ?? 0).toLocaleString()}
             </p>
             <p className="text-xs text-gray-500">
-              {filters.libraryId
+              {hasLibrary
                 ? `${samples.length.toLocaleString()} loaded`
                 : `${catalog.total === 1 ? "sample" : "samples"}`}
             </p>
@@ -132,17 +132,22 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main content */}
-      {!hasLibrary ? (
-        <Dashboard catalog={catalog} onLibrarySelect={loadLibrary} />
-      ) : (
+      {/* Dashboard — always visible, collapsible */}
+      <Dashboard
+        catalog={catalog}
+        activeLibraryId={filters.libraryId}
+        onLibrarySelect={loadLibrary}
+      />
+
+      {/* Browse / Review content */}
+      {hasLibrary && (
         <div className="flex flex-col flex-1 min-h-0">
           <FilterBar />
           {activeTab === "browse" ? (
             <SampleTable />
           ) : (
             <div className="p-6 text-gray-500 text-center">
-              Review tab coming in Phase 3
+              Review tab coming soon
             </div>
           )}
         </div>
