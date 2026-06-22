@@ -1,5 +1,10 @@
+import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchCatalog } from "./api/client";
+import { fetchCatalog, fetchSamples } from "./api/client";
+import { useAppStore } from "./store/useAppStore";
+import Dashboard from "./components/Dashboard";
+import FilterBar from "./components/FilterBar";
+import SampleTable from "./components/SampleTable";
 import type { CatalogResponse } from "./types/api";
 
 export default function App() {
@@ -7,6 +12,48 @@ export default function App() {
     queryKey: ["catalog"],
     queryFn: fetchCatalog,
   });
+
+  const setCatalog = useAppStore((s) => s.setCatalog);
+  const setSamples = useAppStore((s) => s.setSamples);
+  const samples = useAppStore((s) => s.samples);
+  const activeTab = useAppStore((s) => s.activeTab);
+  const setActiveTab = useAppStore((s) => s.setActiveTab);
+  const filters = useAppStore((s) => s.filters);
+  const setFilter = useAppStore((s) => s.setFilter);
+  const loading = useAppStore((s) => s.loading);
+  const loadingMessage = useAppStore((s) => s.loadingMessage);
+  const setLoading = useAppStore((s) => s.setLoading);
+
+  if (catalog && !useAppStore.getState().catalog) {
+    setCatalog(catalog);
+  }
+
+  const loadLibrary = useCallback(
+    async (libraryId: string) => {
+      setLoading(true, "Fetching samples...");
+      setFilter("libraryId", libraryId);
+      try {
+        const allSamples = [];
+        let offset = 0;
+        const limit = 15000;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          setLoading(true, `Fetching samples... (${offset.toLocaleString()} loaded)`);
+          const response = await fetchSamples(libraryId, offset, limit);
+          allSamples.push(...response.samples);
+          if (response.returned < limit) break;
+          offset += limit;
+        }
+        setSamples(allSamples);
+        setActiveTab("browse");
+      } catch (err) {
+        console.error("Failed to load library:", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [setSamples, setActiveTab, setLoading, setFilter],
+  );
 
   if (isLoading) {
     return (
@@ -16,96 +63,113 @@ export default function App() {
     );
   }
 
-  if (error) {
+  if (error || !catalog) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <p className="text-lg text-red-600">Failed to load catalog</p>
-          <p className="text-sm text-gray-500 mt-2">{String(error)}</p>
+          <p className="text-sm text-gray-500 mt-2">{String(error ?? "No data")}</p>
         </div>
       </div>
     );
   }
 
-  if (!catalog) return null;
-
-  const libraries = catalog.libraries ?? [];
-  const stats = catalog.stats ?? [];
+  const hasLibrary = samples.length > 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-              Sample Library
-            </p>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Key Index Browser
-            </h1>
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      {/* Loading overlay */}
+      {loading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg px-8 py-6 shadow-xl text-center">
+            <div className="animate-spin h-8 w-8 border-4 border-teal-600 border-t-transparent rounded-full mx-auto" />
+            <p className="mt-3 text-sm text-gray-600">{loadingMessage}</p>
           </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 px-6 py-3 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
+                Sample Library
+              </p>
+              <h1 className="text-xl font-bold text-gray-900">
+                Key Index Browser
+              </h1>
+            </div>
+
+            {hasLibrary && (
+              <nav className="flex gap-1">
+                <TabButton
+                  active={activeTab === "browse"}
+                  onClick={() => setActiveTab("browse")}
+                >
+                  Browse
+                </TabButton>
+                <TabButton
+                  active={activeTab === "review"}
+                  onClick={() => setActiveTab("review")}
+                >
+                  Review
+                </TabButton>
+              </nav>
+            )}
+          </div>
+
           <div className="text-right">
-            <p className="text-3xl font-bold text-gray-900">
+            <p className="text-2xl font-bold text-gray-900">
               {(catalog.total ?? 0).toLocaleString()}
             </p>
-            <p className="text-sm text-gray-500">
-              {catalog.total === 1 ? "sample" : "samples"}
+            <p className="text-xs text-gray-500">
+              {filters.libraryId
+                ? `${samples.length.toLocaleString()} loaded`
+                : `${catalog.total === 1 ? "sample" : "samples"}`}
             </p>
           </div>
         </div>
       </header>
 
-      <main className="p-6">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {libraries.map((lib) => (
-            <div
-              key={lib.id}
-              className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-            >
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">
-                {lib.name}
-              </h2>
-              <p className="mt-1 text-lg font-medium text-gray-900">
-                {(lib.total ?? 0).toLocaleString()} samples
-              </p>
-              <div className="mt-2 flex gap-3 text-sm text-gray-500">
-                <span>{(lib.available ?? 0).toLocaleString()} available</span>
-                {(lib.missing ?? 0) > 0 && (
-                  <span className="text-amber-600">
-                    {lib.missing.toLocaleString()} missing
-                  </span>
-                )}
-              </div>
+      {/* Main content */}
+      {!hasLibrary ? (
+        <Dashboard catalog={catalog} onLibrarySelect={loadLibrary} />
+      ) : (
+        <div className="flex flex-col flex-1 min-h-0">
+          <FilterBar />
+          {activeTab === "browse" ? (
+            <SampleTable />
+          ) : (
+            <div className="p-6 text-gray-500 text-center">
+              Review tab coming in Phase 3
             </div>
-          ))}
+          )}
         </div>
-
-        {stats.length > 0 && (
-          <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700 mb-3">
-              Sample Types
-            </h2>
-            <div className="space-y-2">
-              {stats.map((stat) => (
-                <div key={stat.type} className="flex items-center gap-3">
-                  <span className="w-28 text-sm text-gray-600 text-right">
-                    {stat.type}
-                  </span>
-                  <div className="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
-                    <div
-                      className="h-full bg-teal-600 rounded"
-                      style={{ width: `${stat.percentage}%` }}
-                    />
-                  </div>
-                  <span className="w-32 text-sm text-gray-500">
-                    {(stat.count ?? 0).toLocaleString()} ({stat.percentage}%)
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
+      )}
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+        active
+          ? "bg-teal-600 text-white"
+          : "text-gray-600 hover:bg-gray-100"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

@@ -8,11 +8,19 @@ export async function fetchCatalog(): Promise<CatalogResponse> {
   return res.json();
 }
 
+export interface SamplesResponse {
+  total: number;
+  offset: number;
+  limit: number;
+  returned: number;
+  samples: Sample[];
+}
+
 export async function fetchSamples(
   libraryId: string,
   offset: number = 0,
   limit: number = 15000,
-): Promise<Sample[]> {
+): Promise<SamplesResponse> {
   const params = new URLSearchParams({
     library_id: libraryId,
     offset: String(offset),
