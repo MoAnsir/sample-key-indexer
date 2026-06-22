@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback } from "react";
 import { useAppStore } from "../store/useAppStore";
+import PaginationBar from "./PaginationBar";
 import type { Sample } from "../types/api";
 
 export default function ReviewTab() {
@@ -9,7 +10,7 @@ export default function ReviewTab() {
   const [reasonFilter, setReasonFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [page, setPage] = useState(1);
-  const pageSize = 100;
+  const [pageSize, setPageSize] = useState(100);
 
   const allFlagged = useMemo(
     () => samples.filter((s) => s.needs_review),
@@ -164,39 +165,20 @@ export default function ReviewTab() {
         </div>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 flex-shrink-0">
-        <div className="text-sm text-gray-600">
-          Showing{" "}
-          <span className="font-semibold text-gray-900">
-            {filtered.length > 0 ? start + 1 : 0}–{Math.min(start + pageSize, filtered.length)}
-          </span>{" "}
-          of{" "}
-          <span className="font-semibold text-gray-900">
-            {filtered.length.toLocaleString()}
-          </span>{" "}
-          flagged samples
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-30 transition-colors"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            ← Previous
-          </button>
-          <span className="text-sm font-medium text-gray-700 min-w-[100px] text-center">
-            Page {page} of {totalPages}
-          </span>
-          <button
-            className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-30 transition-colors"
-            disabled={page >= totalPages}
-            onClick={() => setPage(page + 1)}
-          >
-            Next →
-          </button>
-        </div>
-      </div>
+      {/* Pagination top */}
+      <PaginationBar
+        position="top"
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        showingFrom={filtered.length > 0 ? start + 1 : 0}
+        showingTo={Math.min(start + pageSize, filtered.length)}
+        totalFiltered={filtered.length}
+        totalAll={allFlagged.length}
+        label="flagged samples"
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+      />
 
       {/* Review list */}
       <div className="flex-1 overflow-auto">
@@ -216,6 +198,21 @@ export default function ReviewTab() {
           </div>
         )}
       </div>
+
+      {/* Pagination bottom */}
+      <PaginationBar
+        position="bottom"
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        showingFrom={filtered.length > 0 ? start + 1 : 0}
+        showingTo={Math.min(start + pageSize, filtered.length)}
+        totalFiltered={filtered.length}
+        totalAll={allFlagged.length}
+        label="flagged samples"
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+      />
     </div>
   );
 }
