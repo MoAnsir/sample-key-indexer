@@ -1,16 +1,37 @@
 # Sample Library Key Indexer
 
-If you produce music, you've probably accumulated thousands of audio samples — kicks, snares, bass hits, melody loops, pads, vocal chops — spread across USB sticks, hard drives, and download folders. Finding the right sample in the right key while you're working on a track means digging through unsorted folders or guessing by ear.
+You have thousands of audio samples — kicks, snares, bass hits, melody loops, pads, vocal chops — scattered across USB sticks, hard drives, and download folders. You're working on a track in A minor and need a bass loop that fits. Good luck finding one: your samples are buried in folders named things like `Pack_Vol3_Final_v2`, and you have no idea what key any of them are in.
 
-**Sample Key Indexer** solves this. Point it at a folder of samples, and it will:
+**Sample Key Indexer** fixes this. Point it at any folder of samples and it will automatically:
 
-1. **Detect the musical key and root note** of every sample using multiple audio analysis engines (librosa, essentia, KeyFinder, basic-pitch)
-2. **Classify each sample by type** — Kick, Snare, Hi-Hat, Bass, Lead, Pad, Chord, Melody Loop, Drum Loop, Vocal, FX, and more — using filename and audio feature analysis
-3. **Organize everything into folders by key and type**, so all your A-minor bass samples are in one place, all your E-major melody loops in another
-4. **Build a searchable metadata index** (SQLite) with root note, key, BPM, confidence scores, audio features, and classification for every sample
-5. **Serve a web UI** where you can browse, search, filter, preview audio, and review your entire library from a browser
+- **Detect the musical key and root note** of every sample using multiple audio engines (librosa, essentia, KeyFinder, basic-pitch) cross-checked against each other
+- **Classify each sample by type** — Kick, Snare, Hi-Hat, Bass, Lead, Pad, Chord, Melody Loop, Drum Loop, Vocal, FX, and 15+ categories — using filename patterns and audio feature analysis
+- **Organize everything into clean folders by key and type** — all your A-minor bass loops in one place, all your E-major melody loops in another, drums sorted by kick/snare/hat
+- **Build a rich metadata index** with root note, key, BPM, confidence scores, timbre, loudness, frequency features, and deep analysis for every single sample
+- **Serve a web UI** for browsing, filtering, previewing, and reviewing your entire library from a browser — across multiple libraries and external drives
 
-It handles libraries of any size, resumes after crashes, works with samples on USB sticks and external drives (catalog without copying), and runs entirely locally — no cloud, no accounts, no subscriptions.
+### See it in action
+
+**Dashboard** — library overview with sample type breakdown and distribution charts:
+
+![Dashboard](docs/screenshots/Bashboard.png)
+
+**Browse** — search, filter by key/type/BPM/confidence, sort by any column, and preview audio inline:
+
+![Browse](docs/screenshots/Browse.png)
+
+**Sample Detail** — full analysis for any sample: detected key, notes, chords, frequency spectrum, MFCC timbre shape, compatible keys, chord progressions to try, and downloadable MIDI:
+
+![Sample Detail](docs/screenshots/SampleDetails.png)
+
+### Why use this?
+
+- **Works at scale** — tested on 71,000+ samples across multiple libraries
+- **Resumable** — crashes, USB disconnects, or running out of time? Pick up exactly where you left off
+- **Catalog without copying** — index samples on a USB stick or external drive without duplicating any audio
+- **Multi-library** — load indexes from multiple drives and browse them all in one UI
+- **Deep analysis** — beyond just key detection: BPM, tuning (Hz), note transcription, onset detection, chord estimation, and confidence scoring across multiple engines
+- **Fully local** — no cloud, no accounts, no subscriptions. Your samples and metadata stay on your machine
 
 ---
 
