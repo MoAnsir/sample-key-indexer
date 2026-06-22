@@ -1,12 +1,21 @@
 # Sample Library Key Indexer
 
-A local CLI tool for scanning large audio sample libraries, detecting musical keys and root notes, classifying samples by type, and organizing them into a structured folder hierarchy by key.
+If you produce music, you've probably accumulated thousands of audio samples — kicks, snares, bass hits, melody loops, pads, vocal chops — spread across USB sticks, hard drives, and download folders. Finding the right sample in the right key while you're working on a track means digging through unsorted folders or guessing by ear.
+
+**Sample Key Indexer** solves this. Point it at a folder of samples, and it will:
+
+1. **Detect the musical key and root note** of every sample using multiple audio analysis engines (librosa, essentia, KeyFinder, basic-pitch)
+2. **Classify each sample by type** — Kick, Snare, Hi-Hat, Bass, Lead, Pad, Chord, Melody Loop, Drum Loop, Vocal, FX, and more — using filename and audio feature analysis
+3. **Organize everything into folders by key and type**, so all your A-minor bass samples are in one place, all your E-major melody loops in another
+4. **Build a searchable metadata index** (SQLite) with root note, key, BPM, confidence scores, audio features, and classification for every sample
+5. **Serve a web UI** where you can browse, search, filter, preview audio, and review your entire library from a browser
+
+It handles libraries of any size, resumes after crashes, works with samples on USB sticks and external drives (catalog without copying), and runs entirely locally — no cloud, no accounts, no subscriptions.
 
 ---
 
 ## Table of Contents
 
-- [What It Does](#what-it-does)
 - [Install](#install)
 - [Quick Start](#quick-start)
 - [Commands](#commands)
@@ -20,17 +29,6 @@ A local CLI tool for scanning large audio sample libraries, detecting musical ke
 - [Workflows](#workflows)
 - [Troubleshooting](#troubleshooting)
 - [Version History](#version-history)
-
----
-
-## What It Does
-
-1. **Scans** a folder of audio samples (.wav, .mp3, .aiff)
-2. **Analyzes** each sample using multiple audio engines (librosa, essentia, KeyFinder, basic-pitch) to detect root note, musical key, BPM, and audio features
-3. **Classifies** each sample by type (Kick, Snare, Bass, Lead, Pad, DrumLoop, MelodyLoop, etc.)
-4. **Organizes** files into a structured folder tree grouped by key and sample type
-5. **Stores** all metadata in a SQLite index (with optional JSON export) that is resumable across runs
-6. **Serves** a web UI for browsing, searching, previewing audio, and reviewing samples
 
 ---
 
@@ -70,9 +68,9 @@ Throughout this guide, replace these placeholders with your actual folder paths:
 
 | Placeholder | Meaning | Example |
 |-------------|---------|---------|
-| `/path/to/Samples` | The folder containing your source audio samples | `~/Music/MySamples`, `/Volumes/USB_01/Samples` |
-| `/path/to/Output` or `/path/to/Organised` | Where the organized library and metadata will be written | `~/Desktop/Samples_Organised` |
-| `/path/to/Indexes/MY_LIBRARY` | A folder for storing the metadata index for a specific library (used with `--catalog-only` when you don't want to copy files) | `~/SampleIndexes/usb_01` |
+| `/path/to/Samples` | The folder containing your source audio samples to be organized | `~/Music/MySamples`, `/Volumes/USB_01/Samples` |
+| `/path/to/Output` or `/path/to/Organised` | Where samples are copied/moved to, organized into folders by musical key and sample type (e.g., `Key/A_minor/OneShots/Bass/`). See [Output Structure](#output-structure) | `~/Desktop/Samples_Organised` |
+| `/path/to/Indexes/MY_LIBRARY` | Same as Output, but used with `--catalog-only` to store only the metadata index (no audio is copied). Useful for cataloging USB sticks or external drives — the web UI can then browse the index and stream audio from the original source via `--library-root` | `~/SampleIndexes/usb_01` |
 
 ### Commands
 
