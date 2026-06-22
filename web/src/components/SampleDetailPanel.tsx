@@ -5,6 +5,7 @@ import { useAppStore } from "../store/useAppStore";
 import AudioPlayer from "./AudioPlayer";
 import FrequencyChart from "./FrequencyChart";
 import MFCCChart from "./MFCCChart";
+import ReviewDiagnostic from "./ReviewDiagnostic";
 import type { SampleDetail, CompatibleKey, Progression } from "../types/api";
 
 const NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -94,59 +95,83 @@ export default function SampleDetailPanel() {
         ) : (
           <div className="p-6 space-y-6">
             {/* Audio Player */}
-            {detail.playback_status === "available" && (
-              <AudioPlayer sampleId={selectedId} autoPlay />
-            )}
-            {detail.playback_status !== "available" && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-                Audio unavailable — source media not mounted
-              </div>
-            )}
+            {/* Review diagnostics — above everything */}
+            <ReviewDiagnostic detail={detail} />
+
+            {/* Audio Player */}
+            <div id="section-audio">
+              {detail.playback_status === "available" && (
+                <AudioPlayer sampleId={selectedId} autoPlay />
+              )}
+              {detail.playback_status !== "available" && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                  Audio unavailable — source media not mounted
+                </div>
+              )}
+            </div>
 
             {/* Metadata grid */}
-            <MetadataGrid detail={detail} />
+            <div id="section-metadata">
+              <MetadataGrid detail={detail} />
+            </div>
 
             {/* Frequency & MFCC charts */}
+            <div id="section-frequency">
             <FrequencyChart
               fundamental={detail.fundamental_freq}
               centroid={detail.spectral_centroid}
               bandwidth={detail.spectral_bandwidth}
               rolloff={detail.rolloff}
             />
-            <MFCCChart mfcc={detail.mfcc ?? []} />
+            </div>
+            <div id="section-mfcc">
+              <MFCCChart mfcc={detail.mfcc ?? []} />
+            </div>
 
             {/* Piano keyboard */}
-            {((detail.notes?.length ?? 0) > 0 || detail.root_note) && (
-              <PianoKeyboard
-                rootNote={detail.root_note}
-                notes={detail.notes ?? []}
-              />
-            )}
+            <div id="section-piano">
+              {((detail.notes?.length ?? 0) > 0 || detail.root_note) && (
+                <PianoKeyboard
+                  rootNote={detail.root_note}
+                  notes={detail.notes ?? []}
+                />
+              )}
+            </div>
 
             {/* Deep analysis */}
-            {detail.deep_analysis_status && (
-              <DeepAnalysisSection detail={detail} />
-            )}
+            <div id="section-deep-analysis">
+              {detail.deep_analysis_status && (
+                <DeepAnalysisSection detail={detail} />
+              )}
+            </div>
 
             {/* Musical context */}
             {detail.musical_record && (
               <>
-                <MusicalRecordCard record={detail.musical_record} />
+                <div id="section-musical-record">
+                  <MusicalRecordCard record={detail.musical_record} />
+                </div>
                 {detail.compatibility && (
                   <>
-                    <CompatibleKeysCard keys={detail.compatibility.keys} />
-                    <ProgressionsCard
-                      progressions={detail.compatibility.progressions}
-                      sampleId={selectedId}
-                    />
+                    <div id="section-compatible-keys">
+                      <CompatibleKeysCard keys={detail.compatibility.keys} />
+                    </div>
+                    <div id="section-progressions">
+                      <ProgressionsCard
+                        progressions={detail.compatibility.progressions}
+                        sampleId={selectedId}
+                      />
+                    </div>
                   </>
                 )}
                 {detail.mood_profile && (
-                  <MoodCard
-                    primary={detail.mood_profile.primary}
-                    supporting={detail.mood_profile.supporting}
-                    transitions={detail.transition_suggestions ?? []}
-                  />
+                  <div id="section-mood">
+                    <MoodCard
+                      primary={detail.mood_profile.primary}
+                      supporting={detail.mood_profile.supporting}
+                      transitions={detail.transition_suggestions ?? []}
+                    />
+                  </div>
                 )}
               </>
             )}
