@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchSampleDetail, getMidiUrl } from "../api/client";
 import { useAppStore } from "../store/useAppStore";
 import AudioPlayer from "./AudioPlayer";
+import FrequencyChart from "./FrequencyChart";
+import MFCCChart from "./MFCCChart";
 import type { SampleDetail, CompatibleKey, Progression } from "../types/api";
 
 const NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -113,6 +115,15 @@ export default function SampleDetailPanel() {
 
             {/* Metadata grid */}
             <MetadataGrid detail={detail} />
+
+            {/* Frequency & MFCC charts */}
+            <FrequencyChart
+              fundamental={detail.fundamental_freq}
+              centroid={detail.spectral_centroid}
+              bandwidth={detail.spectral_bandwidth}
+              rolloff={detail.rolloff}
+            />
+            <MFCCChart mfcc={detail.mfcc ?? []} />
 
             {/* Piano keyboard */}
             {((detail.notes?.length ?? 0) > 0 || detail.root_note) && (
