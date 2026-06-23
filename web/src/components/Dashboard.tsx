@@ -47,7 +47,7 @@ export default function Dashboard({ catalog, activeLibraryId, onLibrarySelect }:
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
                   {lib.name}
                 </h3>
-                <p className="mt-0.5 text-base font-medium text-gray-900">
+                <p className="mt-0.5 text-base font-medium text-gray-900 dark:text-gray-100">
                   {(lib.total ?? 0).toLocaleString()} samples
                 </p>
                 <div className="mt-1 flex gap-3 text-xs text-gray-500">

@@ -49,7 +49,7 @@ export default function TypePieChart({ stats, total }: TypePieChartProps) {
         </PieChart>
       </ResponsiveContainer>
       <p className="text-center -mt-4 mb-2">
-        <span className="text-xl font-bold text-gray-800">{total.toLocaleString()}</span>
+        <span className="text-xl font-bold text-gray-800 dark:text-gray-200">{total.toLocaleString()}</span>
         <span className="text-[10px] text-gray-400 ml-1">samples</span>
       </p>
       <div className="flex flex-wrap gap-x-4 gap-y-1 justify-center mt-1">

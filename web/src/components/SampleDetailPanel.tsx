@@ -265,7 +265,7 @@ function PianoKeyboard({
               className={`flex flex-col items-center justify-end rounded text-[10px] font-medium transition-colors ${
                 isBlack
                   ? `w-7 h-14 ${isRoot ? "bg-teal-700 text-white" : isActive ? "bg-gray-700 text-white ring-1 ring-teal-400" : "bg-gray-800 text-gray-400"}`
-                  : `w-9 h-16 border ${isRoot ? "bg-teal-500 text-white border-teal-600" : isActive ? "bg-teal-50 text-teal-800 border-teal-300" : "bg-white text-gray-500 border-gray-300"}`
+                  : `w-9 h-16 border ${isRoot ? "bg-teal-500 text-white border-teal-600" : isActive ? "bg-teal-50 dark:bg-teal-900 text-teal-800 dark:text-teal-200 border-teal-300" : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600"}`
               }`}
             >
               <span className="pb-1">{note}</span>
@@ -315,24 +315,24 @@ function DeepAnalysisSection({ detail }: { detail: SampleDetail }) {
               <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
                 {label}
               </p>
-              <p className="text-sm font-medium text-gray-800">{String(value)}</p>
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{String(value)}</p>
             </div>
           ) : null,
         )}
       </div>
       {engines.length > 0 && (
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           Engines: {engines.join(" · ")}
         </p>
       )}
       {(detail.deep_chords?.length ?? 0) > 0 && (
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Chords: {detail.deep_chords.slice(0, 12).join(", ")}
           {detail.deep_chords.length > 12 && ` +${detail.deep_chords.length - 12} more`}
         </p>
       )}
       {(detail.deep_note_events?.length ?? 0) > 0 && (
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Notes: {detail.deep_note_events.slice(0, 8).map((e) => e.note).join(", ")}
           {detail.deep_note_events.length > 8 && ` +${detail.deep_note_events.length - 8} more`}
         </p>
@@ -356,7 +356,7 @@ function MusicalRecordCard({ record }: { record: NonNullable<SampleDetail["music
         <Chip label="Confidence" value={record.confidence != null ? record.confidence.toFixed(2) : null} />
       </div>
       {record.notes?.length > 0 && (
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           Notes: {record.notes.join(" ")}
         </p>
       )}
@@ -468,8 +468,8 @@ function CompatibleKeysCard({ keys }: { keys: CompatibleKey[] }) {
             className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3"
           >
             <div className="flex items-baseline gap-2">
-              <span className="text-xs font-semibold text-gray-700">{k.label}</span>
-              <span className="text-sm font-medium text-gray-900">{k.scale}</span>
+              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{k.label}</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{k.scale}</span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
               {(k.diatonic_chords ?? k.chords ?? []).join(" / ")}
@@ -502,10 +502,10 @@ function ProgressionsCard({
           >
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-sm font-semibold text-gray-800">
+                <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                   {p.name}
                 </span>
-                <span className="ml-2 text-xs text-gray-500">{p.numerals}</span>
+                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{p.numerals}</span>
               </div>
               <a
                 href={getMidiUrl(sampleId, i)}
@@ -543,10 +543,10 @@ function MoodCard({
         Mood & Transitions
       </h3>
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3 space-y-2">
-        <p className="text-sm text-gray-800">
+        <p className="text-sm text-gray-800 dark:text-gray-200">
           <span className="font-semibold">{primary}</span>
           {supporting.length > 0 && (
-            <span className="text-gray-500">
+            <span className="text-gray-500 dark:text-gray-400">
               {" "}· {supporting.join(", ")}
             </span>
           )}
@@ -554,8 +554,8 @@ function MoodCard({
         {transitions.length > 0 && (
           <div className="space-y-1">
             {transitions.map((t) => (
-              <p key={t.label} className="text-xs text-gray-500">
-                → <span className="font-medium text-gray-700">{t.label}</span>{" "}
+              <p key={t.label} className="text-xs text-gray-500 dark:text-gray-400">
+                → <span className="font-medium text-gray-700 dark:text-gray-300">{t.label}</span>{" "}
                 {t.why}
               </p>
             ))}
@@ -579,7 +579,7 @@ function Chip({
       <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
         {label}
       </p>
-      <p className="text-sm font-medium text-gray-800">{String(value)}</p>
+      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{String(value)}</p>
     </div>
   );
 }
