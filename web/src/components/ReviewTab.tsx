@@ -102,7 +102,7 @@ export default function ReviewTab() {
                   className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                     reasonFilter === reason
                       ? "bg-teal-600 text-white"
-                      : "border border-gray-200 bg-gray-50 text-gray-600 hover:border-teal-400"
+                      : "border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-teal-400"
                   }`}
                 >
                   <span className="font-mono">{reason}</span>
@@ -130,7 +130,7 @@ export default function ReviewTab() {
                   className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                     typeFilter === type
                       ? "bg-teal-600 text-white"
-                      : "border border-gray-200 bg-gray-50 text-gray-600 hover:border-teal-400"
+                      : "border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-teal-400"
                   }`}
                 >
                   {type}
@@ -219,7 +219,7 @@ export default function ReviewTab() {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-2.5">
       <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
         {label}
       </p>
