@@ -75,7 +75,7 @@ export default function ReviewTab() {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Summary + filters */}
-      <div className="p-4 space-y-4 bg-white border-b border-gray-200 flex-shrink-0">
+      <div className="p-4 space-y-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <StatCard label="Flagged" value={allFlagged.length.toLocaleString()} />
