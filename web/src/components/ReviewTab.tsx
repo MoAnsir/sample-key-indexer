@@ -223,7 +223,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
       <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
         {label}
       </p>
-      <p className="text-lg font-bold text-gray-900 mt-0.5">{value}</p>
+      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-0.5">{value}</p>
     </div>
   );
 }
@@ -240,7 +240,7 @@ function ReviewRow({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-teal-50 text-left transition-colors"
+      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-teal-50 dark:hover:bg-teal-950 text-left transition-colors"
     >
       {/* Confidence */}
       <span
@@ -257,7 +257,7 @@ function ReviewRow({
 
       {/* Name + reasons */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate">
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
           {sample.name}
         </p>
         {reasons.length > 0 && (
