@@ -1,4 +1,4 @@
-import { useMemo, memo, useCallback, useEffect, useRef } from "react";
+import { useMemo, memo, useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
 import PaginationBar from "./PaginationBar";
 import type { Sample } from "../types/api";
@@ -63,16 +63,18 @@ function CellValue({ sample, column }: { sample: Sample; column: string }) {
 const SampleRow = memo(function SampleRow({
   sample,
   isSelected,
+  isHighlighted,
   onClick,
 }: {
   sample: Sample;
   isSelected: boolean;
+  isHighlighted: boolean;
   onClick: () => void;
 }) {
   return (
     <tr
       className={`hover:bg-teal-50 dark:hover:bg-teal-950 cursor-pointer transition-colors ${
-        isSelected ? "bg-teal-100 dark:bg-teal-900" : ""
+        isSelected ? "bg-teal-100 dark:bg-teal-900" : isHighlighted ? "bg-gray-100 dark:bg-gray-800" : ""
       }`}
       onClick={onClick}
     >
@@ -117,36 +119,44 @@ export default function SampleTable() {
     [setSelectedSampleId],
   );
 
-  // Keyboard navigation
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+
+  // Keyboard navigation — arrow keys highlight, Enter opens detail
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept when typing in inputs
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       // Don't intercept when detail panel is open
       if (useAppStore.getState().selectedSampleId != null) return;
 
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
-        const currentId = useAppStore.getState().selectedSampleId;
-        const currentIndex = currentId != null
-          ? pageRows.findIndex((s) => s.id === currentId)
-          : -1;
-        const nextIndex = e.key === "ArrowDown"
-          ? Math.min(currentIndex + 1, pageRows.length - 1)
-          : Math.max(currentIndex - 1, 0);
-        if (pageRows[nextIndex]) {
-          setSelectedSampleId(pageRows[nextIndex].id);
-          // Scroll row into view
-          const row = tableRef.current?.querySelectorAll("tbody tr")[nextIndex];
-          row?.scrollIntoView({ block: "nearest" });
-        }
+        setHighlightedIndex((prev) => Math.min(prev + 1, pageRows.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightedIndex((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === "Enter" && highlightedIndex >= 0 && pageRows[highlightedIndex]) {
+        e.preventDefault();
+        setSelectedSampleId(pageRows[highlightedIndex].id);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pageRows, setSelectedSampleId]);
+  }, [pageRows, highlightedIndex, setSelectedSampleId]);
+
+  // Scroll highlighted row into view
+  useEffect(() => {
+    if (highlightedIndex >= 0) {
+      const row = tableRef.current?.querySelectorAll("tbody tr")[highlightedIndex];
+      row?.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightedIndex]);
+
+  // Reset highlight when page changes
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [page, pageSize]);
 
   const showingFrom = filtered.length > 0 ? start + 1 : 0;
   const showingTo = Math.min(start + pageSize, filtered.length);
@@ -189,11 +199,12 @@ export default function SampleTable() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {pageRows.map((sample) => (
+            {pageRows.map((sample, i) => (
               <SampleRow
                 key={sample.id}
                 sample={sample}
                 isSelected={selectedSampleId === sample.id}
+                isHighlighted={highlightedIndex === i}
                 onClick={() => handleRowClick(sample.id)}
               />
             ))}

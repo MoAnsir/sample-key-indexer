@@ -230,7 +230,7 @@ function MetadataGrid({ detail }: { detail: SampleDetail }) {
             <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
               {label}
             </p>
-            <p className="text-sm font-medium text-gray-800 truncate">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
               {String(value)}
             </p>
           </div>
@@ -408,7 +408,7 @@ function PanelHeader({
           <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
             Now Playing
           </p>
-          <h2 className="text-sm font-semibold text-gray-900 truncate">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
             {name ?? "Loading..."}
           </h2>
         </div>
@@ -419,7 +419,7 @@ function PanelHeader({
               disabled={reviewing}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 ${
                 isReviewed
-                  ? "border border-gray-300 text-gray-600 hover:bg-gray-100"
+                  ? "border border-gray-300 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                   : "bg-teal-600 text-white hover:bg-teal-700"
               }`}
             >
@@ -432,7 +432,7 @@ function PanelHeader({
           )}
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+            className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none"
           >
             ✕
           </button>
@@ -515,7 +515,7 @@ function ProgressionsCard({
                 MIDI
               </a>
             </div>
-            <p className="text-xs text-gray-600 mt-1">
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
               {p.progression.join(" → ")}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
