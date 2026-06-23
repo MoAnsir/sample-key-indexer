@@ -65,6 +65,9 @@ interface AppState {
   loading: boolean;
   loadingMessage: string;
   setLoading: (loading: boolean, message?: string) => void;
+
+  darkMode: boolean;
+  toggleDarkMode: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -110,6 +113,14 @@ export const useAppStore = create<AppState>((set) => ({
   loading: false,
   loadingMessage: "",
   setLoading: (loading, message = "") => set({ loading, loadingMessage: message }),
+
+  darkMode: false,
+  toggleDarkMode: () =>
+    set((s) => {
+      const next = !s.darkMode;
+      document.documentElement.classList.toggle("dark", next);
+      return { darkMode: next };
+    }),
 }));
 
 export function applyFilters(samples: Sample[], filters: FilterState): Sample[] {

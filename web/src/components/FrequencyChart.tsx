@@ -29,7 +29,7 @@ export default function FrequencyChart({
       <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
         Frequency Features
       </h3>
-      <div className="rounded-lg border border-gray-200 bg-white p-3">
+      <div className="rounded-lg border border-gray-200 bg-white dark:bg-gray-800 p-3">
         <ResponsiveContainer width="100%" height={160}>
           <BarChart data={data} layout="vertical" margin={{ left: 80, right: 40 }}>
             <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v} Hz`} />

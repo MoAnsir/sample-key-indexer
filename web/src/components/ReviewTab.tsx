@@ -249,7 +249,7 @@ function ReviewRow({
             ? "text-red-600"
             : (sample.confidence ?? 0) < 0.6
               ? "text-amber-600"
-              : "text-gray-600"
+              : "text-gray-600 dark:text-gray-400"
         }`}
       >
         {(sample.confidence ?? 0).toFixed(2)}

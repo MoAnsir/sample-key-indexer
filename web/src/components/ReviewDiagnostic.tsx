@@ -143,11 +143,11 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
   const indexPath = `/path/to/metadata_index.sqlite`;
 
   return (
-    <div className="rounded-lg border-2 border-amber-300 bg-amber-50/50">
+    <div className="rounded-lg border-2 border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30">
       {/* Header — always visible */}
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-amber-50 transition-colors rounded-t-lg"
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-amber-50 dark:hover:bg-amber-900/50 transition-colors rounded-t-lg"
       >
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-amber-800">
@@ -176,7 +176,7 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
               return (
                 <div
                   key={reason}
-                  className="rounded border border-amber-200 bg-white px-3 py-2"
+                  className="rounded border border-amber-200 bg-white dark:bg-gray-800 px-3 py-2"
                 >
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-mono font-semibold text-amber-800">
@@ -200,10 +200,10 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
           </div>
 
           {/* Engine comparison table */}
-          <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+          <div className="rounded-lg border border-gray-200 bg-white dark:bg-gray-800 overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 text-left">
+                <tr className="bg-gray-50 dark:bg-gray-700 text-left">
                   <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">
                     Source
                   </th>
@@ -227,7 +227,7 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
                     !allAgree && s.key != null && s.key !== uniqueKeys[0];
                   return (
                     <tr key={s.label} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 text-xs text-gray-600">
+                      <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
                         {s.section ? (
                           <button
                             onClick={() => scrollToSection(s.section!)}
@@ -241,19 +241,19 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
                       </td>
                       <td
                         className={`px-3 py-2 text-sm font-medium ${
-                          keyDisagrees ? "text-red-600" : "text-gray-800"
+                          keyDisagrees ? "text-red-600" : "text-gray-800 dark:text-gray-200"
                         }`}
                       >
                         {s.key ?? "—"}
                         {keyDisagrees && " ⚠"}
                       </td>
-                      <td className="px-3 py-2 text-sm text-gray-700">
+                      <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
                         {s.root ?? "—"}
                       </td>
-                      <td className="px-3 py-2 text-sm text-gray-700">
+                      <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
                         {s.confidence != null ? s.confidence.toFixed(3) : "—"}
                       </td>
-                      <td className="px-3 py-2 text-sm text-gray-700">
+                      <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
                         {s.bpm != null ? Math.round(s.bpm) : "—"}
                       </td>
                     </tr>
@@ -264,7 +264,7 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
           </div>
 
           {/* Assessment */}
-          <div className="rounded border border-gray-200 bg-white px-3 py-2">
+          <div className="rounded border border-gray-200 bg-white dark:bg-gray-800 px-3 py-2">
             <p className="text-xs font-semibold text-gray-700 mb-1">Assessment</p>
             {allAgree ? (
               <p className="text-xs text-green-700">
@@ -296,7 +296,7 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
           </div>
 
           {/* Suggested commands */}
-          <div className="rounded border border-gray-200 bg-white px-3 py-2">
+          <div className="rounded border border-gray-200 bg-white dark:bg-gray-800 px-3 py-2">
             <p className="text-xs font-semibold text-gray-700 mb-1">
               CLI Commands to Investigate
             </p>

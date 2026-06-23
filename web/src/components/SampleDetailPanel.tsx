@@ -19,6 +19,7 @@ export default function SampleDetailPanel() {
   const [visible, setVisible] = useState(false);
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Open: when selectedId becomes non-null, show immediately
   useEffect(() => {
@@ -50,6 +51,46 @@ export default function SampleDetailPanel() {
     }, ANIM_DURATION);
   }, [setSelectedSampleId]);
 
+  // Escape key to close + focus trap
+  useEffect(() => {
+    if (!visible) return;
+
+    // Focus the panel on open
+    panelRef.current?.focus();
+
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+        return;
+      }
+
+      // Trap Tab within the panel
+      if (e.key === "Tab" && panelRef.current) {
+        const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+          'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [visible, handleClose]);
+
   const { data: detail, isLoading, error } = useQuery<SampleDetail>({
     queryKey: ["sample-detail", selectedId],
     queryFn: () => fetchSampleDetail(selectedId!),
@@ -62,7 +103,7 @@ export default function SampleDetailPanel() {
     return (
       <div className={`fixed inset-0 z-40 flex ${closing ? "animate-fade-out" : "animate-fade-in"}`}>
         <div className="absolute inset-0 bg-black/30" onClick={handleClose} />
-        <div className={`relative ml-auto w-full max-w-3xl bg-white shadow-2xl p-6 ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
+        <div className={`relative ml-auto w-full max-w-3xl bg-white dark:bg-gray-900 shadow-2xl p-6 ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
           <p className="text-red-600">Error loading sample: {String(error)}</p>
           <button onClick={handleClose} className="mt-4 text-sm text-gray-500 underline">Close</button>
         </div>
@@ -79,7 +120,11 @@ export default function SampleDetailPanel() {
       />
 
       {/* Panel */}
-      <div className={`relative ml-auto w-full max-w-3xl bg-white shadow-2xl overflow-y-auto ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className={`relative ml-auto w-full max-w-3xl bg-white dark:bg-gray-900 shadow-2xl overflow-y-auto outline-none ${closing ? "animate-slide-out" : "animate-slide-in"}`}
+      >
         <PanelHeader
           name={detail?.name}
           detail={detail}
@@ -215,12 +260,12 @@ function MetadataGrid({ detail }: { detail: SampleDetail }) {
         value != null && value !== "" ? (
           <div
             key={label}
-            className="rounded border border-gray-200 bg-gray-50 px-2.5 py-1.5"
+            className="rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5"
           >
             <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
               {label}
             </p>
-            <p className="text-sm font-medium text-gray-800 truncate">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
               {String(value)}
             </p>
           </div>
@@ -255,7 +300,7 @@ function PianoKeyboard({
               className={`flex flex-col items-center justify-end rounded text-[10px] font-medium transition-colors ${
                 isBlack
                   ? `w-7 h-14 ${isRoot ? "bg-teal-700 text-white" : isActive ? "bg-gray-700 text-white ring-1 ring-teal-400" : "bg-gray-800 text-gray-400"}`
-                  : `w-9 h-16 border ${isRoot ? "bg-teal-500 text-white border-teal-600" : isActive ? "bg-teal-50 text-teal-800 border-teal-300" : "bg-white text-gray-500 border-gray-300"}`
+                  : `w-9 h-16 border ${isRoot ? "bg-teal-500 text-white border-teal-600" : isActive ? "bg-teal-50 dark:bg-teal-900 text-teal-800 dark:text-teal-200 border-teal-300" : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600"}`
               }`}
             >
               <span className="pb-1">{note}</span>
@@ -300,29 +345,29 @@ function DeepAnalysisSection({ detail }: { detail: SampleDetail }) {
           value != null && value !== "" ? (
             <div
               key={label}
-              className="rounded border border-gray-200 bg-gray-50 px-2.5 py-1.5"
+              className="rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5"
             >
               <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
                 {label}
               </p>
-              <p className="text-sm font-medium text-gray-800">{String(value)}</p>
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{String(value)}</p>
             </div>
           ) : null,
         )}
       </div>
       {engines.length > 0 && (
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           Engines: {engines.join(" · ")}
         </p>
       )}
       {(detail.deep_chords?.length ?? 0) > 0 && (
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Chords: {detail.deep_chords.slice(0, 12).join(", ")}
           {detail.deep_chords.length > 12 && ` +${detail.deep_chords.length - 12} more`}
         </p>
       )}
       {(detail.deep_note_events?.length ?? 0) > 0 && (
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Notes: {detail.deep_note_events.slice(0, 8).map((e) => e.note).join(", ")}
           {detail.deep_note_events.length > 8 && ` +${detail.deep_note_events.length - 8} more`}
         </p>
@@ -337,7 +382,7 @@ function MusicalRecordCard({ record }: { record: NonNullable<SampleDetail["music
       <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
         Musical Record
       </h3>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3">
         <Chip label="Key" value={record.key} />
         <Chip label="Tonic" value={record.tonic} />
         <Chip label="Scale" value={record.scale} />
@@ -346,7 +391,7 @@ function MusicalRecordCard({ record }: { record: NonNullable<SampleDetail["music
         <Chip label="Confidence" value={record.confidence != null ? record.confidence.toFixed(2) : null} />
       </div>
       {record.notes?.length > 0 && (
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           Notes: {record.notes.join(" ")}
         </p>
       )}
@@ -392,13 +437,13 @@ function PanelHeader({
   }, [sampleId, isReviewed, queryClient, samples, setSamples]);
 
   return (
-    <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3">
+    <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
             Now Playing
           </p>
-          <h2 className="text-sm font-semibold text-gray-900 truncate">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
             {name ?? "Loading..."}
           </h2>
         </div>
@@ -409,7 +454,7 @@ function PanelHeader({
               disabled={reviewing}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 ${
                 isReviewed
-                  ? "border border-gray-300 text-gray-600 hover:bg-gray-100"
+                  ? "border border-gray-300 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                   : "bg-teal-600 text-white hover:bg-teal-700"
               }`}
             >
@@ -422,7 +467,7 @@ function PanelHeader({
           )}
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+            className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none"
           >
             ✕
           </button>
@@ -455,11 +500,11 @@ function CompatibleKeysCard({ keys }: { keys: CompatibleKey[] }) {
         {keys.map((k) => (
           <div
             key={k.label}
-            className="rounded-lg border border-gray-200 bg-gray-50 p-3"
+            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3"
           >
             <div className="flex items-baseline gap-2">
-              <span className="text-xs font-semibold text-gray-700">{k.label}</span>
-              <span className="text-sm font-medium text-gray-900">{k.scale}</span>
+              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{k.label}</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{k.scale}</span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
               {(k.diatonic_chords ?? k.chords ?? []).join(" / ")}
@@ -488,14 +533,14 @@ function ProgressionsCard({
         {progressions.map((p, i) => (
           <div
             key={p.name}
-            className="rounded-lg border border-gray-200 bg-gray-50 p-3"
+            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3"
           >
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-sm font-semibold text-gray-800">
+                <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                   {p.name}
                 </span>
-                <span className="ml-2 text-xs text-gray-500">{p.numerals}</span>
+                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{p.numerals}</span>
               </div>
               <a
                 href={getMidiUrl(sampleId, i)}
@@ -505,7 +550,7 @@ function ProgressionsCard({
                 MIDI
               </a>
             </div>
-            <p className="text-xs text-gray-600 mt-1">
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
               {p.progression.join(" → ")}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
@@ -532,11 +577,11 @@ function MoodCard({
       <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
         Mood & Transitions
       </h3>
-      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
-        <p className="text-sm text-gray-800">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3 space-y-2">
+        <p className="text-sm text-gray-800 dark:text-gray-200">
           <span className="font-semibold">{primary}</span>
           {supporting.length > 0 && (
-            <span className="text-gray-500">
+            <span className="text-gray-500 dark:text-gray-400">
               {" "}· {supporting.join(", ")}
             </span>
           )}
@@ -544,8 +589,8 @@ function MoodCard({
         {transitions.length > 0 && (
           <div className="space-y-1">
             {transitions.map((t) => (
-              <p key={t.label} className="text-xs text-gray-500">
-                → <span className="font-medium text-gray-700">{t.label}</span>{" "}
+              <p key={t.label} className="text-xs text-gray-500 dark:text-gray-400">
+                → <span className="font-medium text-gray-700 dark:text-gray-300">{t.label}</span>{" "}
                 {t.why}
               </p>
             ))}
@@ -569,7 +614,7 @@ function Chip({
       <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
         {label}
       </p>
-      <p className="text-sm font-medium text-gray-800">{String(value)}</p>
+      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{String(value)}</p>
     </div>
   );
 }
