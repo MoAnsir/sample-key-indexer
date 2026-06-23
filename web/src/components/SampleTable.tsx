@@ -1,6 +1,7 @@
 import { useMemo, memo, useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
 import PaginationBar from "./PaginationBar";
+import { getSampleField } from "../utils/sample";
 import type { Sample } from "../types/api";
 
 const COLUMNS: { key: string; label: string; className?: string }[] = [
@@ -42,7 +43,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function CellValue({ sample, column }: { sample: Sample; column: string }) {
-  const value = (sample as unknown as Record<string, unknown>)[column];
+  const value = getSampleField(sample, column);
 
   if (column === "playback_status") {
     return <StatusBadge status={String(value ?? "missing")} />;

@@ -188,7 +188,7 @@ export function sortSamples(
   direction: "asc" | "desc",
 ): Sample[] {
   const sorted = [...samples].sort((a, b) => {
-    const av = (a as unknown as Record<string, unknown>)[key];
+    const av = (a as never as Record<string, unknown>)[key];
     const bv = (b as unknown as Record<string, unknown>)[key];
     if (av == null && bv == null) return 0;
     if (av == null) return 1;

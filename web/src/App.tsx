@@ -7,6 +7,7 @@ import FilterBar from "./components/FilterBar";
 import SampleTable from "./components/SampleTable";
 import SampleDetailPanel from "./components/SampleDetailPanel";
 import ReviewTab from "./components/ReviewTab";
+import ErrorBoundary from "./components/ui/ErrorBoundary";
 import type { CatalogResponse } from "./types/api";
 
 export default function App() {
@@ -146,11 +147,14 @@ export default function App() {
       </header>
 
       {/* Dashboard — always visible, collapsible */}
+      <ErrorBoundary>
       <Dashboard
         catalog={catalog}
         activeLibraryId={filters.libraryId}
         onLibrarySelect={loadLibrary}
       />
+
+      </ErrorBoundary>
 
       {/* Sample detail slide-over */}
       <SampleDetailPanel />
@@ -158,14 +162,16 @@ export default function App() {
       {/* Browse / Review content */}
       {hasLibrary && (
         <div className="flex flex-col flex-1 min-h-0">
-          {activeTab === "browse" ? (
-            <>
-              <FilterBar />
-              <SampleTable />
-            </>
-          ) : (
-            <ReviewTab />
-          )}
+          <ErrorBoundary>
+            {activeTab === "browse" ? (
+              <>
+                <FilterBar />
+                <SampleTable />
+              </>
+            ) : (
+              <ReviewTab />
+            )}
+          </ErrorBoundary>
         </div>
       )}
     </div>

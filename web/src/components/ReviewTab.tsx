@@ -75,7 +75,7 @@ export default function ReviewTab() {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Summary + filters */}
-      <div className="p-4 space-y-4 bg-white border-b border-gray-200 flex-shrink-0">
+      <div className="p-4 space-y-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <StatCard label="Flagged" value={allFlagged.length.toLocaleString()} />
@@ -102,7 +102,7 @@ export default function ReviewTab() {
                   className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                     reasonFilter === reason
                       ? "bg-teal-600 text-white"
-                      : "border border-gray-200 bg-gray-50 text-gray-600 hover:border-teal-400"
+                      : "border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-teal-400"
                   }`}
                 >
                   <span className="font-mono">{reason}</span>
@@ -130,7 +130,7 @@ export default function ReviewTab() {
                   className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                     typeFilter === type
                       ? "bg-teal-600 text-white"
-                      : "border border-gray-200 bg-gray-50 text-gray-600 hover:border-teal-400"
+                      : "border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-teal-400"
                   }`}
                 >
                   {type}
@@ -219,11 +219,11 @@ export default function ReviewTab() {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-2.5">
       <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
         {label}
       </p>
-      <p className="text-lg font-bold text-gray-900 mt-0.5">{value}</p>
+      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-0.5">{value}</p>
     </div>
   );
 }
@@ -240,7 +240,7 @@ function ReviewRow({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-teal-50 text-left transition-colors"
+      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-teal-50 dark:hover:bg-teal-950 text-left transition-colors"
     >
       {/* Confidence */}
       <span
@@ -257,7 +257,7 @@ function ReviewRow({
 
       {/* Name + reasons */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate">
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
           {sample.name}
         </p>
         {reasons.length > 0 && (
