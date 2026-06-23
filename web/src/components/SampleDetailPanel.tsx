@@ -19,6 +19,7 @@ export default function SampleDetailPanel() {
   const [visible, setVisible] = useState(false);
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Open: when selectedId becomes non-null, show immediately
   useEffect(() => {
@@ -50,12 +51,42 @@ export default function SampleDetailPanel() {
     }, ANIM_DURATION);
   }, [setSelectedSampleId]);
 
-  // Escape key to close
+  // Escape key to close + focus trap
   useEffect(() => {
     if (!visible) return;
+
+    // Focus the panel on open
+    panelRef.current?.focus();
+
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleClose();
+      if (e.key === "Escape") {
+        handleClose();
+        return;
+      }
+
+      // Trap Tab within the panel
+      if (e.key === "Tab" && panelRef.current) {
+        const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+          'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
+
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [visible, handleClose]);
@@ -89,7 +120,11 @@ export default function SampleDetailPanel() {
       />
 
       {/* Panel */}
-      <div className={`relative ml-auto w-full max-w-3xl bg-white dark:bg-gray-900 shadow-2xl overflow-y-auto ${closing ? "animate-slide-out" : "animate-slide-in"}`}>
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className={`relative ml-auto w-full max-w-3xl bg-white dark:bg-gray-900 shadow-2xl overflow-y-auto outline-none ${closing ? "animate-slide-out" : "animate-slide-in"}`}
+      >
         <PanelHeader
           name={detail?.name}
           detail={detail}
