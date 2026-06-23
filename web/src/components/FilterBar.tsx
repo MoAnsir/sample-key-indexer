@@ -1,15 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useAppStore } from "../store/useAppStore";
-import type { Sample } from "../types/api";
-
-function unique(samples: Sample[], key: keyof Sample): string[] {
-  const set = new Set<string>();
-  for (const s of samples) {
-    const v = s[key];
-    if (v != null && v !== "") set.add(String(v));
-  }
-  return [...set].sort();
-}
+import { uniqueValues } from "../utils/filters";
 
 export default function FilterBar() {
   const samples = useAppStore((s) => s.samples);
@@ -17,14 +8,21 @@ export default function FilterBar() {
   const setFilter = useAppStore((s) => s.setFilter);
   const resetFilters = useAppStore((s) => s.resetFilters);
 
+  // Debounced search — update store 300ms after typing stops
+  const [searchInput, setSearchInput] = useState(filters.search);
+  useEffect(() => {
+    const timer = setTimeout(() => setFilter("search", searchInput), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput, setFilter]);
+
   const options = useMemo(
     () => ({
-      categories: unique(samples, "category"),
-      types: unique(samples, "type"),
-      keys: ["Unsorted", ...unique(samples, "key")],
-      sources: unique(samples, "source"),
-      brightness: unique(samples, "brightness"),
-      warmth: unique(samples, "warmth"),
+      categories: uniqueValues(samples, "category"),
+      types: uniqueValues(samples, "type"),
+      keys: ["Unsorted", ...uniqueValues(samples, "key")],
+      sources: uniqueValues(samples, "source"),
+      brightness: uniqueValues(samples, "brightness"),
+      warmth: uniqueValues(samples, "warmth"),
     }),
     [samples],
   );
@@ -43,15 +41,15 @@ export default function FilterBar() {
             type="text"
             placeholder="Name, key, path, type"
             className="input-base w-44"
-            value={filters.search}
-            onChange={(e) => setFilter("search", e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
         </Field>
 
         <Field label="Playback">
           <Select
             value={filters.playback}
-            onChange={(v) => setFilter("playback", v as FilterBar.Playback)}
+            onChange={(v) => setFilter("playback", v as "" | "available" | "missing")}
             options={["", "available", "missing"]}
             labels={["All playback", "Playable", "Missing"]}
           />
@@ -199,8 +197,4 @@ function Select({
       ))}
     </select>
   );
-}
-
-namespace FilterBar {
-  export type Playback = "" | "available" | "missing";
 }
