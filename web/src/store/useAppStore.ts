@@ -114,7 +114,7 @@ export const useAppStore = create<AppState>((set) => ({
   loadingMessage: "",
   setLoading: (loading, message = "") => set({ loading, loadingMessage: message }),
 
-  darkMode: typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
+  darkMode: false,
   toggleDarkMode: () =>
     set((s) => {
       const next = !s.darkMode;
