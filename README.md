@@ -47,7 +47,9 @@ You have thousands of audio samples — kicks, snares, bass hits, melody loops, 
   - [sample-key-indexer-sanitize](#sample-key-indexer-sanitize--library-cleanup)
 - [Output Structure](#output-structure)
 - [Analysis Engines](#analysis-engines)
+- [Web UI Guide](#web-ui-guide)
 - [Workflows](#workflows)
+- [Developing the Frontend](#developing-the-frontend)
 - [Troubleshooting](#troubleshooting)
 - [Version History](#version-history)
 
@@ -429,6 +431,88 @@ The `--analysis-profile` flag selects engine combinations:
 
 ---
 
+## Web UI Guide
+
+The web UI is a React + TypeScript single-page application that connects to the Python backend. Start both together:
+
+```bash
+# Terminal 1 — start the backend
+sample-key-indexer-web ~/SampleIndexes/metadata_index.sqlite
+
+# Terminal 2 — start the React dev server
+cd web && npm run dev
+# Open http://localhost:5173
+```
+
+Or for production (single server), build the frontend first:
+
+```bash
+cd web && npm run build
+sample-key-indexer-web ~/SampleIndexes/metadata_index.sqlite
+# Open http://127.0.0.1:8765
+```
+
+### Dashboard
+
+When the app loads, you see the **Dashboard** — library cards and a sample type distribution chart.
+
+- **Library cards** show each indexed library with total samples, available/missing counts
+- **Click a card** to load that library's samples into the Browse tab
+- **Hide/Show charts** toggles the type distribution bar chart and donut pie chart
+- The dashboard stays visible above the table — collapse it to maximize table space
+
+### Browse Tab
+
+After loading a library, the **Browse** tab shows all samples in a sortable, paginated table.
+
+- **Filter bar** — search by name/key/path/type, filter by playback status, category, type, key, source, brightness, warmth, BPM range, confidence threshold, or unsorted-only
+- **Sort** — click any column header to sort ascending/descending
+- **Pagination** — top and bottom bars with rows-per-page selector (100, 250, 500, 1000), Previous/Next buttons, and page indicator
+- **Click a row** to open the sample detail panel
+
+### Sample Detail Panel
+
+A slide-over panel from the right showing everything about a sample:
+
+- **Review diagnostics** (if flagged) — collapsible section at the top showing why the sample was flagged, engine comparison table, assessment, and CLI commands to investigate. "Jump to details" links scroll to relevant sections with a highlight
+- **Audio player** — WaveSurfer.js waveform with play/pause/stop (when audio is available)
+- **Metadata grid** — key, root, notes, chords, BPM, confidence, duration, format, sample rate, category, type, timbre, loudness, frequency features
+- **Frequency chart** — horizontal bar chart of fundamental, centroid, bandwidth, rolloff
+- **MFCC chart** — timbre shape with positive/negative coefficient bars
+- **Piano keyboard** — chromatic keyboard highlighting the root note and detected notes
+- **Deep analysis** — deep key, BPM, tuning, route, engines, chords, note events
+- **Musical record** — combined key/tonic/scale/BPM/confidence from all engines
+- **Compatible keys** — same key, relative, dominant, subdominant, parallel with diatonic chords
+- **Progressions** — chord progressions to try with mood labels and MIDI download buttons
+- **Mood & transitions** — primary mood, supporting moods, suggested transitions
+- **Mark reviewed** — button to mark the sample as reviewed (updates SQLite index)
+
+### Review Tab
+
+The **Review** tab shows samples flagged by the analysis engines for manual inspection.
+
+- **Summary stats** — flagged count, percentage of library, reviewed count, remaining, lowest confidence
+- **Filter by reason** — click reason badges (e.g., `engine_key_disagreement`, `filename_bpm_anchor`) to filter the queue. Click again to clear
+- **Filter by type** — click type badges to see only flagged samples of that type
+- **Include reviewed** — toggle to show/hide already-reviewed samples
+- **Paginated list** — each row shows confidence (color-coded), sample name, review reason badges, type, and key
+- **Click a row** to open the detail panel with diagnostics
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Highlight previous/next row in the table |
+| `Enter` | Open the detail panel for the highlighted row |
+| `Escape` | Close the detail panel |
+| `Tab` | Cycle through focusable elements within the detail panel (trapped when open) |
+
+### Dark Mode
+
+Click the moon/sun icon in the header to toggle dark mode. The app auto-detects your system preference on first load.
+
+---
+
 ## Workflows
 
 ### Typical First-Time Library Setup
@@ -465,6 +549,74 @@ sample-key-indexer-web /path/to/Indexes   # auto-discovers all indexes in subdir
 # Update metadata schema without recopying files
 sample-key-indexer /path/to/Samples /path/to/Output --force --dry-run
 ```
+
+---
+
+## Developing the Frontend
+
+The React frontend lives in `web/` and is completely independent from the Python backend — it communicates via the REST API.
+
+### Tech Stack
+
+| Library | Purpose |
+|---------|---------|
+| React 19 | UI framework |
+| TypeScript | Type safety |
+| Vite | Build tool and dev server |
+| Tailwind CSS 4 | Utility-first styling |
+| TanStack Query | Server state, caching, background refetch |
+| Zustand | Client state (filters, pagination, UI) |
+| Recharts | Charts (donut, bar, frequency, MFCC) |
+| WaveSurfer.js | Audio waveform visualization |
+
+### Setup
+
+```bash
+cd web
+npm install
+npm run dev        # Dev server on :5173, proxies /api to :8765
+npm run build      # Production build to web/dist/
+npm run type-check # TypeScript checking (no emit)
+```
+
+### Project Structure
+
+```
+web/
+├── src/
+│   ├── main.tsx                  # React root, QueryClient, dark mode init
+│   ├── App.tsx                   # Layout, routing, library loading
+│   ├── api/
+│   │   └── client.ts             # Typed fetch wrappers for all API endpoints
+│   ├── store/
+│   │   └── useAppStore.ts        # Zustand store (filters, sort, pagination, UI state)
+│   ├── types/
+│   │   └── api.ts                # TypeScript interfaces for all API responses
+│   └── components/
+│       ├── AudioPlayer.tsx       # WaveSurfer.js waveform + controls
+│       ├── Dashboard.tsx         # Library cards + type charts
+│       ├── FilterBar.tsx         # 13-dimension filter bar
+│       ├── FrequencyChart.tsx    # Horizontal bar chart (Recharts)
+│       ├── MFCCChart.tsx         # Timbre coefficient chart (Recharts)
+│       ├── PaginationBar.tsx     # Shared pagination (top + bottom)
+│       ├── ReviewDiagnostic.tsx  # Collapsible diagnostics with engine comparison
+│       ├── ReviewTab.tsx         # Flagged samples queue with filters
+│       ├── SampleDetailPanel.tsx # Slide-over detail panel with all sections
+│       ├── SampleTable.tsx       # Sortable, paginated sample table
+│       └── TypePieChart.tsx      # Donut chart (Recharts)
+├── index.html
+├── vite.config.ts                # Vite config with API proxy
+├── tsconfig.json
+└── tsconfig.app.json
+```
+
+### How It Works
+
+- **Backend** (`sample_key_indexer/web_app.py`) serves the API and static files. In production, it serves the built React app from `web/dist/`. In development, Vite runs on `:5173` and proxies `/api/*` to the Python server on `:8765`.
+- **State** is split: server state (catalog, samples, sample details) is managed by TanStack Query with caching; client state (filters, sort, pagination, dark mode) lives in Zustand.
+- **Samples are loaded in chunks** — 15,000 per request — and cached per library. Switching libraries loads from cache if already fetched.
+- **Table rows are memoized** — only changed rows re-render when selection or highlight changes.
+- **Detail panel** fetches full sample data on demand via `/api/sample?id=N`, which includes musical context (compatible keys, progressions, mood) computed server-side.
 
 ---
 
@@ -506,7 +658,14 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 
 ## Version History
 
-### V4 (Current)
+### V5 (Current) — React Frontend
+- **Phase 1**: Vite + React 19 + TypeScript scaffold with Tailwind CSS, TanStack Query, typed API client
+- **Phase 2**: Zustand store, 13-dimension filter bar, sortable paginated sample table, collapsible dashboard with library cards
+- **Phase 3**: Sample detail slide-over panel with WaveSurfer.js audio player, metadata grid, piano keyboard, compatible keys, chord progressions with MIDI download, mood & transitions
+- **Phase 4**: Recharts visualizations (donut pie chart, frequency features, MFCC timbre), Review tab with paginated queue, clickable reason/type filter badges, review diagnostics with engine comparison table and CLI commands, Mark Reviewed action
+- **Phase 5**: Dark mode with system preference detection, keyboard navigation (arrow keys, Enter, Escape), focus trap in detail panel, filter bar scoped to Browse tab only
+
+### V4
 - Routed deep-analysis backends (Essentia tonal/tuning, loop BPM/ticks, monophonic note events, Basic Pitch polyphonic transcription)
 - Deep analysis is resumable — skips samples with up-to-date results
 - LAN hardening for web UI (IP/CIDR allowlists, auth tokens)
