@@ -8,9 +8,7 @@ export default function Chip({ label, value }: ChipProps) {
   return (
     <div>
       <p className="chip-label">{label}</p>
-      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-        {String(value)}
-      </p>
+      <p className="text-sm font-sans font-medium text-ink">{String(value)}</p>
     </div>
   );
 }

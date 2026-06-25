@@ -2,6 +2,7 @@ import { useMemo, memo, useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
 import PaginationBar from "./PaginationBar";
 import { getSampleField } from "../utils/sample";
+import { keyColor, parseKey } from "../lib/key-color";
 import type { Sample } from "../types/api";
 
 const COLUMNS: { key: string; label: string; className?: string }[] = [
@@ -30,14 +31,28 @@ function formatDuration(seconds: number | null): string {
 function StatusBadge({ status }: { status: string }) {
   if (status === "available") {
     return (
-      <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-teal-100 text-teal-800">
+      <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-pill bg-good/15 text-good">
         Playable
       </span>
     );
   }
   return (
-    <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+    <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-pill bg-warn/15 text-warn">
       Missing
+    </span>
+  );
+}
+
+function KeyChip({ keyValue }: { keyValue: string }) {
+  const isDark = useAppStore((s) => s.isDark);
+  const { root, mode } = parseKey(keyValue);
+  const c = keyColor(root, mode, isDark);
+  return (
+    <span
+      className="inline-block px-2 py-0.5 text-xs font-display font-semibold rounded-chip"
+      style={{ background: c.bg, color: c.ink, border: `1px solid ${c.border}` }}
+    >
+      {keyValue}
     </span>
   );
 }
@@ -48,14 +63,17 @@ function CellValue({ sample, column }: { sample: Sample; column: string }) {
   if (column === "playback_status") {
     return <StatusBadge status={String(value ?? "missing")} />;
   }
+  if (column === "key" && value) {
+    return <KeyChip keyValue={String(value)} />;
+  }
   if (column === "duration") {
-    return <>{formatDuration(value as number | null)}</>;
+    return <span className="font-mono">{formatDuration(value as number | null)}</span>;
   }
   if (column === "bpm") {
-    return <>{value != null ? `${Math.round(value as number)} BPM` : "—"}</>;
+    return <span className="font-mono">{value != null ? `${Math.round(value as number)}` : "—"}</span>;
   }
   if (column === "confidence") {
-    return <>{value != null ? (value as number).toFixed(2) : "—"}</>;
+    return <span className="font-mono">{value != null ? (value as number).toFixed(2) : "—"}</span>;
   }
   if (value == null || value === "") return <>—</>;
   return <>{String(value)}</>;
@@ -74,15 +92,15 @@ const SampleRow = memo(function SampleRow({
 }) {
   return (
     <tr
-      className={`hover:bg-teal-50 dark:hover:bg-teal-950 cursor-pointer transition-colors ${
-        isSelected ? "bg-teal-100 dark:bg-teal-900" : isHighlighted ? "bg-gray-100 dark:bg-gray-800" : ""
+      className={`hover:bg-surface-2 cursor-pointer transition-colors ${
+        isSelected ? "bg-accent-soft" : isHighlighted ? "bg-surface-2" : ""
       }`}
       onClick={onClick}
     >
       {COLUMNS.map((col) => (
         <td
           key={col.key}
-          className={`px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap ${col.className ?? ""}`}
+          className={`px-3 py-2 text-ink whitespace-nowrap text-sm font-sans ${col.className ?? ""}`}
         >
           <CellValue sample={sample} column={col.key} />
         </td>
@@ -122,12 +140,10 @@ export default function SampleTable() {
 
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
-  // Keyboard navigation — arrow keys highlight, Enter opens detail
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      // Don't intercept when detail panel is open
       if (useAppStore.getState().selectedSampleId != null) return;
 
       if (e.key === "ArrowDown") {
@@ -146,7 +162,6 @@ export default function SampleTable() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [pageRows, highlightedIndex, setSelectedSampleId]);
 
-  // Scroll highlighted row into view
   useEffect(() => {
     if (highlightedIndex >= 0) {
       const row = tableRef.current?.querySelectorAll("tbody tr")[highlightedIndex];
@@ -154,7 +169,6 @@ export default function SampleTable() {
     }
   }, [highlightedIndex]);
 
-  // Reset highlight when page changes
   useEffect(() => {
     setHighlightedIndex(-1);
   }, [page, pageSize]);
@@ -178,15 +192,14 @@ export default function SampleTable() {
     <div className="flex flex-col flex-1 min-h-0">
       <PaginationBar position="top" {...paginationProps} />
 
-      {/* Table */}
       <div ref={tableRef} className="flex-1 overflow-auto">
         <table className="w-full text-sm border-collapse">
-          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
+          <thead className="sticky top-0 bg-surface-2 z-10">
             <tr>
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
-                  className={`px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-800 dark:hover:text-gray-200 whitespace-nowrap ${col.className ?? ""}`}
+                  className={`px-3 py-2 text-left text-xs font-sans font-medium text-faint uppercase tracking-wider cursor-pointer select-none hover:text-ink whitespace-nowrap ${col.className ?? ""}`}
                   onClick={() => setSort(col.key)}
                 >
                   {col.label}
@@ -199,7 +212,7 @@ export default function SampleTable() {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+          <tbody className="divide-y divide-line">
             {pageRows.map((sample, i) => (
               <SampleRow
                 key={sample.id}
@@ -213,7 +226,7 @@ export default function SampleTable() {
               <tr>
                 <td
                   colSpan={COLUMNS.length}
-                  className="px-4 py-12 text-center text-gray-400"
+                  className="px-4 py-12 text-center text-faint"
                 >
                   No samples match your filters
                 </td>

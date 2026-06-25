@@ -3,9 +3,8 @@ import { useReviewFiltering } from "../hooks/useReviewFiltering";
 import PaginationBar from "./PaginationBar";
 import type { Sample } from "../types/api";
 
-const FILTER_BADGE_ACTIVE = "bg-teal-600 text-white";
-const FILTER_BADGE_INACTIVE =
-  "border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-teal-400";
+const BADGE_ACTIVE = "bg-accent text-accent-ink";
+const BADGE_INACTIVE = "border border-line bg-surface text-muted hover:border-accent";
 
 export default function ReviewTab() {
   const samples = useAppStore((s) => s.samples);
@@ -29,9 +28,7 @@ export default function ReviewTab() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Summary + filters */}
-      <div className="p-4 space-y-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-        {/* Stats */}
+      <div className="p-4 space-y-4 bg-surface border-b border-line flex-shrink-0">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <StatCard label="Flagged" value={allFlagged.length.toLocaleString()} />
           <StatCard label="% of library" value={`${review.pct}%`} />
@@ -40,7 +37,6 @@ export default function ReviewTab() {
           <StatCard label="Lowest confidence" value={review.lowestConf} />
         </div>
 
-        {/* Reason filter badges */}
         {review.reasonCounts.length > 0 && (
           <FilterBadgeGroup
             label="Filter by reason"
@@ -51,7 +47,6 @@ export default function ReviewTab() {
           />
         )}
 
-        {/* Type filter badges */}
         {review.typeCounts.length > 0 && (
           <FilterBadgeGroup
             label="Filter by type"
@@ -61,9 +56,8 @@ export default function ReviewTab() {
           />
         )}
 
-        {/* Controls row */}
         <div className="flex items-center gap-4">
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+          <label className="flex items-center gap-1.5 text-xs text-muted font-sans cursor-pointer">
             <input
               type="checkbox"
               checked={state.includeReviewed}
@@ -72,10 +66,7 @@ export default function ReviewTab() {
             Include reviewed
           </label>
           {review.hasFilters && (
-            <button
-              onClick={review.clearFilters}
-              className="text-xs text-teal-700 hover:text-teal-900 underline"
-            >
+            <button onClick={review.clearFilters} className="text-xs text-accent hover:underline">
               Clear filters
             </button>
           )}
@@ -84,14 +75,13 @@ export default function ReviewTab() {
 
       <PaginationBar position="top" {...paginationProps} />
 
-      {/* Review list */}
       <div className="flex-1 overflow-auto">
         {pageRows.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
+          <div className="p-8 text-center text-faint font-sans">
             No samples match the current filters
           </div>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <div className="divide-y divide-line">
             {pageRows.map((sample) => (
               <ReviewRow
                 key={sample.id}
@@ -129,8 +119,8 @@ function FilterBadgeGroup({
           <button
             key={value}
             onClick={() => onToggle(value)}
-            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
-              activeValue === value ? FILTER_BADGE_ACTIVE : FILTER_BADGE_INACTIVE
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-chip text-xs font-sans transition-colors ${
+              activeValue === value ? BADGE_ACTIVE : BADGE_INACTIVE
             }`}
           >
             <span className={mono ? "font-mono" : ""}>{value}</span>
@@ -146,41 +136,37 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="chip-card">
       <p className="chip-label">{label}</p>
-      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-0.5">{value}</p>
+      <p className="text-lg font-display font-bold text-ink mt-0.5">{value}</p>
     </div>
   );
 }
 
 function ReviewRow({ sample, onClick }: { sample: Sample; onClick: () => void }) {
   const reasons = sample.review_reasons ?? [];
-
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-teal-50 dark:hover:bg-teal-950 text-left transition-colors"
+      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-surface-2 text-left transition-colors"
     >
       <span
         className={`w-10 text-xs font-mono font-bold tabular-nums shrink-0 mt-0.5 ${
           (sample.confidence ?? 0) < 0.3
-            ? "text-red-600"
+            ? "text-warn"
             : (sample.confidence ?? 0) < 0.6
-              ? "text-amber-600"
-              : "text-gray-600 dark:text-gray-400"
+              ? "text-warn/70"
+              : "text-muted"
         }`}
       >
         {(sample.confidence ?? 0).toFixed(2)}
       </span>
-
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-          {sample.name}
-        </p>
+        <p className="text-sm font-sans font-medium text-ink truncate">{sample.name}</p>
         {reasons.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {reasons.map((r) => (
               <span
                 key={r}
-                className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200"
+                className="inline-block px-1.5 py-0.5 rounded-chip text-[10px] font-mono bg-warn/15 text-warn border border-warn/30"
               >
                 {r}
               </span>
@@ -188,12 +174,11 @@ function ReviewRow({ sample, onClick }: { sample: Sample; onClick: () => void })
           </div>
         )}
       </div>
-
       <div className="flex items-center gap-2 shrink-0 mt-0.5">
-        <span className="text-xs text-gray-400">{sample.type}</span>
-        <span className="text-xs text-gray-400">{sample.key ?? "—"}</span>
+        <span className="text-xs text-faint font-sans">{sample.type}</span>
+        <span className="text-xs text-faint font-mono">{sample.key ?? "—"}</span>
         {sample.reviewed && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700">
+          <span className="text-[10px] px-1.5 py-0.5 rounded-pill bg-good/15 text-good font-sans">
             Reviewed
           </span>
         )}

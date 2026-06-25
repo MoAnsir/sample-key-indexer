@@ -1,0 +1,97 @@
+/* ============================================================
+   KEY INDEX — DESIGN TOKENS
+   Framework-agnostic CSS custom properties.
+   Drop this in once (e.g. src/styles/tokens.css) and import it
+   at the top of your global stylesheet.
+
+   Theme switching:  set  data-theme="studio|indigo|paper|dark"
+   on <html> (or any wrapper). Default (no attribute) = Studio.
+   Light themes: studio (teal, warm)  ·  indigo (cool)  ·  paper (terracotta)
+   Dark theme:   dark  (warm charcoal + vivid teal)
+   ============================================================ */
+
+:root,
+[data-theme="studio"] {
+  --bg:          #f3f1ec;   /* app background (warm off-white)        */
+  --surface:     #ffffff;   /* cards, panels, header                  */
+  --surface-2:   #faf9f6;   /* insets, track fills, hover wells       */
+  --border:      #e8e4db;   /* hairlines, card borders                */
+  --ink:         #1c1b18;   /* primary text                          */
+  --muted:       #79756c;   /* secondary text                        */
+  --faint:       #a9a499;   /* labels, overlines, disabled            */
+  --accent:      #0e9384;   /* brand / interactive (teal)             */
+  --accent-soft: #0e93841f; /* 12% accent — soft fills/chips          */
+  --accent-ink:  #ffffff;   /* text/icon ON an accent surface         */
+  --good:        #0e9384;   /* "in key", available, success           */
+  --warn:        #bd6a1a;   /* "missing", clash, caution              */
+  --info:        #3f6fb0;   /* informational accents on charts        */
+  --kbd-white:   #ffffff;   /* piano natural-key surface              */
+  --kbd-black:   #1c1b18;   /* piano accidental-key surface           */
+
+  --shadow-sm:   0 1px 2px rgba(0,0,0,.04);
+  --shadow-card: 0 1px 2px rgba(0,0,0,.03);
+  --shadow-pop:  0 10px 40px rgba(0,0,0,.14);
+  --shadow-panel:-20px 0 60px rgba(0,0,0,.18);
+}
+
+[data-theme="indigo"] {
+  --bg: #f1f2f7; --surface: #ffffff; --surface-2: #f7f7fb; --border: #e3e4ee;
+  --ink: #1a1b26; --muted: #74768a; --faint: #a6a8bd;
+  --accent: #5b54e6; --accent-soft: #5b54e61c; --accent-ink: #ffffff;
+  --good: #0e9384; --warn: #bd6a1a; --info: #3f6fb0;
+  --kbd-white: #ffffff; --kbd-black: #1c1b18;
+}
+
+[data-theme="paper"] {
+  --bg: #f4f1ea; --surface: #fffdf8; --surface-2: #f7f3ea; --border: #e6ddcd;
+  --ink: #231d16; --muted: #7c7261; --faint: #ada090;
+  --accent: #c2410c; --accent-soft: #c2410c1c; --accent-ink: #fffdf8;
+  --good: #0e9384; --warn: #bd6a1a; --info: #3f6fb0;
+  --kbd-white: #ffffff; --kbd-black: #1c1b18;
+}
+
+[data-theme="dark"] {
+  --bg: #131210; --surface: #1c1a16; --surface-2: #232019; --border: #322e27;
+  --ink: #f1eee8; --muted: #a39d92; --faint: #6f6a60;
+  --accent: #2bb8a6; --accent-soft: #2bb8a629; --accent-ink: #06231f;
+  --good: #2bb8a6; --warn: #d68a3a; --info: #7aa6dd;
+  --kbd-white: #2a2620; --kbd-black: #0b0a08;
+
+  --shadow-sm:   0 1px 2px rgba(0,0,0,.35);
+  --shadow-card: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-pop:  0 10px 40px rgba(0,0,0,.5);
+  --shadow-panel:-20px 0 60px rgba(0,0,0,.55);
+}
+
+/* ---- Theme-independent tokens -------------------------------- */
+:root {
+  /* Type families */
+  --font-display: "Space Grotesk", system-ui, sans-serif; /* keys, numbers, headings */
+  --font-sans:    "IBM Plex Sans", system-ui, sans-serif;  /* UI / body              */
+  --font-mono:    "IBM Plex Mono", ui-monospace, monospace;/* data: Hz, dB, BPM, path */
+
+  /* Type scale (px) */
+  --text-overline: 10.5px;  /* uppercase labels, .14em tracking      */
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 13px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+  --text-key: 38px;         /* the big detected-key badge            */
+
+  /* Radii */
+  --radius-chip: 7px;
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-panel: 16px;
+  --radius-hero: 18px;
+  --radius-pill: 20px;
+
+  /* Spacing rhythm (px) — 4pt base */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 22px; --space-6: 28px;
+
+  --tap-min: 44px;          /* minimum hit target                   */
+}

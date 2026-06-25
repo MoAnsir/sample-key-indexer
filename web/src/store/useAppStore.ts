@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { Sample, CatalogResponse, SampleDetail } from "../types/api";
 
+export type Theme = "studio" | "indigo" | "paper" | "dark";
+
 export interface FilterState {
   search: string;
   libraryId: string;
@@ -66,8 +68,9 @@ interface AppState {
   loadingMessage: string;
   setLoading: (loading: boolean, message?: string) => void;
 
-  darkMode: boolean;
-  toggleDarkMode: () => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  isDark: boolean;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -114,13 +117,13 @@ export const useAppStore = create<AppState>((set) => ({
   loadingMessage: "",
   setLoading: (loading, message = "") => set({ loading, loadingMessage: message }),
 
-  darkMode: false,
-  toggleDarkMode: () =>
-    set((s) => {
-      const next = !s.darkMode;
-      document.documentElement.classList.toggle("dark", next);
-      return { darkMode: next };
-    }),
+  theme: (localStorage.getItem("ki-theme") as Theme) ?? "studio",
+  setTheme: (theme) => {
+    localStorage.setItem("ki-theme", theme);
+    document.documentElement.setAttribute("data-theme", theme);
+    set({ theme, isDark: theme === "dark" });
+  },
+  isDark: ((localStorage.getItem("ki-theme") as Theme) ?? "studio") === "dark",
 }));
 
 export function applyFilters(samples: Sample[], filters: FilterState): Sample[] {

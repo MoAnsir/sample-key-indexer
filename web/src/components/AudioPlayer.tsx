@@ -26,11 +26,15 @@ export default function AudioPlayer({ sampleId, autoPlay = false }: AudioPlayerP
     setError(null);
     setLoading(true);
 
+    const style = getComputedStyle(document.documentElement);
+    const accent = style.getPropertyValue("--accent").trim() || "#0e9384";
+    const accentSoft = style.getPropertyValue("--accent-soft").trim() || "#0e93841f";
+
     const ws = WaveSurfer.create({
       container: containerRef.current,
-      waveColor: "#99d1c7",
-      progressColor: "#0d9488",
-      cursorColor: "#0d9488",
+      waveColor: accentSoft,
+      progressColor: accent,
+      cursorColor: accent,
       barWidth: 2,
       barGap: 1,
       barRadius: 2,
@@ -46,7 +50,6 @@ export default function AudioPlayer({ sampleId, autoPlay = false }: AudioPlayerP
     ws.on("error", (err) => {
       setLoading(false);
       setError(typeof err === "string" ? err : "Failed to load audio");
-      console.error("WaveSurfer error:", err);
     });
 
     ws.load(getAudioUrl(sampleId));
@@ -57,30 +60,30 @@ export default function AudioPlayer({ sampleId, autoPlay = false }: AudioPlayerP
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-400">
+      <div className="card border-warn/30 bg-warn/10 text-sm text-warn">
         Audio error: {error}
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+    <div className="card">
       <div ref={containerRef} className="w-full" />
       {loading && (
-        <p className="text-xs text-gray-400 mt-1">Loading waveform...</p>
+        <p className="text-xs text-faint mt-1 font-sans">Loading waveform...</p>
       )}
       <div className="flex items-center gap-2 mt-2">
         <button
           onClick={() => wavesurferRef.current?.playPause()}
-          className="px-3 py-1 text-xs font-medium rounded bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+          className="px-3 py-1 text-xs font-sans font-medium rounded-control bg-accent text-accent-ink hover:opacity-90 transition-opacity"
         >
-          Play / Pause
+          ▶ Play / Pause
         </button>
         <button
           onClick={() => wavesurferRef.current?.stop()}
-          className="px-3 py-1 text-xs font-medium rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+          className="px-3 py-1 text-xs font-sans font-medium rounded-control bg-surface-2 text-muted border border-line hover:text-ink transition-colors"
         >
-          Stop
+          ■ Stop
         </button>
       </div>
     </div>

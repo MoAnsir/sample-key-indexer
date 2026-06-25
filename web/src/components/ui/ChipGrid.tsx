@@ -9,7 +9,7 @@ export default function ChipGrid({ chips }: ChipGridProps) {
         value != null && value !== "" ? (
           <div key={label} className="chip-card">
             <p className="chip-label">{label}</p>
-            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+            <p className="text-sm font-sans font-medium text-ink truncate">
               {String(value)}
             </p>
           </div>

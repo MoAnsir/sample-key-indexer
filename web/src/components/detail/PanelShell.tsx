@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 
-const ANIM_DURATION = 200;
+const ANIM_DURATION = 220;
 
 interface PanelShellProps {
   open: boolean;
@@ -81,11 +81,15 @@ export default function PanelShell({ open, onClose, children }: PanelShellProps)
 
   return (
     <div className={`fixed inset-0 z-40 flex ${closing ? "animate-fade-out" : "animate-fade-in"}`}>
-      <div className="absolute inset-0 bg-black/30" onClick={handleClose} />
+      <div
+        className="absolute inset-0"
+        style={{ background: "rgba(20,18,14,.32)" }}
+        onClick={handleClose}
+      />
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`relative ml-auto w-full max-w-3xl bg-white dark:bg-gray-900 shadow-2xl overflow-y-auto outline-none ${closing ? "animate-slide-out" : "animate-slide-in"}`}
+        className={`relative ml-auto w-full max-w-3xl bg-bg shadow-panel overflow-y-auto outline-none ${closing ? "animate-slide-out" : "animate-slide-in"}`}
       >
         {children}
       </div>

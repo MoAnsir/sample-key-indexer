@@ -1,0 +1,66 @@
+/* ============================================================
+   KEY INDEX — Tailwind CSS v4 theme mapping
+   Exposes the design tokens as Tailwind utilities so you can write
+   `bg-surface`, `text-muted`, `border-line`, `font-mono`,
+   `rounded-card`, `shadow-pop`, etc.
+
+   Setup (Tailwind v4):
+     1. Keep design-tokens.css imported FIRST (it defines the raw
+        CSS variables + data-theme blocks).
+     2. Then import Tailwind and this @theme block.
+
+   src/index.css
+   --------------------------------------------------------------
+     @import "./styles/tokens.css";   // design-tokens.css
+     @import "tailwindcss";
+     @import "./styles/theme.css";     // this file
+   --------------------------------------------------------------
+
+   Because the colors are mapped with `var(...)`, every utility
+   re-resolves automatically when data-theme changes — no class
+   recompilation, no `dark:` variants needed for color.
+   ============================================================ */
+
+@theme inline {
+  /* Colors → utilities: bg-bg, bg-surface, text-ink, border-line, ... */
+  --color-bg:          var(--bg);
+  --color-surface:     var(--surface);
+  --color-surface-2:   var(--surface-2);
+  --color-line:        var(--border);
+  --color-ink:         var(--ink);
+  --color-muted:       var(--muted);
+  --color-faint:       var(--faint);
+  --color-accent:      var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink:  var(--accent-ink);
+  --color-good:        var(--good);
+  --color-warn:        var(--warn);
+  --color-info:        var(--info);
+
+  /* Fonts → font-display, font-sans, font-mono */
+  --font-display: var(--font-display);
+  --font-sans:    var(--font-sans);
+  --font-mono:    var(--font-mono);
+
+  /* Radii → rounded-chip ... rounded-hero */
+  --radius-chip:    var(--radius-chip);
+  --radius-control: var(--radius-control);
+  --radius-card:    var(--radius-card);
+  --radius-panel:   var(--radius-panel);
+  --radius-hero:    var(--radius-hero);
+
+  /* Shadows → shadow-card, shadow-pop, shadow-panel */
+  --shadow-card:  var(--shadow-card);
+  --shadow-pop:   var(--shadow-pop);
+  --shadow-panel: var(--shadow-panel);
+}
+
+/* Base element defaults */
+@layer base {
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}

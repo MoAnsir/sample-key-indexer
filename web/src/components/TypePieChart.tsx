@@ -7,19 +7,12 @@ const COLORS = [
   "#4682b4", "#9370db", "#20b2aa", "#f4a460",
 ];
 
-interface TypePieChartProps {
-  stats: TypeStat[];
-  total: number;
-}
-
-export default function TypePieChart({ stats, total }: TypePieChartProps) {
+export default function TypePieChart({ stats, total }: { stats: TypeStat[]; total: number }) {
   if (stats.length === 0) return null;
 
   return (
     <div className="flex flex-col items-center">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
-        Type Share
-      </h3>
+      <h3 className="section-label">Type Share</h3>
       <ResponsiveContainer width="100%" height={220}>
         <PieChart>
           <Pie
@@ -40,7 +33,7 @@ export default function TypePieChart({ stats, total }: TypePieChartProps) {
             ))}
           </Pie>
           <Tooltip
-            contentStyle={{ fontSize: 12, padding: "4px 8px" }}
+            contentStyle={{ fontSize: 12, padding: "4px 8px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8 }}
             formatter={(value, name) => [
               `${Number(value).toLocaleString()} (${((Number(value) / total) * 100).toFixed(1)}%)`,
               String(name),
@@ -49,12 +42,12 @@ export default function TypePieChart({ stats, total }: TypePieChartProps) {
         </PieChart>
       </ResponsiveContainer>
       <p className="text-center -mt-4 mb-2">
-        <span className="text-xl font-bold text-gray-800 dark:text-gray-200">{total.toLocaleString()}</span>
-        <span className="text-[10px] text-gray-400 ml-1">samples</span>
+        <span className="text-xl font-display font-bold text-ink">{total.toLocaleString()}</span>
+        <span className="text-xs text-faint ml-1 font-sans">samples</span>
       </p>
       <div className="flex flex-wrap gap-x-4 gap-y-1 justify-center mt-1">
         {stats.slice(0, 10).map((stat, i) => (
-          <div key={stat.type} className="flex items-center gap-1 text-[10px] text-gray-500">
+          <div key={stat.type} className="flex items-center gap-1 text-[10px] text-muted font-sans">
             <span
               className="w-2 h-2 rounded-full inline-block"
               style={{ backgroundColor: COLORS[i % COLORS.length] }}

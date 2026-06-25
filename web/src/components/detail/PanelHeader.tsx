@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { postReview } from "../../api/client";
 import { useAppStore } from "../../store/useAppStore";
+import { keyColor, parseKey } from "../../lib/key-color";
 import type { SampleDetail } from "../../types/api";
 
 interface PanelHeaderProps {
@@ -15,6 +16,7 @@ export default function PanelHeader({ name, detail, sampleId, onClose }: PanelHe
   const queryClient = useQueryClient();
   const samples = useAppStore((s) => s.samples);
   const setSamples = useAppStore((s) => s.setSamples);
+  const isDark = useAppStore((s) => s.isDark);
   const [reviewing, setReviewing] = useState(false);
 
   const isReviewed = detail?.reviewed ?? false;
@@ -38,24 +40,36 @@ export default function PanelHeader({ name, detail, sampleId, onClose }: PanelHe
     }
   }, [sampleId, isReviewed, queryClient, samples, setSamples]);
 
+  const keyStr = detail?.key;
+  const { root, mode } = parseKey(keyStr ?? null);
+  const kc = keyColor(root, mode, isDark);
+
   return (
-    <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
+    <div className="sticky top-0 z-10 bg-surface border-b border-line px-6 py-3">
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <p className="chip-label tracking-widest">Now Playing</p>
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+          <h2 className="text-sm font-sans font-semibold text-ink truncate">
             {name ?? "Loading..."}
           </h2>
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-4">
+          {keyStr && (
+            <span
+              className="px-2.5 py-1 text-xs font-display font-semibold rounded-chip"
+              style={{ background: kc.bg, color: kc.ink, border: `1px solid ${kc.border}` }}
+            >
+              {keyStr.replace("_", " ")}
+            </span>
+          )}
           {detail && isWritable && (
             <button
               onClick={handleReview}
               disabled={reviewing}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 ${
+              className={`px-3 py-1.5 text-xs font-sans font-medium rounded-control transition-colors disabled:opacity-50 ${
                 isReviewed
-                  ? "border border-gray-300 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-                  : "bg-teal-600 text-white hover:bg-teal-700"
+                  ? "border border-line text-muted bg-surface hover:bg-surface-2"
+                  : "bg-accent text-accent-ink hover:opacity-90"
               }`}
             >
               {reviewing
@@ -67,7 +81,7 @@ export default function PanelHeader({ name, detail, sampleId, onClose }: PanelHe
           )}
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none"
+            className="text-faint hover:text-ink text-xl leading-none transition-colors"
           >
             ✕
           </button>
@@ -78,7 +92,7 @@ export default function PanelHeader({ name, detail, sampleId, onClose }: PanelHe
           {reasons.map((r) => (
             <span
               key={r}
-              className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200"
+              className="inline-block px-1.5 py-0.5 rounded-chip text-[10px] font-mono bg-warn/15 text-warn border border-warn/30"
             >
               {r}
             </span>

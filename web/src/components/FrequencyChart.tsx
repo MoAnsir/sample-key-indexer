@@ -1,6 +1,7 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import SectionLabel from "./ui/SectionLabel";
 
-const COLORS = ["#0d9488", "#e85d5d", "#d4a843", "#4a9e6e"];
+const COLORS = ["var(--accent)", "#e85d5d", "#d4a843", "var(--good)"];
 
 interface FrequencyChartProps {
   fundamental: number | null;
@@ -9,32 +10,25 @@ interface FrequencyChartProps {
   rolloff: number | null;
 }
 
-export default function FrequencyChart({
-  fundamental,
-  centroid,
-  bandwidth,
-  rolloff,
-}: FrequencyChartProps) {
+export default function FrequencyChart({ fundamental, centroid, bandwidth, rolloff }: FrequencyChartProps) {
   const data = [
-    { name: "Fundamental", value: fundamental, unit: "Hz" },
-    { name: "Centroid", value: centroid, unit: "Hz" },
-    { name: "Bandwidth", value: bandwidth, unit: "Hz" },
-    { name: "Rolloff", value: rolloff, unit: "Hz" },
+    { name: "Fundamental", value: fundamental },
+    { name: "Centroid", value: centroid },
+    { name: "Bandwidth", value: bandwidth },
+    { name: "Rolloff", value: rolloff },
   ].filter((d) => d.value != null);
 
   if (data.length === 0) return null;
 
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
-        Frequency Features
-      </h3>
-      <div className="rounded-lg border border-gray-200 bg-white dark:bg-gray-800 p-3">
+      <SectionLabel>Frequency Features</SectionLabel>
+      <div className="card">
         <ResponsiveContainer width="100%" height={160}>
           <BarChart data={data} layout="vertical" margin={{ left: 80, right: 40 }}>
-            <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v} Hz`} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={75} />
-            <Tooltip contentStyle={{ fontSize: 12, padding: "4px 8px" }} formatter={(value) => [`${Math.round(Number(value))} Hz`]} />
+            <XAxis type="number" tick={{ fontSize: 10, fill: "var(--muted)" }} tickFormatter={(v) => `${v} Hz`} />
+            <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "var(--ink)" }} width={75} />
+            <Tooltip contentStyle={{ fontSize: 12, padding: "4px 8px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8 }} formatter={(value) => [`${Math.round(Number(value))} Hz`]} />
             <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
               {data.map((_entry, i) => (
                 <Cell key={i} fill={COLORS[i % COLORS.length]} />

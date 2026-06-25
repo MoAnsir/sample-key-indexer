@@ -1,0 +1,116 @@
+/* ============================================================
+   KEY INDEX — Component recipes (plain CSS)
+   Optional: copy the classes you want, or use them as a spec to
+   build Tailwind/React components. Every value references a token
+   from design-tokens.css, so all of these theme automatically.
+   ============================================================ */
+
+/* ---------- Surfaces ---------------------------------------- */
+.ki-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-card);
+}
+.ki-card--interactive { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.ki-card--interactive:hover { border-color: var(--accent); }
+.ki-card--selected {           /* e.g. a focused drive */
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------- Overline / labels ------------------------------- */
+.ki-overline {
+  font-size: var(--text-overline);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* ---------- Buttons ----------------------------------------- */
+.ki-btn {                       /* base */
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 14px;
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500;
+  cursor: pointer; border: 1px solid transparent;
+}
+.ki-btn--primary   { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.ki-btn--secondary { background: var(--surface); color: var(--ink); border-color: var(--border); }
+.ki-btn--ghost     { background: transparent; color: var(--muted); border-color: transparent; }
+.ki-btn--toggle-on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+
+/* ---------- Chips & badges ---------------------------------- */
+.ki-chip {                      /* generic small token */
+  display: inline-block; padding: 3px 9px;
+  border-radius: var(--radius-chip);
+  font-size: var(--text-xs); font-weight: 500;
+}
+.ki-badge-pill {                /* status pill (rounded) */
+  display: inline-block; padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px; font-weight: 500;
+}
+/* Key chip — set background/color/border from keyColor() inline,
+   since the hue is data-derived. Structure only: */
+.ki-key-chip {
+  display: inline-block; padding: 3px 9px;
+  border-radius: var(--radius-chip);
+  font-family: var(--font-display); font-weight: 600; font-size: 11.5px;
+}
+/* Fit verdict pill colour sets (apply ONE) */
+.ki-fit--in-key     { background: color-mix(in oklab, var(--good) 14%, transparent); color: var(--good); }
+.ki-fit--compatible { background: var(--accent-soft); color: var(--accent); }
+.ki-fit--out        { background: var(--surface-2); color: var(--faint); }
+
+/* ---------- Inputs / selects -------------------------------- */
+.ki-input, .ki-select {
+  height: 38px; border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface); color: var(--ink);
+  font-family: var(--font-sans); font-size: var(--text-base);
+  padding: 0 12px;
+}
+.ki-input::placeholder { color: var(--faint); }
+
+/* ---------- Segmented control (tabs / theme switch) --------- */
+.ki-segment {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.ki-segment__item {
+  border: none; background: none; cursor: pointer;
+  padding: 7px 15px; border-radius: 7px;
+  font-family: var(--font-sans); font-size: var(--text-base); font-weight: 500;
+  color: var(--muted);
+}
+.ki-segment__item--active {
+  background: var(--surface); color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+
+/* ---------- Data table -------------------------------------- */
+.ki-row {
+  display: grid; align-items: center;
+  padding: 9px 12px; border-bottom: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer;
+}
+.ki-row:hover { background: var(--surface-2); }
+.ki-cell-mono { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); }
+
+/* ---------- Meter (confidence, availability) ---------------- */
+.ki-meter { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.ki-meter__fill { height: 100%; border-radius: 3px; background: var(--accent); }
+
+/* ---------- Slide-over panel -------------------------------- */
+.ki-scrim { position: absolute; inset: 0; background: rgba(20,18,14,.32); }
+.ki-panel {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(780px, 94vw);
+  background: var(--bg);
+  box-shadow: var(--shadow-panel);
+  display: flex; flex-direction: column;
+  animation: ki-slide-in .22s cubic-bezier(.2,.7,.2,1);
+}
+@keyframes ki-slide-in { from { transform: translateX(34px); } to { transform: translateX(0); } }

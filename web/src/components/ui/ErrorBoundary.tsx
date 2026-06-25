@@ -25,16 +25,16 @@ export default class ErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         this.props.fallback ?? (
-          <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 p-4 m-4">
-            <p className="text-sm font-semibold text-red-800 dark:text-red-300">
+          <div className="card border-warn/30 m-4">
+            <p className="text-sm font-sans font-semibold text-warn">
               Something went wrong
             </p>
-            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono">
+            <p className="text-xs text-muted mt-1 font-mono">
               {this.state.error.message}
             </p>
             <button
               onClick={() => this.setState({ error: null })}
-              className="mt-2 text-xs text-red-700 dark:text-red-300 underline"
+              className="mt-2 text-xs text-accent underline font-sans"
             >
               Try again
             </button>

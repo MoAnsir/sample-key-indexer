@@ -8,7 +8,6 @@ export default function FilterBar() {
   const setFilter = useAppStore((s) => s.setFilter);
   const resetFilters = useAppStore((s) => s.resetFilters);
 
-  // Debounced search — update store 300ms after typing stops
   const [searchInput, setSearchInput] = useState(filters.search);
   useEffect(() => {
     const timer = setTimeout(() => setFilter("search", searchInput), 300);
@@ -34,13 +33,13 @@ export default function FilterBar() {
   });
 
   return (
-    <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
+    <div className="bg-surface border-b border-line px-4 py-3">
       <div className="flex flex-wrap gap-3 items-end">
         <Field label="Search">
           <input
             type="text"
             placeholder="Name, key, path, type"
-            className="input-base w-44"
+            className="input-base w-44 h-8 text-sm"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
@@ -114,14 +113,14 @@ export default function FilterBar() {
             <input
               type="number"
               placeholder="Min"
-              className="input-base w-16"
+              className="input-base w-16 h-8 text-sm"
               value={filters.bpmMin}
               onChange={(e) => setFilter("bpmMin", e.target.value)}
             />
             <input
               type="number"
               placeholder="Max"
-              className="input-base w-16"
+              className="input-base w-16 h-8 text-sm"
               value={filters.bpmMax}
               onChange={(e) => setFilter("bpmMax", e.target.value)}
             />
@@ -134,13 +133,13 @@ export default function FilterBar() {
             min={0}
             max={1}
             step={0.05}
-            className="w-24"
+            className="w-24 accent-accent"
             value={filters.confidence}
             onChange={(e) => setFilter("confidence", parseFloat(e.target.value))}
           />
         </Field>
 
-        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer self-center">
+        <label className="flex items-center gap-1.5 text-xs text-muted font-sans cursor-pointer self-center">
           <input
             type="checkbox"
             checked={filters.unsortedOnly}
@@ -152,7 +151,7 @@ export default function FilterBar() {
         {hasFilters && (
           <button
             onClick={resetFilters}
-            className="text-xs text-teal-700 hover:text-teal-900 underline self-center"
+            className="text-xs text-accent hover:underline self-center"
           >
             Clear filters
           </button>
@@ -165,9 +164,7 @@ export default function FilterBar() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
-        {label}
-      </span>
+      <span className="chip-label">{label}</span>
       {children}
     </div>
   );
@@ -186,7 +183,7 @@ function Select({
 }) {
   return (
     <select
-      className="input-base"
+      className="input-base h-8 text-sm"
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >

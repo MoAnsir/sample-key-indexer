@@ -20,7 +20,7 @@ export function MusicalRecordCard({ record }: MusicalRecordCardProps) {
         <Chip label="Confidence" value={record.confidence != null ? record.confidence.toFixed(2) : null} />
       </div>
       {(record.notes?.length ?? 0) > 0 && (
-        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-2 text-xs text-muted font-mono">
           Notes: {record.notes.join(" ")}
         </p>
       )}
@@ -28,11 +28,7 @@ export function MusicalRecordCard({ record }: MusicalRecordCardProps) {
   );
 }
 
-interface CompatibleKeysCardProps {
-  keys: CompatibleKey[];
-}
-
-export function CompatibleKeysCard({ keys }: CompatibleKeysCardProps) {
+export function CompatibleKeysCard({ keys }: { keys: CompatibleKey[] }) {
   if (keys.length === 0) return null;
   return (
     <div>
@@ -41,10 +37,10 @@ export function CompatibleKeysCard({ keys }: CompatibleKeysCardProps) {
         {keys.map((k) => (
           <div key={k.label} className="card">
             <div className="flex items-baseline gap-2">
-              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{k.label}</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{k.scale}</span>
+              <span className="text-xs font-sans font-semibold text-muted">{k.label}</span>
+              <span className="text-sm font-display font-medium text-ink">{k.scale}</span>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-faint mt-1 font-mono">
               {(k.diatonic_chords ?? k.chords ?? []).join(" / ")}
             </p>
           </div>
@@ -54,12 +50,13 @@ export function CompatibleKeysCard({ keys }: CompatibleKeysCardProps) {
   );
 }
 
-interface ProgressionsCardProps {
+export function ProgressionsCard({
+  progressions,
+  sampleId,
+}: {
   progressions: Progression[];
   sampleId: number;
-}
-
-export function ProgressionsCard({ progressions, sampleId }: ProgressionsCardProps) {
+}) {
   if (progressions.length === 0) return null;
   return (
     <div>
@@ -69,23 +66,23 @@ export function ProgressionsCard({ progressions, sampleId }: ProgressionsCardPro
           <div key={p.name} className="card">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                <span className="text-sm font-display font-semibold text-ink">
                   {p.name}
                 </span>
-                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{p.numerals}</span>
+                <span className="ml-2 text-xs text-faint font-mono">{p.numerals}</span>
               </div>
               <a
                 href={getMidiUrl(sampleId, i)}
                 download
-                className="px-2.5 py-1 text-xs font-medium rounded bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+                className="px-2.5 py-1 text-xs font-sans font-medium rounded-control bg-accent text-accent-ink hover:opacity-90 transition-opacity"
               >
                 MIDI
               </a>
             </div>
-            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+            <p className="text-xs text-muted mt-1 font-mono">
               {p.progression.join(" → ")}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-faint mt-0.5 font-sans">
               Mood: {p.mood}
             </p>
           </div>
@@ -95,31 +92,30 @@ export function ProgressionsCard({ progressions, sampleId }: ProgressionsCardPro
   );
 }
 
-interface MoodCardProps {
+export function MoodCard({
+  primary,
+  supporting,
+  transitions,
+}: {
   primary: string;
   supporting: string[];
   transitions: { label: string; why: string }[];
-}
-
-export function MoodCard({ primary, supporting, transitions }: MoodCardProps) {
+}) {
   return (
     <div>
       <SectionLabel>Mood & Transitions</SectionLabel>
       <div className="card space-y-2">
-        <p className="text-sm text-gray-800 dark:text-gray-200">
+        <p className="text-sm text-ink font-sans">
           <span className="font-semibold">{primary}</span>
           {supporting.length > 0 && (
-            <span className="text-gray-500 dark:text-gray-400">
-              {" "}· {supporting.join(", ")}
-            </span>
+            <span className="text-muted"> · {supporting.join(", ")}</span>
           )}
         </p>
         {transitions.length > 0 && (
           <div className="space-y-1">
             {transitions.map((t) => (
-              <p key={t.label} className="text-xs text-gray-500 dark:text-gray-400">
-                → <span className="font-medium text-gray-700 dark:text-gray-300">{t.label}</span>{" "}
-                {t.why}
+              <p key={t.label} className="text-xs text-muted font-sans">
+                → <span className="font-medium text-ink">{t.label}</span> {t.why}
               </p>
             ))}
           </div>

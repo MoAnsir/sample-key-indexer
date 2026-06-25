@@ -1,11 +1,8 @@
+@import "./styles/tokens.css";
 @import "tailwindcss";
-
-@custom-variant dark (&:where(.dark, .dark *));
+@import "./styles/theme.css";
 
 @layer base {
-  body {
-    @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
-  }
   * {
     scroll-behavior: smooth;
   }
@@ -13,20 +10,53 @@
 
 @layer components {
   .input-base {
-    @apply rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-700 dark:text-gray-200
-      focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500;
+    height: 38px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    padding: 0 12px;
   }
+  .input-base::placeholder {
+    color: var(--faint);
+  }
+  .input-base:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+
   .chip-card {
-    @apply rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-chip);
+    padding: 6px 10px;
   }
+
   .chip-label {
-    @apply text-[10px] font-medium uppercase tracking-wide text-gray-400;
+    font-size: var(--text-overline);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
   }
+
   .section-label {
-    @apply text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--faint);
+    margin-bottom: 8px;
   }
+
   .card {
-    @apply rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-card);
+    padding: 12px;
   }
 }
 
@@ -41,13 +71,13 @@
 }
 
 @keyframes slide-in {
-  from { transform: translateX(100%); }
+  from { transform: translateX(34px); }
   to { transform: translateX(0); }
 }
 
 @keyframes slide-out {
   from { transform: translateX(0); }
-  to { transform: translateX(100%); }
+  to { transform: translateX(34px); }
 }
 
 .animate-fade-in {
@@ -59,7 +89,7 @@
 }
 
 .animate-slide-in {
-  animation: slide-in 200ms ease-out;
+  animation: slide-in 220ms cubic-bezier(.2,.7,.2,1);
 }
 
 .animate-slide-out {

@@ -2,11 +2,7 @@ import SectionLabel from "../ui/SectionLabel";
 import ChipGrid from "../ui/ChipGrid";
 import type { SampleDetail } from "../../types/api";
 
-interface DeepAnalysisSectionProps {
-  detail: SampleDetail;
-}
-
-export default function DeepAnalysisSection({ detail }: DeepAnalysisSectionProps) {
+export default function DeepAnalysisSection({ detail }: { detail: SampleDetail }) {
   const chips: [string, string | number | null | undefined][] = [
     ["Deep Key", detail.deep_key],
     ["Deep Key Conf", detail.deep_key_confidence?.toFixed(2)],
@@ -34,18 +30,18 @@ export default function DeepAnalysisSection({ detail }: DeepAnalysisSectionProps
       <SectionLabel>Deep Analysis</SectionLabel>
       <ChipGrid chips={chips} />
       {engines.length > 0 && (
-        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-2 text-xs text-muted font-mono">
           Engines: {engines.join(" · ")}
         </p>
       )}
       {(detail.deep_chords?.length ?? 0) > 0 && (
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-1 text-xs text-muted font-mono">
           Chords: {detail.deep_chords.slice(0, 12).join(", ")}
           {detail.deep_chords.length > 12 && ` +${detail.deep_chords.length - 12} more`}
         </p>
       )}
       {(detail.deep_note_events?.length ?? 0) > 0 && (
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-1 text-xs text-muted font-mono">
           Notes: {detail.deep_note_events.slice(0, 8).map((e) => e.note).join(", ")}
           {detail.deep_note_events.length > 8 && ` +${detail.deep_note_events.length - 8} more`}
         </p>
