@@ -71,6 +71,9 @@ interface AppState {
   theme: Theme;
   setTheme: (t: Theme) => void;
   isDark: boolean;
+
+  projectKey: string | null;
+  setProjectKey: (key: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -95,9 +98,12 @@ export const useAppStore = create<AppState>((set) => ({
     })),
 
   page: 1,
-  pageSize: 100,
+  pageSize: Number(localStorage.getItem("ki-page-size")) || 100,
   setPage: (page) => set({ page }),
-  setPageSize: (pageSize) => set({ pageSize, page: 1 }),
+  setPageSize: (pageSize) => {
+    localStorage.setItem("ki-page-size", String(pageSize));
+    set({ pageSize, page: 1 });
+  },
 
   selectedSampleId: null,
   setSelectedSampleId: (id) => set({ selectedSampleId: id }),
@@ -123,6 +129,13 @@ export const useAppStore = create<AppState>((set) => ({
     localStorage.setItem("ki-theme", theme);
     document.documentElement.setAttribute("data-theme", theme);
     set({ theme, isDark: theme === "dark" });
+  },
+
+  projectKey: localStorage.getItem("ki-project-key") ?? null,
+  setProjectKey: (key) => {
+    if (key) localStorage.setItem("ki-project-key", key);
+    else localStorage.removeItem("ki-project-key");
+    set({ projectKey: key });
   },
 }));
 
