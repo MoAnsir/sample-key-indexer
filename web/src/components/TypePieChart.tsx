@@ -17,7 +17,7 @@ export default function TypePieChart({ stats, total }: TypePieChartProps) {
 
   return (
     <div className="flex flex-col items-center">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
         Type Share
       </h3>
       <ResponsiveContainer width="100%" height={220}>
@@ -49,12 +49,12 @@ export default function TypePieChart({ stats, total }: TypePieChartProps) {
         </PieChart>
       </ResponsiveContainer>
       <p className="text-center -mt-4 mb-2">
-        <span className="text-xl font-bold text-gray-800 dark:text-gray-200">{total.toLocaleString()}</span>
-        <span className="text-[10px] text-gray-400 ml-1">samples</span>
+        <span className="text-xl font-bold text-ink">{total.toLocaleString()}</span>
+        <span className="text-[10px] text-faint ml-1">samples</span>
       </p>
       <div className="flex flex-wrap gap-x-4 gap-y-1 justify-center mt-1">
         {stats.slice(0, 10).map((stat, i) => (
-          <div key={stat.type} className="flex items-center gap-1 text-[10px] text-gray-500">
+          <div key={stat.type} className="flex items-center gap-1 text-[10px] text-muted">
             <span
               className="w-2 h-2 rounded-full inline-block"
               style={{ backgroundColor: COLORS[i % COLORS.length] }}

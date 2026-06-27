@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import "./index.css";
 
-// Dark mode is opt-in via the toggle — default to light
+// Boot theme before first paint
+const saved = localStorage.getItem("ki-theme")
+  ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "studio");
+document.documentElement.setAttribute("data-theme", saved);
 
 const queryClient = new QueryClient({
   defaultOptions: {

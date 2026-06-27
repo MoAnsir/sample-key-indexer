@@ -56,9 +56,9 @@ function scrollToSection(id: string) {
   } else {
     el.scrollIntoView({ behavior: "smooth", block: "center" });
   }
-  el.classList.add("ring-2", "ring-teal-400", "ring-offset-2", "rounded-lg");
+  el.classList.add("ring-2", "ring-accent", "ring-offset-2", "rounded-lg");
   setTimeout(() => {
-    el.classList.remove("ring-2", "ring-teal-400", "ring-offset-2", "rounded-lg");
+    el.classList.remove("ring-2", "ring-accent", "ring-offset-2", "rounded-lg");
   }, 2000);
 }
 
@@ -143,17 +143,17 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
   const indexPath = `/path/to/metadata_index.sqlite`;
 
   return (
-    <div className="rounded-lg border-2 border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30">
+    <div className="rounded-lg border-2 border-amber-300 dark:border-amber-700 bg-warn/10/50 dark:bg-amber-950/30">
       {/* Header — always visible */}
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-amber-50 dark:hover:bg-amber-900/50 transition-colors rounded-t-lg"
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-warn/10 dark:hover:bg-amber-900/50 transition-colors rounded-t-lg"
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-amber-800">
+          <span className="text-sm font-semibold text-warn">
             Review Diagnostics
           </span>
-          <span className="text-xs text-amber-600">
+          <span className="text-xs text-warn">
             {reasons.length} {reasons.length === 1 ? "issue" : "issues"} flagged
           </span>
           {!allAgree && (
@@ -176,22 +176,22 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
               return (
                 <div
                   key={reason}
-                  className="rounded border border-amber-200 bg-white dark:bg-gray-800 px-3 py-2"
+                  className="rounded border border-warn/30 bg-surface px-3 py-2"
                 >
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-mono font-semibold text-amber-800">
+                    <p className="text-xs font-mono font-semibold text-warn">
                       {reason}
                     </p>
                     {info?.section && (
                       <button
                         onClick={() => scrollToSection(info.section!)}
-                        className="text-[10px] text-teal-600 hover:text-teal-800 underline"
+                        className="text-[10px] text-accent hover:text-accent underline"
                       >
                         Jump to details ↓
                       </button>
                     )}
                   </div>
-                  <p className="text-xs text-amber-700 mt-0.5">
+                  <p className="text-xs text-warn mt-0.5">
                     {info?.text ?? "Flagged for manual review."}
                   </p>
                 </div>
@@ -200,38 +200,38 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
           </div>
 
           {/* Engine comparison table */}
-          <div className="rounded-lg border border-gray-200 bg-white dark:bg-gray-800 overflow-hidden">
+          <div className="rounded-lg border border-line bg-surface overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 dark:bg-gray-700 text-left">
-                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">
+                <tr className="bg-surface-2 text-left">
+                  <th className="px-3 py-2 text-xs font-medium text-muted uppercase">
                     Source
                   </th>
-                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-xs font-medium text-muted uppercase">
                     Key
                   </th>
-                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-xs font-medium text-muted uppercase">
                     Root
                   </th>
-                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-xs font-medium text-muted uppercase">
                     Confidence
                   </th>
-                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-xs font-medium text-muted uppercase">
                     BPM
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-line">
                 {sources.map((s) => {
                   const keyDisagrees =
                     !allAgree && s.key != null && s.key !== uniqueKeys[0];
                   return (
-                    <tr key={s.label} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                      <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
+                    <tr key={s.label} className="hover:bg-surface-2 hover:bg-surface-2">
+                      <td className="px-3 py-2 text-xs text-muted">
                         {s.section ? (
                           <button
                             onClick={() => scrollToSection(s.section!)}
-                            className="text-teal-600 hover:text-teal-800 underline text-left"
+                            className="text-accent hover:text-accent underline text-left"
                           >
                             {s.label}
                           </button>
@@ -241,19 +241,19 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
                       </td>
                       <td
                         className={`px-3 py-2 text-sm font-medium ${
-                          keyDisagrees ? "text-red-600" : "text-gray-800 dark:text-gray-200"
+                          keyDisagrees ? "text-red-600" : "text-ink"
                         }`}
                       >
                         {s.key ?? "—"}
                         {keyDisagrees && " ⚠"}
                       </td>
-                      <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
+                      <td className="px-3 py-2 text-sm text-ink">
                         {s.root ?? "—"}
                       </td>
-                      <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
+                      <td className="px-3 py-2 text-sm text-ink">
                         {s.confidence != null ? s.confidence.toFixed(3) : "—"}
                       </td>
-                      <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
+                      <td className="px-3 py-2 text-sm text-ink">
                         {s.bpm != null ? Math.round(s.bpm) : "—"}
                       </td>
                     </tr>
@@ -264,8 +264,8 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
           </div>
 
           {/* Assessment */}
-          <div className="rounded border border-gray-200 bg-white dark:bg-gray-800 px-3 py-2">
-            <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Assessment</p>
+          <div className="rounded border border-line bg-surface px-3 py-2">
+            <p className="text-xs font-semibold text-ink mb-1">Assessment</p>
             {allAgree ? (
               <p className="text-xs text-green-700">
                 All sources agree on <strong>{uniqueKeys[0]}</strong>. The review
@@ -273,20 +273,20 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
                 is probably correctly classified.
               </p>
             ) : (
-              <p className="text-xs text-amber-700">
+              <p className="text-xs text-warn">
                 Sources disagree: {uniqueKeys.join(" vs ")}. The highest-confidence
                 result is most likely correct. Consider re-running deep analysis or
                 manually verifying. See{" "}
                 <button
                   onClick={() => scrollToSection("section-deep-analysis")}
-                  className="text-teal-600 hover:text-teal-800 underline"
+                  className="text-accent hover:text-accent underline"
                 >
                   Deep Analysis
                 </button>{" "}
                 and{" "}
                 <button
                   onClick={() => scrollToSection("section-musical-record")}
-                  className="text-teal-600 hover:text-teal-800 underline"
+                  className="text-accent hover:text-accent underline"
                 >
                   Musical Record
                 </button>{" "}
@@ -296,8 +296,8 @@ export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
           </div>
 
           {/* Suggested commands */}
-          <div className="rounded border border-gray-200 bg-white dark:bg-gray-800 px-3 py-2">
-            <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+          <div className="rounded border border-line bg-surface px-3 py-2">
+            <p className="text-xs font-semibold text-ink mb-1">
               CLI Commands to Investigate
             </p>
             <div className="space-y-1.5">
@@ -330,8 +330,8 @@ function CommandBlock({
 }) {
   return (
     <div>
-      <p className="text-[10px] text-gray-500">{label}</p>
-      <pre className="text-[11px] text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 mt-0.5 overflow-x-auto whitespace-pre-wrap break-all">
+      <p className="text-[10px] text-muted">{label}</p>
+      <pre className="text-[11px] text-ink bg-surface-2 rounded px-2 py-1 mt-0.5 overflow-x-auto whitespace-pre-wrap break-all">
         {command}
       </pre>
     </div>

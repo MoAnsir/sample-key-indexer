@@ -3,9 +3,9 @@ import { useReviewFiltering } from "../hooks/useReviewFiltering";
 import PaginationBar from "./PaginationBar";
 import type { Sample } from "../types/api";
 
-const FILTER_BADGE_ACTIVE = "bg-teal-600 text-white";
+const FILTER_BADGE_ACTIVE = "bg-accent text-white";
 const FILTER_BADGE_INACTIVE =
-  "border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-teal-400";
+  "border border-line bg-surface-2 text-muted hover:border-accent";
 
 export default function ReviewTab() {
   const samples = useAppStore((s) => s.samples);
@@ -30,7 +30,7 @@ export default function ReviewTab() {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Summary + filters */}
-      <div className="p-4 space-y-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+      <div className="p-4 space-y-4 bg-surface border-b border-line flex-shrink-0">
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <StatCard label="Flagged" value={allFlagged.length.toLocaleString()} />
@@ -63,7 +63,7 @@ export default function ReviewTab() {
 
         {/* Controls row */}
         <div className="flex items-center gap-4">
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+          <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer">
             <input
               type="checkbox"
               checked={state.includeReviewed}
@@ -74,7 +74,7 @@ export default function ReviewTab() {
           {review.hasFilters && (
             <button
               onClick={review.clearFilters}
-              className="text-xs text-teal-700 hover:text-teal-900 underline"
+              className="text-xs text-accent hover:text-accent underline"
             >
               Clear filters
             </button>
@@ -87,11 +87,11 @@ export default function ReviewTab() {
       {/* Review list */}
       <div className="flex-1 overflow-auto">
         {pageRows.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
+          <div className="p-8 text-center text-faint">
             No samples match the current filters
           </div>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <div className="divide-y divide-line">
             {pageRows.map((sample) => (
               <ReviewRow
                 key={sample.id}
@@ -146,7 +146,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="chip-card">
       <p className="chip-label">{label}</p>
-      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-0.5">{value}</p>
+      <p className="text-lg font-bold text-ink mt-0.5">{value}</p>
     </div>
   );
 }
@@ -157,22 +157,22 @@ function ReviewRow({ sample, onClick }: { sample: Sample; onClick: () => void })
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-teal-50 dark:hover:bg-teal-950 text-left transition-colors"
+      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-accent-soft hover:bg-accent-soft text-left transition-colors"
     >
       <span
         className={`w-10 text-xs font-mono font-bold tabular-nums shrink-0 mt-0.5 ${
           (sample.confidence ?? 0) < 0.3
             ? "text-red-600"
             : (sample.confidence ?? 0) < 0.6
-              ? "text-amber-600"
-              : "text-gray-600 dark:text-gray-400"
+              ? "text-warn"
+              : "text-muted"
         }`}
       >
         {(sample.confidence ?? 0).toFixed(2)}
       </span>
 
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+        <p className="text-sm font-medium text-ink truncate">
           {sample.name}
         </p>
         {reasons.length > 0 && (
@@ -180,7 +180,7 @@ function ReviewRow({ sample, onClick }: { sample: Sample; onClick: () => void })
             {reasons.map((r) => (
               <span
                 key={r}
-                className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200"
+                className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-warn/10 text-warn border border-warn/30"
               >
                 {r}
               </span>
@@ -190,10 +190,10 @@ function ReviewRow({ sample, onClick }: { sample: Sample; onClick: () => void })
       </div>
 
       <div className="flex items-center gap-2 shrink-0 mt-0.5">
-        <span className="text-xs text-gray-400">{sample.type}</span>
-        <span className="text-xs text-gray-400">{sample.key ?? "—"}</span>
+        <span className="text-xs text-faint">{sample.type}</span>
+        <span className="text-xs text-faint">{sample.key ?? "—"}</span>
         {sample.reviewed && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700">
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent-soft text-accent">
             Reviewed
           </span>
         )}

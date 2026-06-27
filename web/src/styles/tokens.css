@@ -1,0 +1,69 @@
+:root,
+[data-theme="studio"] {
+  --bg:          #f3f1ec;
+  --surface:     #ffffff;
+  --surface-2:   #faf9f6;
+  --border:      #e8e4db;
+  --ink:         #1c1b18;
+  --muted:       #79756c;
+  --faint:       #a9a499;
+  --accent:      #0e9384;
+  --accent-soft: #0e93841f;
+  --accent-ink:  #ffffff;
+  --good:        #0e9384;
+  --warn:        #bd6a1a;
+  --info:        #3f6fb0;
+  --kbd-white:   #ffffff;
+  --kbd-black:   #1c1b18;
+
+  --shadow-sm:   0 1px 2px rgba(0,0,0,.04);
+  --shadow-card: 0 1px 2px rgba(0,0,0,.03);
+  --shadow-pop:  0 10px 40px rgba(0,0,0,.14);
+  --shadow-panel:-20px 0 60px rgba(0,0,0,.18);
+}
+
+[data-theme="indigo"] {
+  --bg: #f1f2f7; --surface: #ffffff; --surface-2: #f7f7fb; --border: #e3e4ee;
+  --ink: #1a1b26; --muted: #74768a; --faint: #a6a8bd;
+  --accent: #5b54e6; --accent-soft: #5b54e61c; --accent-ink: #ffffff;
+  --good: #0e9384; --warn: #bd6a1a; --info: #3f6fb0;
+  --kbd-white: #ffffff; --kbd-black: #1c1b18;
+}
+
+[data-theme="paper"] {
+  --bg: #f4f1ea; --surface: #fffdf8; --surface-2: #f7f3ea; --border: #e6ddcd;
+  --ink: #231d16; --muted: #7c7261; --faint: #ada090;
+  --accent: #c2410c; --accent-soft: #c2410c1c; --accent-ink: #fffdf8;
+  --good: #0e9384; --warn: #bd6a1a; --info: #3f6fb0;
+  --kbd-white: #ffffff; --kbd-black: #1c1b18;
+}
+
+[data-theme="dark"] {
+  --bg: #131210; --surface: #1c1a16; --surface-2: #232019; --border: #322e27;
+  --ink: #f1eee8; --muted: #a39d92; --faint: #6f6a60;
+  --accent: #2bb8a6; --accent-soft: #2bb8a629; --accent-ink: #06231f;
+  --good: #2bb8a6; --warn: #d68a3a; --info: #7aa6dd;
+  --kbd-white: #2a2620; --kbd-black: #0b0a08;
+
+  --shadow-sm:   0 1px 2px rgba(0,0,0,.35);
+  --shadow-card: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-pop:  0 10px 40px rgba(0,0,0,.5);
+  --shadow-panel:-20px 0 60px rgba(0,0,0,.55);
+}
+
+:root {
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-sans:    "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, monospace;
+
+  --text-overline: 10.5px;
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 13px;
+
+  --radius-chip: 7px;
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-panel: 16px;
+  --radius-pill: 20px;
+}

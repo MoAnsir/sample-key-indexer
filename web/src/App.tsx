@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCatalog, fetchSamples } from "./api/client";
-import { useAppStore } from "./store/useAppStore";
+import { useAppStore, type Theme } from "./store/useAppStore";
 import Dashboard from "./components/Dashboard";
 import FilterBar from "./components/FilterBar";
 import SampleTable from "./components/SampleTable";
@@ -9,6 +9,13 @@ import SampleDetailPanel from "./components/SampleDetailPanel";
 import ReviewTab from "./components/ReviewTab";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import type { CatalogResponse } from "./types/api";
+
+const THEMES: { value: Theme; label: string }[] = [
+  { value: "studio", label: "Studio" },
+  { value: "indigo", label: "Indigo" },
+  { value: "paper", label: "Paper" },
+  { value: "dark", label: "Dark" },
+];
 
 export default function App() {
   const { data: catalog, isLoading, error } = useQuery<CatalogResponse>({
@@ -26,8 +33,8 @@ export default function App() {
   const loading = useAppStore((s) => s.loading);
   const loadingMessage = useAppStore((s) => s.loadingMessage);
   const setLoading = useAppStore((s) => s.setLoading);
-  const darkMode = useAppStore((s) => s.darkMode);
-  const toggleDarkMode = useAppStore((s) => s.toggleDarkMode);
+  const theme = useAppStore((s) => s.theme);
+  const setTheme = useAppStore((s) => s.setTheme);
 
   if (catalog && !useAppStore.getState().catalog) {
     setCatalog(catalog);
@@ -62,18 +69,18 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-lg text-gray-500 dark:text-gray-400">Loading catalog...</p>
+      <div className="flex items-center justify-center min-h-screen bg-bg">
+        <p className="text-lg text-muted">Loading catalog...</p>
       </div>
     );
   }
 
   if (error || !catalog) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-bg">
         <div className="text-center">
-          <p className="text-lg text-red-600">Failed to load catalog</p>
-          <p className="text-sm text-gray-500 mt-2">{String(error ?? "No data")}</p>
+          <p className="text-lg text-warn">Failed to load catalog</p>
+          <p className="text-sm text-muted mt-2">{String(error ?? "No data")}</p>
         </div>
       </div>
     );
@@ -82,42 +89,34 @@ export default function App() {
   const hasLibrary = samples.length > 0;
 
   return (
-    <div className="flex flex-col min-h-screen max-w-[1600px] mx-auto w-full">
+    <div className="flex flex-col min-h-screen bg-bg max-w-[1600px] mx-auto w-full">
       {/* Loading overlay */}
       {loading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white dark:bg-gray-800 rounded-lg px-8 py-6 shadow-xl text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-teal-600 border-t-transparent rounded-full mx-auto" />
-            <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">{loadingMessage}</p>
+          <div className="bg-surface rounded-panel px-8 py-6 shadow-pop text-center">
+            <div className="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full mx-auto" />
+            <p className="mt-3 text-sm text-muted">{loadingMessage}</p>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex-shrink-0">
+      <header className="bg-surface border-b border-line px-6 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-widest text-gray-400">
-                Sample Library
-              </p>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+              <p className="chip-label tracking-widest">Sample Library</p>
+              <h1 className="text-xl font-display font-bold text-ink">
                 Key Index Browser
               </h1>
             </div>
 
             {hasLibrary && (
-              <nav className="flex gap-1">
-                <TabButton
-                  active={activeTab === "browse"}
-                  onClick={() => setActiveTab("browse")}
-                >
+              <nav className="flex gap-1 bg-surface-2 border border-line rounded-control p-0.5">
+                <TabButton active={activeTab === "browse"} onClick={() => setActiveTab("browse")}>
                   Browse
                 </TabButton>
-                <TabButton
-                  active={activeTab === "review"}
-                  onClick={() => setActiveTab("review")}
-                >
+                <TabButton active={activeTab === "review"} onClick={() => setActiveTab("review")}>
                   Review
                 </TabButton>
               </nav>
@@ -125,18 +124,28 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button
-              onClick={toggleDarkMode}
-              className="text-lg px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              {darkMode ? "☀️" : "🌙"}
-            </button>
+            {/* Theme switcher */}
+            <div className="flex gap-0.5 bg-surface-2 border border-line rounded-control p-0.5">
+              {THEMES.map((t) => (
+                <button
+                  key={t.value}
+                  onClick={() => setTheme(t.value)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-chip transition-colors ${
+                    theme === t.value
+                      ? "bg-surface text-ink shadow-sm"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
             <div className="text-right">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+              <p className="text-2xl font-display font-bold text-ink">
                 {(catalog.total ?? 0).toLocaleString()}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted font-mono">
                 {hasLibrary
                   ? `${samples.length.toLocaleString()} loaded`
                   : `${catalog.total === 1 ? "sample" : "samples"}`}
@@ -146,14 +155,13 @@ export default function App() {
         </div>
       </header>
 
-      {/* Dashboard — always visible, collapsible */}
+      {/* Dashboard */}
       <ErrorBoundary>
-      <Dashboard
-        catalog={catalog}
-        activeLibraryId={filters.libraryId}
-        onLibrarySelect={loadLibrary}
-      />
-
+        <Dashboard
+          catalog={catalog}
+          activeLibraryId={filters.libraryId}
+          onLibrarySelect={loadLibrary}
+        />
       </ErrorBoundary>
 
       {/* Sample detail slide-over */}
@@ -190,10 +198,10 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+      className={`px-4 py-1.5 text-sm font-medium rounded-chip transition-colors ${
         active
-          ? "bg-teal-600 text-white"
-          : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+          ? "bg-surface text-ink shadow-sm"
+          : "text-muted hover:text-ink"
       }`}
     >
       {children}
