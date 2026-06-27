@@ -27,31 +27,31 @@ export default function PaginationBar({
 }: PaginationBarProps) {
   return (
     <div
-      className={`flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 flex-shrink-0 ${
+      className={`flex items-center justify-between px-4 py-3 bg-surface flex-shrink-0 ${
         position === "top"
-          ? "border-b border-gray-200 dark:border-gray-700"
-          : "border-t border-gray-200 dark:border-gray-700"
+          ? "border-b border-line"
+          : "border-t border-line"
       }`}
     >
-      <div className="text-sm text-gray-600 dark:text-gray-400">
+      <div className="text-sm text-muted">
         Showing{" "}
-        <span className="font-semibold text-gray-900 dark:text-gray-100">
+        <span className="font-semibold text-ink">
           {showingFrom.toLocaleString()}–{showingTo.toLocaleString()}
         </span>{" "}
         of{" "}
-        <span className="font-semibold text-gray-900 dark:text-gray-100">
+        <span className="font-semibold text-ink">
           {totalFiltered.toLocaleString()}
         </span>{" "}
         {label}
         {totalFiltered < totalAll && (
-          <span className="text-gray-400 dark:text-gray-500">
+          <span className="text-faint dark:text-muted">
             {" "}(filtered from {totalAll.toLocaleString()})
           </span>
         )}
       </div>
       <div className="flex items-center gap-2">
         {position === "top" && (
-          <label className="text-xs text-gray-500 dark:text-gray-400">
+          <label className="text-xs text-muted">
             Rows
             <select
               className="ml-1.5 input-base"
@@ -67,17 +67,17 @@ export default function PaginationBar({
           </label>
         )}
         <button
-          className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          className="px-3 py-1.5 text-sm font-medium rounded-md border border-line text-ink hover:bg-surface-2 hover:bg-surface-2 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
         >
           ← Previous
         </button>
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-200 min-w-[100px] text-center">
+        <span className="text-sm font-medium text-ink min-w-[100px] text-center">
           Page {page} of {totalPages}
         </span>
         <button
-          className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          className="px-3 py-1.5 text-sm font-medium rounded-md border border-line text-ink hover:bg-surface-2 hover:bg-surface-2 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
         >

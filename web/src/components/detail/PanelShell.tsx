@@ -85,7 +85,7 @@ export default function PanelShell({ open, onClose, children }: PanelShellProps)
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`relative ml-auto w-full max-w-3xl bg-white dark:bg-gray-900 shadow-2xl overflow-y-auto outline-none ${closing ? "animate-slide-out" : "animate-slide-in"}`}
+        className={`relative ml-auto w-full max-w-3xl bg-surface shadow-2xl overflow-y-auto outline-none ${closing ? "animate-slide-out" : "animate-slide-in"}`}
       >
         {children}
       </div>

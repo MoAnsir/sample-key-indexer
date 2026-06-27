@@ -34,7 +34,7 @@ export default function FilterBar() {
   });
 
   return (
-    <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
+    <div className="bg-surface border-b border-line px-4 py-3">
       <div className="flex flex-wrap gap-3 items-end">
         <Field label="Search">
           <input
@@ -140,7 +140,7 @@ export default function FilterBar() {
           />
         </Field>
 
-        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer self-center">
+        <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer self-center">
           <input
             type="checkbox"
             checked={filters.unsortedOnly}
@@ -152,7 +152,7 @@ export default function FilterBar() {
         {hasFilters && (
           <button
             onClick={resetFilters}
-            className="text-xs text-teal-700 hover:text-teal-900 underline self-center"
+            className="text-xs text-accent hover:text-accent underline self-center"
           >
             Clear filters
           </button>
@@ -165,7 +165,7 @@ export default function FilterBar() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+      <span className="text-[10px] font-medium text-muted uppercase tracking-wide">
         {label}
       </span>
       {children}

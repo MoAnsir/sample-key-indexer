@@ -64,21 +64,21 @@ export default function AudioPlayer({ sampleId, autoPlay = false }: AudioPlayerP
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+    <div className="rounded-lg border border-line bg-surface p-3">
       <div ref={containerRef} className="w-full" />
       {loading && (
-        <p className="text-xs text-gray-400 mt-1">Loading waveform...</p>
+        <p className="text-xs text-faint mt-1">Loading waveform...</p>
       )}
       <div className="flex items-center gap-2 mt-2">
         <button
           onClick={() => wavesurferRef.current?.playPause()}
-          className="px-3 py-1 text-xs font-medium rounded bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+          className="px-3 py-1 text-xs font-medium rounded bg-accent text-white hover:opacity-90 transition-colors"
         >
           Play / Pause
         </button>
         <button
           onClick={() => wavesurferRef.current?.stop()}
-          className="px-3 py-1 text-xs font-medium rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2  text-ink hover:bg-surface-2 dark:hover:bg-gray-600 transition-colors"
         >
           Stop
         </button>

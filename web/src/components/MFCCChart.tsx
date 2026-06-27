@@ -14,10 +14,10 @@ export default function MFCCChart({ mfcc }: MFCCChartProps) {
 
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
         MFCC Timbre Shape
       </h3>
-      <div className="rounded-lg border border-gray-200 bg-white dark:bg-gray-800 p-3">
+      <div className="rounded-lg border border-line bg-surface p-3">
         <ResponsiveContainer width="100%" height={140}>
           <BarChart data={data} margin={{ left: 10, right: 10 }}>
             <XAxis dataKey="name" tick={{ fontSize: 10 }} />

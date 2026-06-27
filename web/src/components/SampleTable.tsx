@@ -2,6 +2,7 @@ import { useMemo, memo, useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
 import PaginationBar from "./PaginationBar";
 import { getSampleField } from "../utils/sample";
+import { keyColor, parseKey } from "../lib/key-color";
 import type { Sample } from "../types/api";
 
 const COLUMNS: { key: string; label: string; className?: string }[] = [
@@ -30,15 +31,49 @@ function formatDuration(seconds: number | null): string {
 function StatusBadge({ status }: { status: string }) {
   if (status === "available") {
     return (
-      <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-teal-100 text-teal-800">
+      <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-accent-soft text-accent">
         Playable
       </span>
     );
   }
   return (
-    <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+    <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-warn/15 text-warn">
       Missing
     </span>
+  );
+}
+
+function KeyChip({ keyValue }: { keyValue: string | null }) {
+  const isDark = useAppStore((s) => s.isDark);
+  if (!keyValue) return <span className="text-faint text-xs">—</span>;
+  const { root, mode } = parseKey(keyValue);
+  const c = keyColor(root, mode, isDark);
+  return (
+    <span
+      className="inline-block px-2 py-0.5 text-[11px] font-semibold rounded"
+      style={{ background: c.bg, color: c.ink, border: `1px solid ${c.border}` }}
+    >
+      {keyValue.replace("_", " ")}
+    </span>
+  );
+}
+
+function ConfidenceMeter({ value }: { value: number | null }) {
+  if (value == null) return <span className="text-faint text-xs">—</span>;
+  const pct = Math.round(value * 100);
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-14 h-[5px] rounded-full bg-surface-2  overflow-hidden">
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${pct}%`,
+            background: value >= 0.7 ? "#0d9488" : value >= 0.4 ? "#d97706" : "#dc2626",
+          }}
+        />
+      </div>
+      <span className="text-xs text-muted tabular-nums font-mono">{value.toFixed(2)}</span>
+    </div>
   );
 }
 
@@ -48,6 +83,9 @@ function CellValue({ sample, column }: { sample: Sample; column: string }) {
   if (column === "playback_status") {
     return <StatusBadge status={String(value ?? "missing")} />;
   }
+  if (column === "key") {
+    return <KeyChip keyValue={value as string | null} />;
+  }
   if (column === "duration") {
     return <>{formatDuration(value as number | null)}</>;
   }
@@ -55,7 +93,7 @@ function CellValue({ sample, column }: { sample: Sample; column: string }) {
     return <>{value != null ? `${Math.round(value as number)} BPM` : "—"}</>;
   }
   if (column === "confidence") {
-    return <>{value != null ? (value as number).toFixed(2) : "—"}</>;
+    return <ConfidenceMeter value={value as number | null} />;
   }
   if (value == null || value === "") return <>—</>;
   return <>{String(value)}</>;
@@ -74,15 +112,15 @@ const SampleRow = memo(function SampleRow({
 }) {
   return (
     <tr
-      className={`hover:bg-teal-50 dark:hover:bg-teal-950 cursor-pointer transition-colors ${
-        isSelected ? "bg-teal-100 dark:bg-teal-900" : isHighlighted ? "bg-gray-100 dark:bg-gray-800" : ""
+      className={`hover:bg-accent-soft hover:bg-accent-soft cursor-pointer transition-colors ${
+        isSelected ? "bg-accent-soft" : isHighlighted ? "bg-surface-2 " : ""
       }`}
       onClick={onClick}
     >
       {COLUMNS.map((col) => (
         <td
           key={col.key}
-          className={`px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap ${col.className ?? ""}`}
+          className={`px-3 py-2 text-ink whitespace-nowrap ${col.className ?? ""}`}
         >
           <CellValue sample={sample} column={col.key} />
         </td>
@@ -181,12 +219,12 @@ export default function SampleTable() {
       {/* Table */}
       <div ref={tableRef} className="flex-1 overflow-auto">
         <table className="w-full text-sm border-collapse">
-          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
+          <thead className="sticky top-0 bg-surface-2 z-10">
             <tr>
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
-                  className={`px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-800 dark:hover:text-gray-200 whitespace-nowrap ${col.className ?? ""}`}
+                  className={`px-3 py-2 text-left text-xs font-medium text-muted uppercase tracking-wider cursor-pointer select-none hover:text-ink dark:hover:text-ink whitespace-nowrap ${col.className ?? ""}`}
                   onClick={() => setSort(col.key)}
                 >
                   {col.label}
@@ -199,7 +237,7 @@ export default function SampleTable() {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+          <tbody className="divide-y divide-line">
             {pageRows.map((sample, i) => (
               <SampleRow
                 key={sample.id}
@@ -213,7 +251,7 @@ export default function SampleTable() {
               <tr>
                 <td
                   colSpan={COLUMNS.length}
-                  className="px-4 py-12 text-center text-gray-400"
+                  className="px-4 py-12 text-center text-faint"
                 >
                   No samples match your filters
                 </td>

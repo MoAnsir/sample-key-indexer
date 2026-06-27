@@ -1,0 +1,37 @@
+@theme inline {
+  --color-bg:          var(--bg);
+  --color-surface:     var(--surface);
+  --color-surface-2:   var(--surface-2);
+  --color-line:        var(--border);
+  --color-ink:         var(--ink);
+  --color-muted:       var(--muted);
+  --color-faint:       var(--faint);
+  --color-accent:      var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink:  var(--accent-ink);
+  --color-good:        var(--good);
+  --color-warn:        var(--warn);
+  --color-info:        var(--info);
+
+  --font-display: var(--font-display);
+  --font-sans:    var(--font-sans);
+  --font-mono:    var(--font-mono);
+
+  --radius-chip:    var(--radius-chip);
+  --radius-control: var(--radius-control);
+  --radius-card:    var(--radius-card);
+  --radius-panel:   var(--radius-panel);
+
+  --shadow-card:  var(--shadow-card);
+  --shadow-pop:   var(--shadow-pop);
+  --shadow-panel: var(--shadow-panel);
+}
+
+@layer base {
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
