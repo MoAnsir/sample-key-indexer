@@ -3,6 +3,7 @@ import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
 import PaginationBar from "./PaginationBar";
 import { getSampleField } from "../utils/sample";
 import { keyColor, parseKey } from "../lib/key-color";
+import { checkFit, fitLabel, type FitLevel } from "../lib/key-compat";
 import type { Sample } from "../types/api";
 
 const COLUMNS: { key: string; label: string; className?: string }[] = [
@@ -77,6 +78,21 @@ function ConfidenceMeter({ value }: { value: number | null }) {
   );
 }
 
+function FitBadge({ fit }: { fit: FitLevel }) {
+  const styles: Record<FitLevel, string> = {
+    same: "bg-good/15 text-good",
+    compatible: "bg-accent-soft text-accent",
+    out: "bg-warn/15 text-warn",
+    none: "text-faint",
+  };
+  if (fit === "none") return <span className="text-xs text-faint">No key</span>;
+  return (
+    <span className={`inline-block px-2 py-0.5 text-[11px] font-medium rounded-full ${styles[fit]}`}>
+      {fitLabel(fit)}
+    </span>
+  );
+}
+
 function CellValue({ sample, column }: { sample: Sample; column: string }) {
   const value = getSampleField(sample, column);
 
@@ -103,17 +119,20 @@ const SampleRow = memo(function SampleRow({
   sample,
   isSelected,
   isHighlighted,
+  projectKey,
   onClick,
 }: {
   sample: Sample;
   isSelected: boolean;
   isHighlighted: boolean;
+  projectKey: string | null;
   onClick: () => void;
 }) {
+  const fit = checkFit(sample.key, projectKey);
   return (
     <tr
-      className={`hover:bg-accent-soft hover:bg-accent-soft cursor-pointer transition-colors ${
-        isSelected ? "bg-accent-soft" : isHighlighted ? "bg-surface-2 " : ""
+      className={`hover:bg-accent-soft cursor-pointer transition-colors ${
+        isSelected ? "bg-accent-soft" : isHighlighted ? "bg-surface-2" : ""
       }`}
       onClick={onClick}
     >
@@ -125,6 +144,11 @@ const SampleRow = memo(function SampleRow({
           <CellValue sample={sample} column={col.key} />
         </td>
       ))}
+      {projectKey && (
+        <td className="px-3 py-2 whitespace-nowrap">
+          <FitBadge fit={fit} />
+        </td>
+      )}
     </tr>
   );
 });
@@ -132,6 +156,7 @@ const SampleRow = memo(function SampleRow({
 export default function SampleTable() {
   const samples = useAppStore((s) => s.samples);
   const filters = useAppStore((s) => s.filters);
+  const projectKey = useAppStore((s) => s.projectKey);
   const sortKey = useAppStore((s) => s.sortKey);
   const sortDirection = useAppStore((s) => s.sortDirection);
   const setSort = useAppStore((s) => s.setSort);
@@ -224,7 +249,7 @@ export default function SampleTable() {
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
-                  className={`px-3 py-2 text-left text-xs font-medium text-muted uppercase tracking-wider cursor-pointer select-none hover:text-ink dark:hover:text-ink whitespace-nowrap ${col.className ?? ""}`}
+                  className={`px-3 py-2 text-left text-xs font-medium text-muted uppercase tracking-wider cursor-pointer select-none hover:text-ink whitespace-nowrap ${col.className ?? ""}`}
                   onClick={() => setSort(col.key)}
                 >
                   {col.label}
@@ -235,6 +260,11 @@ export default function SampleTable() {
                   )}
                 </th>
               ))}
+              {projectKey && (
+                <th className="px-3 py-2 text-left text-xs font-medium text-muted uppercase tracking-wider whitespace-nowrap">
+                  Fit
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -244,13 +274,14 @@ export default function SampleTable() {
                 sample={sample}
                 isSelected={selectedSampleId === sample.id}
                 isHighlighted={highlightedIndex === i}
+                projectKey={projectKey}
                 onClick={() => handleRowClick(sample.id)}
               />
             ))}
             {pageRows.length === 0 && (
               <tr>
                 <td
-                  colSpan={COLUMNS.length}
+                  colSpan={COLUMNS.length + (projectKey ? 1 : 0)}
                   className="px-4 py-12 text-center text-faint"
                 >
                   No samples match your filters

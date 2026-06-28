@@ -7,6 +7,8 @@ export default function FilterBar() {
   const filters = useAppStore((s) => s.filters);
   const setFilter = useAppStore((s) => s.setFilter);
   const resetFilters = useAppStore((s) => s.resetFilters);
+  const projectKey = useAppStore((s) => s.projectKey);
+  const setProjectKey = useAppStore((s) => s.setProjectKey);
 
   // Debounced search — update store 300ms after typing stops
   const [searchInput, setSearchInput] = useState(filters.search);
@@ -148,6 +150,19 @@ export default function FilterBar() {
           />
           Unsorted only
         </label>
+
+        <Field label="Project Key">
+          <select
+            className="input-base"
+            value={projectKey ?? ""}
+            onChange={(e) => setProjectKey(e.target.value || null)}
+          >
+            <option value="">None</option>
+            {options.keys.filter((k) => k !== "Unsorted").map((k) => (
+              <option key={k} value={k}>{k.replace("_", " ")}</option>
+            ))}
+          </select>
+        </Field>
 
         {hasFilters && (
           <button
