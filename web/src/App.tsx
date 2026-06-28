@@ -1,7 +1,27 @@
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCatalog, fetchSamples } from "./api/client";
+import { getCachedSamples, setCachedSamples } from "./lib/sample-cache";
 import { useAppStore, type Theme } from "./store/useAppStore";
+import type { Sample } from "./types/api";
+
+async function fetchAllSamples(
+  libraryId: string,
+  onProgress: (loaded: number) => void,
+): Promise<Sample[]> {
+  const allSamples: Sample[] = [];
+  let offset = 0;
+  const limit = 15000;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    onProgress(offset);
+    const response = await fetchSamples(libraryId, offset, limit);
+    allSamples.push(...response.samples);
+    if (response.returned < limit) break;
+    offset += limit;
+  }
+  return allSamples;
+}
 import Dashboard from "./components/Dashboard";
 import FilterBar from "./components/FilterBar";
 import SampleTable from "./components/SampleTable";
@@ -42,22 +62,37 @@ export default function App() {
 
   const loadLibrary = useCallback(
     async (libraryId: string) => {
-      setLoading(true, "Fetching samples...");
       setFilter("libraryId", libraryId);
-      try {
-        const allSamples = [];
-        let offset = 0;
-        const limit = 15000;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          setLoading(true, `Fetching samples... (${offset.toLocaleString()} loaded)`);
-          const response = await fetchSamples(libraryId, offset, limit);
-          allSamples.push(...response.samples);
-          if (response.returned < limit) break;
-          offset += limit;
+
+      // Try cache first for instant load
+      const cached = await getCachedSamples(libraryId);
+      if (cached) {
+        setSamples(cached.samples);
+        setActiveTab("browse");
+        setLoading(true, "Refreshing from server...");
+
+        // Background refresh
+        try {
+          const fresh = await fetchAllSamples(libraryId, () => {});
+          setSamples(fresh);
+          setCachedSamples(libraryId, fresh);
+        } catch {
+          // Keep cached data on refresh failure
+        } finally {
+          setLoading(false);
         }
+        return;
+      }
+
+      // No cache — fetch from API with progress
+      setLoading(true, "Fetching samples...");
+      try {
+        const allSamples = await fetchAllSamples(libraryId, (loaded) => {
+          setLoading(true, `Fetching samples... (${loaded.toLocaleString()} loaded)`);
+        });
         setSamples(allSamples);
         setActiveTab("browse");
+        setCachedSamples(libraryId, allSamples);
       } catch (err) {
         console.error("Failed to load library:", err);
       } finally {
