@@ -507,9 +507,38 @@ The **Review** tab shows samples flagged by the analysis engines for manual insp
 | `Escape` | Close the detail panel |
 | `Tab` | Cycle through focusable elements within the detail panel (trapped when open) |
 
-### Dark Mode
+### Theme Switcher
 
-Click the moon/sun icon in the header to toggle dark mode. The app auto-detects your system preference on first load.
+The header has a segmented control with four themes: **Studio** (warm teal), **Indigo** (cool purple), **Paper** (terracotta), and **Dark** (warm charcoal). All colors swap instantly via CSS variables — no page reload needed. Your choice is saved to localStorage.
+
+### Project Key & Fit Column
+
+Set the **Project Key** dropdown in the filter bar to the key of the track you're working on. A **Fit** column appears in the table showing:
+
+- **Same key** — exact match
+- **Compatible** — relative, dominant, subdominant, or parallel key (will mix cleanly)
+- **Out of key** — different key, may clash
+- **No key** — sample has no detected key
+
+### Key-Color System
+
+Every key has a unique color derived from its position on the **circle of fifths** (C = 0°, G = 30°, D = 60°, etc.). This color appears everywhere:
+- Key chips in the table
+- Circle of Fifths wheel in the detail panel
+- Piano keyboard highlighting
+- Compatible keys dots
+- Keys in Your Library chart on the dashboard
+
+Harmonically related keys have similar hues — you can visually scan the table and spot which samples share a key family.
+
+### Circle of Fifths
+
+The detail panel shows an interactive circle of fifths wheel:
+- **Solid colored wedge** = detected key
+- **Lighter wedges** = compatible keys
+- **Grey wedges** = unrelated keys
+
+Click the **?** icon for a legend with the actual colors from the current sample.
 
 ---
 
@@ -584,28 +613,54 @@ npm run type-check # TypeScript checking (no emit)
 ```
 web/
 ├── src/
-│   ├── main.tsx                  # React root, QueryClient, dark mode init
-│   ├── App.tsx                   # Layout, routing, library loading
+│   ├── main.tsx                  # React root, QueryClient, theme boot
+│   ├── App.tsx                   # Layout, routing, library loading, theme switcher
 │   ├── api/
 │   │   └── client.ts             # Typed fetch wrappers for all API endpoints
 │   ├── store/
-│   │   └── useAppStore.ts        # Zustand store (filters, sort, pagination, UI state)
+│   │   └── useAppStore.ts        # Zustand store (filters, sort, pagination, theme, project key)
+│   ├── hooks/
+│   │   └── useReviewFiltering.ts # Review tab filter/stats logic
+│   ├── lib/
+│   │   ├── key-color.ts          # Circle-of-fifths pitch-class color system
+│   │   └── key-compat.ts         # Key compatibility (relative, dominant, parallel)
+│   ├── utils/
+│   │   ├── filters.ts            # uniqueValues helper
+│   │   └── sample.ts             # getSampleField accessor
+│   ├── styles/
+│   │   ├── tokens.css            # Design tokens (4 themes via CSS variables)
+│   │   └── theme.css             # Tailwind @theme mapping
 │   ├── types/
 │   │   └── api.ts                # TypeScript interfaces for all API responses
 │   └── components/
+│       ├── detail/               # Detail panel sub-components
+│       │   ├── PanelShell.tsx    # Modal logic, animations, focus trap
+│       │   ├── PanelHeader.tsx   # Review button, close, reason badges
+│       │   ├── MetadataGrid.tsx  # Sample metadata chip grid
+│       │   ├── PianoKeyboard.tsx # Chromatic keyboard with key-colors
+│       │   ├── DeepAnalysisSection.tsx
+│       │   └── MusicalContext.tsx # Compatible keys, progressions, mood
+│       ├── ui/                   # Shared UI primitives
+│       │   ├── Chip.tsx          # Label/value pair
+│       │   ├── ChipGrid.tsx      # Grid of chip cards
+│       │   ├── SectionLabel.tsx  # Section headers
+│       │   ├── ErrorBoundary.tsx # Render error catch + retry
+│       │   └── InfoTooltip.tsx   # Portal tooltip with color dots
 │       ├── AudioPlayer.tsx       # WaveSurfer.js waveform + controls
-│       ├── Dashboard.tsx         # Library cards + type charts
-│       ├── FilterBar.tsx         # 13-dimension filter bar
+│       ├── CircleOfFifths.tsx    # SVG circle-of-fifths wheel
+│       ├── Dashboard.tsx         # Library cards + type/key charts
+│       ├── FilterBar.tsx         # Filter bar with project key selector
 │       ├── FrequencyChart.tsx    # Horizontal bar chart (Recharts)
+│       ├── KeyDistribution.tsx   # Keys in Your Library chart
 │       ├── MFCCChart.tsx         # Timbre coefficient chart (Recharts)
 │       ├── PaginationBar.tsx     # Shared pagination (top + bottom)
-│       ├── ReviewDiagnostic.tsx  # Collapsible diagnostics with engine comparison
+│       ├── ReviewDiagnostic.tsx  # Engine comparison + CLI commands
 │       ├── ReviewTab.tsx         # Flagged samples queue with filters
-│       ├── SampleDetailPanel.tsx # Slide-over detail panel with all sections
-│       ├── SampleTable.tsx       # Sortable, paginated sample table
+│       ├── SampleDetailPanel.tsx # Slide-over panel orchestrator
+│       ├── SampleTable.tsx       # Table with key chips, confidence bars, fit column
 │       └── TypePieChart.tsx      # Donut chart (Recharts)
 ├── index.html
-├── vite.config.ts                # Vite config with API proxy
+├── vite.config.ts
 ├── tsconfig.json
 └── tsconfig.app.json
 ```
@@ -613,10 +668,13 @@ web/
 ### How It Works
 
 - **Backend** (`sample_key_indexer/web_app.py`) serves the API and static files. In production, it serves the built React app from `web/dist/`. In development, Vite runs on `:5173` and proxies `/api/*` to the Python server on `:8765`.
-- **State** is split: server state (catalog, samples, sample details) is managed by TanStack Query with caching; client state (filters, sort, pagination, dark mode) lives in Zustand.
+- **State** is split: server state (catalog, samples, sample details) is managed by TanStack Query with caching; client state (filters, sort, pagination, theme, project key) lives in Zustand.
+- **Theming** uses CSS custom properties via `data-theme` attribute — all color utilities (`bg-surface`, `text-ink`, `border-line`) resolve through `var()` and swap instantly when the theme changes. No `dark:` variants needed.
+- **Key-color system** (`lib/key-color.ts`) maps each musical key to a unique hue based on the circle of fifths. Used everywhere keys appear (table chips, piano, wheel, charts).
 - **Samples are loaded in chunks** — 15,000 per request — and cached per library. Switching libraries loads from cache if already fetched.
 - **Table rows are memoized** — only changed rows re-render when selection or highlight changes.
 - **Detail panel** fetches full sample data on demand via `/api/sample?id=N`, which includes musical context (compatible keys, progressions, mood) computed server-side.
+- **Preferences** (theme, page size, project key) are persisted to localStorage across sessions.
 
 ---
 
@@ -664,6 +722,10 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 - **Phase 3**: Sample detail slide-over panel with WaveSurfer.js audio player, metadata grid, piano keyboard, compatible keys, chord progressions with MIDI download, mood & transitions
 - **Phase 4**: Recharts visualizations (donut pie chart, frequency features, MFCC timbre), Review tab with paginated queue, clickable reason/type filter badges, review diagnostics with engine comparison table and CLI commands, Mark Reviewed action
 - **Phase 5**: Dark mode with system preference detection, keyboard navigation (arrow keys, Enter, Escape), focus trap in detail panel, filter bar scoped to Browse tab only
+- **Refactoring**: SampleDetailPanel split (621→129 lines), shared UI components (Chip, ChipGrid, SectionLabel, ErrorBoundary), useReviewFiltering hook, debounced search, AudioPlayer error handling
+- **Phase A**: Circle of fifths SVG wheel, key-color system (oklch hues from circle of fifths), Keys in Your Library distribution chart, key-colored chips and confidence meter bars in table, design tokens with 4 themes (studio/indigo/paper/dark), theme switcher, Google Fonts, InfoTooltip portal
+- **Phase B**: Project key selector with Fit column (Same key/Compatible/Out of key/No key), key compatibility logic (relative, dominant, subdominant, parallel), persistent preferences (theme, page size, project key) in localStorage
+- **Phase C**: Documentation update, QA across all themes
 
 ### V4
 - Routed deep-analysis backends (Essentia tonal/tuning, loop BPM/ticks, monophonic note events, Basic Pitch polyphonic transcription)
