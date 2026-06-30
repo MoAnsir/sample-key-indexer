@@ -152,7 +152,7 @@ sample-key-indexer INPUT_ROOT OUTPUT_ROOT [options]
 | `--catalog-only` | — | Write metadata index without organizing into Key/Unsorted folders |
 | `--move` | — | Move files instead of copying |
 | `--force` | — | Reprocess files already in the index |
-| `--workers N` | auto (1–4) | Number of parallel analysis workers |
+| `--workers N` | auto (1–4) | Number of parallel analysis workers. Files are analyzed in batches of 50 — if a worker crashes, only that batch falls back to single-file isolated mode, so one bad file never loses the rest of the run |
 | `--engines LIST` | balanced | Comma-separated engines: `librosa`, `essentia` |
 | `--analysis-profile PROFILE` | balanced | Preset: `fast`, `balanced`, or `deep` |
 | `--max-duration SECS` | 60 | Skip files longer than this (full songs) |
@@ -458,8 +458,22 @@ When the app loads, you see the **Dashboard** — library cards and a sample typ
 
 - **Library cards** show each indexed library with total samples, available/missing counts
 - **Click a card** to load that library's samples into the Browse tab
+- **Remove library & delete scan data** (bottom of each card) deletes the index files (`metadata_index.sqlite`/`.json`), the run report, and any organized `Key/`/`Unsorted/` folders for that library. Your original source audio is never touched
 - **Hide/Show charts** toggles the type distribution bar chart and donut pie chart
 - The dashboard stays visible above the table — collapse it to maximize table space
+
+### Scan from the Web UI
+
+Click **Scan from...** in the header to run a new scan without leaving the browser:
+
+1. **Source** — browse to the folder of samples you want to index (server-side folder browser; the browser's native file picker can't expose absolute filesystem paths, so this walks the filesystem via a backend API instead)
+2. **Mode** — `catalog-only` (index without copying) or `organize` (also copy samples into `Key/`/`Unsorted/` folders)
+3. **Destination** — where the index and (optionally) organized folders are written
+4. **Options** — library ID/name, dry run, and **Workers**. Default is 1 worker, which is the safest option: each file is analyzed individually so a crash never loses more than the current file. Raise it for speed once you know the library scans cleanly
+5. **Progress** — live phase (discovering/analyzing/indexing/saving), file count, elapsed time, and collapsible log output
+6. **Done** — the new library's card appears on the dashboard automatically, no page refresh needed
+
+Known scan locations are remembered (`~/.sample-key-indexer/scan_history.json`) and auto-loaded the next time you start `sample-key-indexer-web`, even if you only pass one index path on the command line.
 
 ### Browse Tab
 
@@ -694,6 +708,16 @@ sample-key-indexer /any/path /any/output --doctor
 
 After fixing, delete the bad index or rerun with `--force`.
 
+### Worker crashes / segfault on every file (`Worker crashes: N files`)
+
+If analysis crashes on nearly every file (visible as repeated `Warning: worker crashed while analyzing ...` lines), this is usually a `numba`/`numpy` version mismatch causing a native segfault inside `librosa.yin()`, not a code bug. Pin known-compatible versions:
+
+```bash
+pip install 'numpy<2.0' 'numba==0.60.0' 'llvmlite==0.43.0'
+```
+
+Then rerun your scan — the batch-resilient indexer (added in V5) will skip and retry any file that still crashes in isolation, so a handful of stubborn files won't block the rest of the library.
+
 ### KeyFinder not found
 
 Ensure `keyfinder-cli` or `keyfinder` is on your PATH. Check with:
@@ -717,6 +741,8 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 ## Version History
 
 ### V5 (Current) — React Frontend
+- **Scan from Web UI**: in-browser scan wizard (server-side folder browser, catalog-only/organize mode, configurable workers, live progress), delete-library action on dashboard cards (removes index files, organized folders, and in-memory server state together), known scan locations auto-load on backend startup from scan history
+- **Crash-resilient batch analysis**: core indexer processes files in batches of 50 instead of one giant worker pool — a crashing file only loses its own batch (retried in isolated mode) instead of the entire run
 - **Phase 1**: Vite + React 19 + TypeScript scaffold with Tailwind CSS, TanStack Query, typed API client
 - **Phase 2**: Zustand store, 13-dimension filter bar, sortable paginated sample table, collapsible dashboard with library cards
 - **Phase 3**: Sample detail slide-over panel with WaveSurfer.js audio player, metadata grid, piano keyboard, compatible keys, chord progressions with MIDI download, mood & transitions
