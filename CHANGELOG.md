@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased (V5 — Scan from Web UI)
+
+- Web UI can now run a full scan without the CLI:
+  - Server-side folder browser endpoint (`/api/browse-folders`) — the browser's native file picker can't return absolute filesystem paths, so folder selection walks the filesystem via the backend instead.
+  - Scan wizard (source → mode → destination → options → progress → done) supporting catalog-only or organize mode, configurable worker count, and live phase/progress/log streaming.
+  - New library appears on the dashboard automatically on completion — no manual page refresh or backend restart required.
+  - "Remove library & delete scan data" action on dashboard cards deletes index files, the run report, and organized `Key`/`Unsorted` folders, and reloads the backend's in-memory state so the card disappears immediately.
+  - Known scan locations persist to `~/.sample-key-indexer/scan_history.json` and auto-load on `sample-key-indexer-web` startup.
+- Core indexer (`cli.py`) analysis loop now processes files in batches of 50 instead of submitting the entire library to one worker pool. A crashing worker now only loses its current batch (retried file-by-file in isolated mode) instead of the rest of the run.
+- Fixed a backend bug where the in-memory list of loaded index paths only ever grew, never shrank — meaning a deleted index could still be reloaded and would silently recreate an empty `.sqlite` file via `sqlite3.connect()`. `load_samples` now skips any index path that no longer exists on disk.
+- Review diagnostics panel in the sample detail view now starts collapsed.
+
 ## 0.4.0 (V4)
 
 - V4 deep analysis pipeline (routed, resumable, batch-safe):
