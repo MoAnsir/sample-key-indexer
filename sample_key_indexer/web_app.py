@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
+from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
 STATIC_ROOT_LEGACY = Path(__file__).with_name("web_static")
 REACT_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
@@ -32,6 +33,8 @@ def load_samples(
     paths = [index_paths] if isinstance(index_paths, Path) else index_paths
     samples = []
     for index_path in paths:
+        if not index_path.exists():
+            continue
         records = load_records(index_path)
         for record in records:
             sample = _flatten_sample(record)
@@ -110,11 +113,8 @@ def build_app(
     auth_token: str | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     paths = [index_paths] if isinstance(index_paths, Path) else index_paths
-    # We keep all samples server-side so we can serve per-library subsets without blowing up the browser
-    # (sending 200k+ samples in one JSON response will crash Chrome).
     samples = load_samples(paths, library_roots, destination_roots)
     samples_by_id = {sample["id"]: sample for sample in samples}
-    # Pre-index by library so /api/samples doesn't repeatedly scan huge lists.
     samples_by_library_id: dict[str, list[dict]] = {}
     for sample in samples:
         library_id = sample.get("library_id") or "unknown"
@@ -123,6 +123,33 @@ def build_app(
     all_libraries = summarize_libraries(samples)
     library_stats = {lib["id"]: summarize_by_type(samples_by_library_id.get(lib["id"], [])) for lib in all_libraries}
     mutation_lock = threading.Lock()
+
+    def _reload_with_new_index(new_path: Path) -> None:
+        nonlocal paths, samples, samples_by_id, samples_by_library_id, all_stats, all_libraries, library_stats
+        if new_path not in paths:
+            paths = paths + [new_path]
+        samples = load_samples(paths, library_roots, destination_roots)
+        samples_by_id = {sample["id"]: sample for sample in samples}
+        samples_by_library_id = {}
+        for sample in samples:
+            lid = sample.get("library_id") or "unknown"
+            samples_by_library_id.setdefault(lid, []).append(sample)
+        all_stats = summarize_by_type(samples)
+        all_libraries = summarize_libraries(samples)
+        library_stats = {lib["id"]: summarize_by_type(samples_by_library_id.get(lib["id"], [])) for lib in all_libraries}
+
+    def _set_paths(new_paths: list[Path]) -> None:
+        nonlocal paths, samples, samples_by_id, samples_by_library_id, all_stats, all_libraries, library_stats
+        paths = new_paths
+        samples = load_samples(paths, library_roots, destination_roots) if paths else []
+        samples_by_id = {sample["id"]: sample for sample in samples}
+        samples_by_library_id = {}
+        for sample in samples:
+            lid = sample.get("library_id") or "unknown"
+            samples_by_library_id.setdefault(lid, []).append(sample)
+        all_stats = summarize_by_type(samples)
+        all_libraries = summarize_libraries(samples)
+        library_stats = {lib["id"]: summarize_by_type(samples_by_library_id.get(lib["id"], [])) for lib in all_libraries}
     allowed = list(allowed_networks or [])
     expected_token = (auth_token or "").strip() or None
 
@@ -229,6 +256,13 @@ def build_app(
                 )
             elif parsed.path == "/api/audio":
                 self._send_audio(parsed.query)
+            elif parsed.path == "/api/browse-folders":
+                self._handle_browse_folders(parsed.query)
+            elif parsed.path == "/api/scan/status":
+                job = get_current_job()
+                self._send_json(job.to_dict() if job else {"status": "idle"})
+            elif parsed.path == "/api/scan/history":
+                self._send_json({"history": load_scan_history()})
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -239,6 +273,21 @@ def build_app(
             parsed = urlparse(self.path)
             if parsed.path == "/api/review":
                 self._handle_review_mutation()
+                return
+            if parsed.path == "/api/scan/start":
+                self._handle_scan_start()
+                return
+            if parsed.path == "/api/reload":
+                self._handle_reload()
+                return
+            if parsed.path == "/api/scan/add-index":
+                self._handle_add_index()
+                return
+            if parsed.path == "/api/scan/remove":
+                self._handle_remove_index()
+                return
+            if parsed.path == "/api/scan/delete-data":
+                self._handle_delete_scan_data()
                 return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -324,6 +373,131 @@ def build_app(
                             bucket[idx] = refreshed
                             break
             self._send_json({"ok": True, "sample": public_sample(refreshed)})
+
+        def _handle_browse_folders(self, query: str) -> None:
+            params = parse_qs(query)
+            path_str = (params.get("path") or [""])[0].strip()
+            if not path_str:
+                # Return root-level locations
+                roots = []
+                home = str(Path.home())
+                roots.append({"name": "Home", "path": home})
+                desktop = str(Path.home() / "Desktop")
+                if Path(desktop).exists():
+                    roots.append({"name": "Desktop", "path": desktop})
+                # macOS volumes
+                volumes = Path("/Volumes")
+                if volumes.exists():
+                    for v in sorted(volumes.iterdir()):
+                        if v.is_dir() and not v.name.startswith("."):
+                            roots.append({"name": v.name, "path": str(v)})
+                # Linux media
+                media = Path("/media") / (os.environ.get("USER") or "")
+                if media.exists():
+                    for v in sorted(media.iterdir()):
+                        if v.is_dir():
+                            roots.append({"name": v.name, "path": str(v)})
+                self._send_json({"path": "", "folders": roots, "parent": None})
+                return
+
+            target = Path(path_str).expanduser().resolve()
+            if not target.exists() or not target.is_dir():
+                self._send_json({"error": f"Not a directory: {path_str}"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+            folders = []
+            try:
+                for entry in sorted(target.iterdir()):
+                    if entry.is_dir() and not entry.name.startswith("."):
+                        folders.append({"name": entry.name, "path": str(entry)})
+            except PermissionError:
+                pass
+
+            parent = str(target.parent) if target.parent != target else None
+            self._send_json({"path": str(target), "folders": folders, "parent": parent})
+
+        def _handle_reload(self) -> None:
+            payload = self._read_json_body()
+            index_path_str = (payload or {}).get("index_path", "").strip()
+            if index_path_str:
+                new_path = Path(index_path_str).expanduser().resolve()
+                if new_path.exists():
+                    with mutation_lock:
+                        _reload_with_new_index(new_path)
+                    self._send_json({"ok": True, "total": len(samples), "libraries": len(all_libraries)})
+                    return
+                self._send_json({"error": f"Index not found: {new_path}"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            # Full reload — rebuild from only currently-existing index paths + scan history
+            with mutation_lock:
+                all_known = {str(p) for p in paths if p.exists()}
+                for entry in load_scan_history():
+                    ip = entry.get("index_path")
+                    if ip and Path(ip).exists():
+                        all_known.add(ip)
+                existing = [Path(pp) for pp in sorted(all_known)]
+                _set_paths(existing)
+            self._send_json({"ok": True, "total": len(samples), "libraries": len(all_libraries)})
+
+        def _handle_scan_start(self) -> None:
+            payload = self._read_json_body()
+            if not payload:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            source = payload.get("source", "").strip()
+            output = payload.get("output", "").strip()
+            mode = payload.get("mode", "catalog").strip()
+            if not source or not output:
+                self._send_json({"error": "source and output are required"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            if mode not in ("catalog", "organize"):
+                self._send_json({"error": "mode must be 'catalog' or 'organize'"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                job = start_scan(source, output, mode, payload.get("options"))
+                self._send_json({"ok": True, "job": job.to_dict()})
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+        def _handle_add_index(self) -> None:
+            payload = self._read_json_body()
+            if not payload:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            index_path = payload.get("index_path", "").strip()
+            source = payload.get("source", "").strip()
+            output = payload.get("output", "").strip()
+            if not index_path:
+                self._send_json({"error": "index_path is required"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            add_to_history(source or "", output or "", index_path)
+            self._send_json({"ok": True})
+
+        def _handle_delete_scan_data(self) -> None:
+            payload = self._read_json_body()
+            if not payload:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            output = payload.get("output", "").strip()
+            if not output:
+                self._send_json({"error": "output path is required"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            result = delete_scan_data(output)
+            self._send_json({"ok": True, **result})
+
+        def _handle_remove_index(self) -> None:
+            payload = self._read_json_body()
+            if not payload:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            index_path = payload.get("index_path", "").strip()
+            if not index_path:
+                self._send_json({"error": "index_path is required"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            remove_from_history(index_path)
+            self._send_json({"ok": True})
 
         def _send_audio(self, query: str) -> None:
             params = parse_qs(query)
@@ -612,6 +786,18 @@ def is_loopback_host(host: str) -> bool:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     index_paths = resolve_index_paths([path.expanduser().resolve() for path in args.index_paths])
+
+    # Auto-load known indexes from scan history
+    history = load_scan_history()
+    cli_path_set = {str(p) for p in index_paths}
+    for entry in history:
+        hist_path = entry.get("index_path")
+        if hist_path and hist_path not in cli_path_set:
+            p = Path(hist_path)
+            if p.exists():
+                index_paths.append(p)
+                cli_path_set.add(hist_path)
+
     for index_path in index_paths:
         if not index_path.exists():
             print(f"Metadata index does not exist: {index_path}")
@@ -652,6 +838,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         raise
     print(f"Sample browser running at http://{args.host}:{args.port}")
+    print(f"Metadata ({len(index_paths)} indexes):")
+    for p in index_paths:
+        print(f"  {p}")
     print("Metadata:")
     for index_path in index_paths:
         print(f"  {index_path}")
