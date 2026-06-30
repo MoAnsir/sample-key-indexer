@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchCatalog, fetchSamples } from "./api/client";
 import { getCachedSamples, setCachedSamples } from "./lib/sample-cache";
 import { useAppStore, type Theme } from "./store/useAppStore";
@@ -28,6 +28,7 @@ import SampleTable from "./components/SampleTable";
 import SampleDetailPanel from "./components/SampleDetailPanel";
 import ReviewTab from "./components/ReviewTab";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
+import ScanWizard from "./components/ScanWizard";
 import type { CatalogResponse } from "./types/api";
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -38,6 +39,9 @@ const THEMES: { value: Theme; label: string }[] = [
 ];
 
 export default function App() {
+  const queryClient = useQueryClient();
+  const [showScanWizard, setShowScanWizard] = useState(false);
+
   const { data: catalog, isLoading, error } = useQuery<CatalogResponse>({
     queryKey: ["catalog"],
     queryFn: fetchCatalog,
@@ -159,6 +163,14 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Scan button */}
+            <button
+              onClick={() => setShowScanWizard(true)}
+              className="px-3 py-1.5 text-xs font-medium rounded-control bg-accent text-white hover:opacity-90 transition-opacity"
+            >
+              Scan from...
+            </button>
+
             {/* Theme switcher */}
             <div className="flex gap-0.5 bg-surface-2 border border-line rounded-control p-0.5">
               {THEMES.map((t) => (
@@ -196,8 +208,17 @@ export default function App() {
           catalog={catalog}
           activeLibraryId={filters.libraryId}
           onLibrarySelect={loadLibrary}
+          onRefresh={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
         />
       </ErrorBoundary>
+
+      {/* Scan wizard */}
+      {showScanWizard && (
+        <ScanWizard
+          onClose={() => setShowScanWizard(false)}
+          onComplete={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
+        />
+      )}
 
       {/* Sample detail slide-over */}
       <SampleDetailPanel />

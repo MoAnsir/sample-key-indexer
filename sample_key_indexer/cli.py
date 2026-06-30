@@ -222,52 +222,62 @@ def main(argv: list[str] | None = None) -> int:
 
     processed = 0
     analysis_summary = AnalysisRunSummary()
+    BATCH_SIZE = 50
     if processable:
-        with ProcessPoolExecutor(max_workers=args.workers) as pool:
-            futures = {
-                pool.submit(analyze_file, path, args.analysis_duration, args.sample_rate, args.analysis_profile, selected_engines): path
-                for path in processable
-            }
-            for future in tqdm(as_completed(futures), total=len(futures), unit="file"):
-                path = futures[future]
-                try:
-                    result = future.result()
-                except BrokenProcessPool:
-                    remaining = [pending_path for pending_future, pending_path in futures.items() if pending_future is future or not pending_future.done()]
-                    print(f"Warning: worker process crashed while analyzing {path.name}. Retrying {len(remaining)} remaining files in isolated mode.")
-                    analysis_summary.isolated_retry_triggered = True
-                    analysis_summary.isolated_retry_files += len(remaining)
-                    for isolated_path in tqdm(remaining, total=len(remaining), unit="file"):
-                        isolated_result = analyze_file_isolated(isolated_path, args.analysis_duration, args.sample_rate, args.analysis_profile, selected_engines)
+        completed_paths: set[str] = set()
+        progress = tqdm(total=len(processable), unit="file")
+        for batch_start in range(0, len(processable), BATCH_SIZE):
+            batch = processable[batch_start:batch_start + BATCH_SIZE]
+            try:
+                with ProcessPoolExecutor(max_workers=args.workers) as pool:
+                    futures = {
+                        pool.submit(analyze_file, path, args.analysis_duration, args.sample_rate, args.analysis_profile, selected_engines): path
+                        for path in batch
+                    }
+                    for future in as_completed(futures):
+                        path = futures[future]
+                        try:
+                            result = future.result()
+                        except BrokenProcessPool:
+                            remaining = [p for f, p in futures.items() if not f.done() or f is future]
+                            remaining = [p for p in remaining if str(p) not in completed_paths]
+                            print(f"\nWarning: worker crashed while analyzing {path.name}. Retrying {len(remaining)} files from this batch in isolated mode.")
+                            analysis_summary.isolated_retry_triggered = True
+                            analysis_summary.isolated_retry_files += len(remaining)
+                            for isolated_path in remaining:
+                                isolated_result = analyze_file_isolated(isolated_path, args.analysis_duration, args.sample_rate, args.analysis_profile, selected_engines)
+                                processed = store_indexed_result(
+                                    isolated_result, output_root, input_root, library_id, library_name,
+                                    index, analysis_summary, processed, args.write_every,
+                                    move=args.move, dry_run=args.dry_run or args.catalog_only,
+                                )
+                                completed_paths.add(str(isolated_path))
+                                progress.update(1)
+                            break
+                        except Exception as exc:
+                            result = worker_crash_result(path, args.analysis_profile, selected_engines, f"{type(exc).__name__}: {exc}")
                         processed = store_indexed_result(
-                            isolated_result,
-                            output_root,
-                            input_root,
-                            library_id,
-                            library_name,
-                            index,
-                            analysis_summary,
-                            processed,
-                            args.write_every,
-                            move=args.move,
-                            dry_run=args.dry_run or args.catalog_only,
+                            result, output_root, input_root, library_id, library_name,
+                            index, analysis_summary, processed, args.write_every,
+                            move=args.move, dry_run=args.dry_run or args.catalog_only,
                         )
-                    break
-                except Exception as exc:
-                    result = worker_crash_result(path, args.analysis_profile, selected_engines, f"{type(exc).__name__}: {exc}")
-                processed = store_indexed_result(
-                    result,
-                    output_root,
-                    input_root,
-                    library_id,
-                    library_name,
-                    index,
-                    analysis_summary,
-                    processed,
-                    args.write_every,
-                    move=args.move,
-                    dry_run=args.dry_run or args.catalog_only,
-                )
+                        completed_paths.add(str(path))
+                        progress.update(1)
+            except BrokenProcessPool:
+                remaining = [p for p in batch if str(p) not in completed_paths]
+                print(f"\nWarning: pool crashed at batch start. Retrying {len(remaining)} files in isolated mode.")
+                analysis_summary.isolated_retry_triggered = True
+                analysis_summary.isolated_retry_files += len(remaining)
+                for isolated_path in remaining:
+                    isolated_result = analyze_file_isolated(isolated_path, args.analysis_duration, args.sample_rate, args.analysis_profile, selected_engines)
+                    processed = store_indexed_result(
+                        isolated_result, output_root, input_root, library_id, library_name,
+                        index, analysis_summary, processed, args.write_every,
+                        move=args.move, dry_run=args.dry_run or args.catalog_only,
+                    )
+                    completed_paths.add(str(isolated_path))
+                    progress.update(1)
+        progress.close()
 
     index.write()
     if isinstance(index, SQLiteMetadataIndex):
