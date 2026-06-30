@@ -79,7 +79,7 @@ interface ReviewDiagnosticProps {
 
 export default function ReviewDiagnostic({ detail }: ReviewDiagnosticProps) {
   const reasons = detail.review_reasons ?? [];
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   if (reasons.length === 0) return null;
 

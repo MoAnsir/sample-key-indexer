@@ -25,6 +25,10 @@ sample-key-indexer-kitchen-sink = "sample_key_indexer.kitchen_sink:main"
 sample-key-indexer-sanitize = "sample_key_indexer.sanitize:main"
 sample-key-indexer-web = "sample_key_indexer.web_app:main"
 
+[tool.setuptools.packages.find]
+include = ["sample_key_indexer*"]
+exclude = ["web*", "tests*", "docs*"]
+
 [tool.setuptools.package-data]
 sample_key_indexer = ["web_static/*"]
 
