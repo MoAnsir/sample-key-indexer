@@ -622,6 +622,41 @@ npm run build      # Production build to web/dist/
 npm run type-check # TypeScript checking (no emit)
 ```
 
+### Testing
+
+The frontend has two test layers — unit tests (no browser or backend needed) and end-to-end tests (Playwright, API mocked via route interception).
+
+```bash
+cd web
+npm test                 # Unit tests (Vitest + React Testing Library)
+npm run test:watch       # Watch mode for TDD
+npm run test:coverage    # Coverage report → web/coverage/
+npm run test:e2e         # E2E tests (starts Vite dev server automatically)
+npm run test:e2e:ui      # Interactive Playwright UI
+```
+
+**Unit tests** (`src/**/*.test.{ts,tsx}`):
+
+| File | What's covered |
+|------|---------------|
+| `src/hooks/useReviewFiltering.test.ts` | Filtering, sorting, pagination, reason counts, page-reset on filter change |
+| `src/api/client.test.ts` | All API fetch wrappers, error handling on non-2xx, query param construction |
+| `src/store/useAppStore.test.ts` | `applyFilters` (all 11 filter dimensions), `sortSamples` (string/numeric/null ordering) |
+| `src/components/Dashboard.test.tsx` | Library card rendering, active highlight, delete confirm/cancel flow, chart toggle |
+
+MSW intercepts every `fetch` call in jsdom so unit tests never hit a real server.
+
+**E2E tests** (`e2e/*.spec.ts`):
+
+| File | What's covered |
+|------|---------------|
+| `e2e/catalog.spec.ts` | Library cards load, counts, stats section, hide/show charts |
+| `e2e/filters.spec.ts` | Search filter, clearing restores all samples |
+| `e2e/delete-library.spec.ts` | Delete button visible, cancel leaves card, confirm calls `/api/scan/delete` + `/api/reload` |
+| `e2e/scan-wizard.spec.ts` | Wizard opens, folder browser renders, cancel closes |
+
+All API calls are intercepted via Playwright's `page.route()` in `e2e/fixtures.ts` — no Python backend required to run e2e tests.
+
 ### Project Structure
 
 ```
@@ -674,9 +709,32 @@ web/
 │       ├── SampleTable.tsx       # Table with key chips, confidence bars, fit column
 │       └── TypePieChart.tsx      # Donut chart (Recharts)
 ├── index.html
-├── vite.config.ts
+├── e2e/                              # Playwright e2e tests
+│   ├── fixtures.ts                   # Shared API mock (page.route intercepts)
+│   ├── catalog.spec.ts
+│   ├── filters.spec.ts
+│   ├── delete-library.spec.ts
+│   └── scan-wizard.spec.ts
+├── src/
+│   └── ...
+│   ├── hooks/
+│   │   └── useReviewFiltering.test.ts
+│   ├── api/
+│   │   └── client.test.ts
+│   ├── store/
+│   │   └── useAppStore.test.ts
+│   ├── components/
+│   │   └── Dashboard.test.tsx
+│   └── test/
+│       ├── setup.ts                  # jest-dom matchers + MSW server lifecycle
+│       └── mocks/
+│           ├── handlers.ts           # MSW request handlers + shared fixture data
+│           └── server.ts             # MSW node server setup
+├── vite.config.ts                    # Vitest config embedded under `test:` key
+├── playwright.config.ts
 ├── tsconfig.json
-└── tsconfig.app.json
+├── tsconfig.app.json
+└── tsconfig.e2e.json
 ```
 
 ### How It Works
@@ -752,6 +810,7 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 - **Phase A**: Circle of fifths SVG wheel, key-color system (oklch hues from circle of fifths), Keys in Your Library distribution chart, key-colored chips and confidence meter bars in table, design tokens with 4 themes (studio/indigo/paper/dark), theme switcher, Google Fonts, InfoTooltip portal
 - **Phase B**: Project key selector with Fit column (Same key/Compatible/Out of key/No key), key compatibility logic (relative, dominant, subdominant, parallel), persistent preferences (theme, page size, project key) in localStorage
 - **Phase C**: Documentation update, QA across all themes
+- **Testing**: Vitest + React Testing Library unit tests (48 tests across hooks, API client, store, and components); Playwright e2e suite (catalog, filters, delete flow, scan wizard) with full API mocking via MSW and `page.route()` — no backend required to run either suite
 
 ### V4
 - Routed deep-analysis backends (Essentia tonal/tuning, loop BPM/ticks, monophonic note events, Basic Pitch polyphonic transcription)

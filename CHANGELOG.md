@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased (V5 — Tests)
+
+- Frontend test suite added:
+  - **Unit tests** (Vitest + React Testing Library + MSW): 48 tests across `useReviewFiltering`, the API client, `applyFilters`/`sortSamples` in the Zustand store, and the Dashboard component (including the delete confirm/cancel flow). MSW intercepts all `fetch` calls so tests run without a backend.
+  - **E2E tests** (Playwright + Chromium): catalog load, filter bar, delete-library flow, and scan wizard; all API calls mocked via `page.route()` so no Python backend is needed. Playwright auto-starts the Vite dev server.
+  - New npm scripts: `npm test`, `npm run test:watch`, `npm run test:coverage`, `npm run test:e2e`, `npm run test:e2e:ui`.
+
 ## Unreleased (V5 — Scan from Web UI)
 
 - Web UI can now run a full scan without the CLI:
