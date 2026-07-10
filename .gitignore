@@ -15,3 +15,8 @@ web/node_modules/
 web/dist/
 web/.vite/
 web/tsconfig.app.tsbuildinfo
+
+# Test artifacts
+web/coverage/
+web/playwright-report/
+web/test-results/
