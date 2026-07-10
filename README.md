@@ -51,6 +51,7 @@ You have thousands of audio samples — kicks, snares, bass hits, melody loops, 
 - [Web UI Guide](#web-ui-guide)
 - [Workflows](#workflows)
 - [Developing the Frontend](#developing-the-frontend)
+- [CI / GitHub Actions](#ci--github-actions)
 - [Troubleshooting](#troubleshooting)
 - [Version History](#version-history)
 
@@ -711,6 +712,31 @@ MSW intercepts every `fetch` call in jsdom so unit tests never hit a real server
 
 All API calls are intercepted via Playwright's `page.route()` in `e2e/fixtures.ts` — no Python backend required to run e2e tests.
 
+### CI / GitHub Actions
+
+The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs automatically on every pull request to `dev` or `main`, and on every push to `dev`. All three jobs must pass before a PR can be merged.
+
+| Job | Runs on | What it checks |
+|-----|---------|---------------|
+| **Backend** (Python 3.11 + 3.12) | Ubuntu | `pytest tests/` — pure-logic tests; excludes `test_audio_analysis.py` which needs native audio libs not available on CI runners |
+| **Frontend unit** | Ubuntu | TypeScript type-check (`tsc`) + Vitest unit tests |
+| **E2E** | Ubuntu | Playwright/Chromium suite — only starts after unit tests pass |
+
+If a Playwright run fails in CI, the full `playwright-report/` (including failure screenshots) is uploaded as a GitHub Actions artifact with a 7-day retention window — visible in the **Actions** tab of the PR.
+
+To run the exact same checks locally before pushing:
+
+```bash
+# Backend
+pytest tests/ --ignore=tests/test_audio_analysis.py
+
+# Frontend unit + type-check
+cd web && npm run type-check && npm test
+
+# E2E
+cd web && npm run test:e2e
+```
+
 ### Project Structure
 
 ```
@@ -875,6 +901,7 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 - **Phase B**: Project key selector with Fit column (Same key/Compatible/Out of key/No key), key compatibility logic (relative, dominant, subdominant, parallel), persistent preferences (theme, page size, project key) in localStorage
 - **Phase C**: Documentation update, QA across all themes
 - **Testing**: Vitest + React Testing Library unit tests (48 tests across hooks, API client, store, and components); Playwright e2e suite (catalog, filters, delete flow, scan wizard) with full API mocking via MSW and `page.route()` — no backend required to run either suite
+- **CI**: GitHub Actions workflow (`.github/workflows/ci.yml`) runs backend pytest (Python 3.11 + 3.12), frontend unit tests, and Playwright e2e on every PR to `dev` or `main` — PRs are blocked until all jobs pass
 
 ### V4
 - Routed deep-analysis backends (Essentia tonal/tuning, loop BPM/ticks, monophonic note events, Basic Pitch polyphonic transcription)
