@@ -95,6 +95,10 @@ class SQLiteMetadataIndex:
     def write(self) -> None:
         self.connection.commit()
 
+    def delete_record(self, path: str) -> bool:
+        cursor = self.connection.execute("delete from samples where path = ?", (path,))
+        return cursor.rowcount > 0
+
     def export_json(self, path: Path) -> None:
         self.write()
         records = self.records()
