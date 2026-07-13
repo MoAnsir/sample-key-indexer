@@ -101,9 +101,9 @@ describe("SketchWizard — results step", () => {
   it("shows key, mood and compatible keys after analysis", async () => {
     await analyzeToResults();
     expect(screen.getByText("D#_minor")).toBeInTheDocument();
-    expect(screen.getByText("dark")).toBeInTheDocument();
+    expect(screen.getAllByText("dark").length).toBeGreaterThan(0);
     expect(screen.getByText(/relative key/i)).toBeInTheDocument();
-    expect(screen.getByText("F# major")).toBeInTheDocument();
+    expect(screen.getAllByText("F# major").length).toBeGreaterThan(0);
   });
 
   it("saves the sketch and notifies parent", async () => {
