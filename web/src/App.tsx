@@ -29,6 +29,7 @@ import SampleDetailPanel from "./components/SampleDetailPanel";
 import ReviewTab from "./components/ReviewTab";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import ScanWizard from "./components/ScanWizard";
+import SketchWizard from "./components/SketchWizard";
 import type { CatalogResponse } from "./types/api";
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -41,6 +42,7 @@ const THEMES: { value: Theme; label: string }[] = [
 export default function App() {
   const queryClient = useQueryClient();
   const [showScanWizard, setShowScanWizard] = useState(false);
+  const [showSketchWizard, setShowSketchWizard] = useState(false);
 
   const { data: catalog, isLoading, error } = useQuery<CatalogResponse>({
     queryKey: ["catalog"],
@@ -171,6 +173,14 @@ export default function App() {
               Scan from...
             </button>
 
+            {/* New Sketch button */}
+            <button
+              onClick={() => setShowSketchWizard(true)}
+              className="px-3 py-1.5 text-xs font-medium rounded-control border border-accent text-accent hover:bg-accent-soft transition-colors"
+            >
+              ✏ New Sketch
+            </button>
+
             {/* Theme switcher */}
             <div className="flex gap-0.5 bg-surface-2 border border-line rounded-control p-0.5">
               {THEMES.map((t) => (
@@ -217,6 +227,14 @@ export default function App() {
         <ScanWizard
           onClose={() => setShowScanWizard(false)}
           onComplete={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
+        />
+      )}
+
+      {/* Sketch wizard */}
+      {showSketchWizard && (
+        <SketchWizard
+          onClose={() => setShowSketchWizard(false)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
         />
       )}
 

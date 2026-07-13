@@ -66,7 +66,7 @@ describe("Dashboard", () => {
 
   it("calls deleteScanData and reloadIndex then onRefresh on confirmed delete", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    const deleteSpy = vi.spyOn(client, "deleteScanData").mockResolvedValue(undefined);
+    const deleteSpy = vi.spyOn(client, "deleteScanData").mockResolvedValue({ deleted: [], errors: [] });
     const reloadSpy = vi.spyOn(client, "reloadIndex").mockResolvedValue(undefined);
 
     renderDashboard();
@@ -80,7 +80,7 @@ describe("Dashboard", () => {
 
   it("does not delete if user cancels confirm", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
-    const deleteSpy = vi.spyOn(client, "deleteScanData").mockResolvedValue(undefined);
+    const deleteSpy = vi.spyOn(client, "deleteScanData").mockResolvedValue({ deleted: [], errors: [] });
 
     renderDashboard();
     fireEvent.click(screen.getAllByText("Remove library & delete scan data")[0]);
