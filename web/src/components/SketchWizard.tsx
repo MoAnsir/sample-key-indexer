@@ -149,8 +149,10 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
       <div
-        className={`bg-surface rounded-panel shadow-pop w-full mx-4 overflow-hidden ${
-          step === "notes" ? "max-w-5xl" : "max-w-2xl"
+        className={`bg-surface shadow-pop overflow-hidden ${
+          step === "notes"
+            ? "fixed inset-2 rounded-panel flex flex-col"
+            : "rounded-panel w-full max-w-2xl mx-4"
         }`}
       >
         {/* Header */}
@@ -163,7 +165,11 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
           </button>
         </div>
 
-        <div className="p-6 max-h-[70vh] overflow-y-auto">
+        <div
+          className={
+            step === "notes" ? "p-6 flex-1 min-h-0 overflow-y-auto" : "p-6 max-h-[70vh] overflow-y-auto"
+          }
+        >
           {error && (
             <div className="mb-4 rounded border border-red-300 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-700">
               {error}
@@ -321,6 +327,7 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
                 beatsPerBar={Number(beatsPerBar)}
                 notes={rollNotes}
                 onChange={setRollNotes}
+                gridMaxHeight="calc(100vh - 330px)"
               />
               <div className="flex justify-between items-center pt-2">
                 <p className="text-xs text-muted">

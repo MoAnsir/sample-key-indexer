@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   addNote,
+  buildGridLines,
   buildRows,
   eraseNote,
   moveNote,
@@ -22,6 +23,8 @@ interface PianoRollProps {
   beatsPerBar: number;
   notes: RollNote[];
   onChange: (notes: RollNote[]) => void;
+  /** Max height of the note grid in CSS px (or any CSS size). */
+  gridMaxHeight?: number | string;
 }
 
 const ROW_HEIGHT = 18;
@@ -36,6 +39,7 @@ export default function PianoRoll({
   beatsPerBar,
   notes,
   onChange,
+  gridMaxHeight = 340,
 }: PianoRollProps) {
   const [tool, setTool] = useState<Tool>("pencil");
   const [chromatic, setChromatic] = useState(false);
@@ -66,6 +70,10 @@ export default function PianoRoll({
 
   const gridWidth = totalBeats * BEAT_WIDTH;
   const gridHeight = rows.length * ROW_HEIGHT;
+  const gridLines = useMemo(
+    () => buildGridLines(totalBeats, beatsPerBar, division, BEAT_WIDTH),
+    [totalBeats, beatsPerBar, division],
+  );
 
   const beatFromX = useCallback((x: number) => Math.max(0, Math.min(totalBeats, x / BEAT_WIDTH)), [totalBeats]);
 
@@ -222,7 +230,7 @@ export default function PianoRoll({
           >
             {TC_DIVISIONS.map((d, i) => (
               <option key={d.label} value={i}>
-                {d.label}
+                {d.label} · {d.stepsPerBar} steps/bar
               </option>
             ))}
           </select>
@@ -303,7 +311,7 @@ export default function PianoRoll({
       </div>
 
       {/* Grid */}
-      <div className="overflow-auto border border-line rounded-control bg-surface-2" style={{ maxHeight: 340 }}>
+      <div className="overflow-auto border border-line rounded-control bg-surface-2" style={{ maxHeight: gridMaxHeight }}>
         <div className="flex" style={{ width: KEY_WIDTH + gridWidth }}>
           {/* Key column */}
           <div className="flex-shrink-0 sticky left-0 z-10" style={{ width: KEY_WIDTH }}>
@@ -345,14 +353,19 @@ export default function PianoRoll({
                 style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
               />
             ))}
-            {/* Beat lines */}
-            {Array.from({ length: totalBeats + 1 }, (_, beat) => (
+            {/* Bar / beat / step gridlines (steps follow the current T.C. division) */}
+            {gridLines.map((line) => (
               <div
-                key={beat}
-                className={`absolute top-0 bottom-0 ${
-                  beat % beatsPerBar === 0 ? "border-l-2 border-line" : "border-l border-line/40"
+                key={`${line.kind}-${line.beat}`}
+                data-line={line.kind}
+                className={`absolute top-0 bottom-0 pointer-events-none ${
+                  line.kind === "bar"
+                    ? "border-l-2 border-line"
+                    : line.kind === "beat"
+                      ? "border-l border-line/60"
+                      : "border-l border-line/20"
                 }`}
-                style={{ left: beat * BEAT_WIDTH }}
+                style={{ left: line.beat * BEAT_WIDTH }}
               />
             ))}
             {/* Bar numbers */}

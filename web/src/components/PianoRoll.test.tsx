@@ -30,10 +30,11 @@ describe("PianoRoll — layout", () => {
     expect(screen.getByText("▭ Select")).toBeInTheDocument();
   });
 
-  it("renders TC divisions including triplets", () => {
+  it("renders TC divisions with steps-per-bar labels, up to 1/64", () => {
     renderRoll();
-    expect(screen.getByRole("option", { name: "1/8T" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "1/16" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "1/8T · 12 steps/bar" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "1/16 · 16 steps/bar" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "1/64 · 64 steps/bar" })).toBeInTheDocument();
   });
 
   it("renders snap modes Absolute/Relative/Off", () => {
