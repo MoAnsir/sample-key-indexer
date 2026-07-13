@@ -39,6 +39,7 @@ You have thousands of audio samples — kicks, snares, bass hits, melody loops, 
 
 - [Install](#install)
 - [Quick Start](#quick-start)
+- [Starting the App Locally](#starting-the-app-locally)
 - [Commands](#commands)
   - [sample-key-indexer](#sample-key-indexer--core-indexer)
   - [sample-key-indexer-kitchen-sink](#sample-key-indexer-kitchen-sink--all-in-one)
@@ -124,6 +125,8 @@ sample-key-indexer-web ~/Desktop/Samples_Organised/metadata_index.sqlite
 # Open http://127.0.0.1:8765 in your browser
 ```
 
+See [Starting the App Locally](#starting-the-app-locally) for the full startup guide — including the one gotcha that catches everyone (a stale frontend build).
+
 ### 5. Full pipeline in one command
 
 ```bash
@@ -131,6 +134,57 @@ sample-key-indexer-kitchen-sink ~/Music/MySamples ~/SampleIndexes/my_library \
   --keyfinder-convert-retry --keyfinder-workers 8 \
   --deep-analysis smart --deep-analysis-scope musical
 ```
+
+---
+
+## Starting the App Locally
+
+The app is two pieces: a **Python backend** (API + serves the UI) and a **React frontend**. There are two ways to run it — pick one.
+
+### Option A — Production mode (one server, one URL)
+
+The backend serves a pre-built copy of the frontend from `web/dist/`. Build it once, then start the backend:
+
+```bash
+# 1. Build the frontend (only needed after pulling new frontend code)
+cd web
+npm install          # first time only
+npm run build        # writes web/dist/
+cd ..
+
+# 2. Start the backend
+source .venv/bin/activate
+sample-key-indexer-web ~/Desktop/Samples_Organised/metadata_index.sqlite
+```
+
+**Open: <http://127.0.0.1:8765>** — that's the whole app.
+
+> ⚠️ **The stale-build gotcha:** the backend serves whatever is in `web/dist/` — it does NOT rebuild it for you. If you `git pull` new frontend features and don't rerun `npm run build`, you'll be looking at the old UI and wondering where the new feature went. When in doubt: `cd web && npm run build`, then hard-refresh the browser (Cmd+Shift+R).
+
+Notes:
+- Previously scanned libraries and saved sketches auto-load on startup — after the first scan you can start the server with any one index path (or a directory, which is searched for indexes).
+- Use `--port 9000` to change the port, `--library-root ID=/path` to point playback at the original source audio.
+
+### Option B — Development mode (live reload, two servers)
+
+For working on the frontend. Run the backend and the Vite dev server side by side:
+
+```bash
+# Terminal 1 — backend API on :8765
+source .venv/bin/activate
+sample-key-indexer-web ~/Desktop/Samples_Organised/metadata_index.sqlite
+
+# Terminal 2 — frontend dev server on :5173
+cd web
+npm run dev
+```
+
+**Open: <http://localhost:5173>** (not 8765). The dev server proxies all `/api/*` calls to the backend and hot-reloads the UI as you edit code. No build step needed — you always see the latest code.
+
+| | URL | Frontend freshness |
+|---|-----|--------------------|
+| **Production mode** | http://127.0.0.1:8765 | Whatever `npm run build` last produced |
+| **Development mode** | http://localhost:5173 | Always current, hot-reloads |
 
 ---
 
@@ -751,6 +805,16 @@ web/
 ---
 
 ## Troubleshooting
+
+### I pulled new code but the new feature isn't in the UI
+
+You're almost certainly viewing a stale frontend build. The backend at `:8765` serves the last `npm run build` output from `web/dist/` — it never rebuilds automatically. Fix:
+
+```bash
+cd web && npm run build
+```
+
+Then restart `sample-key-indexer-web` and hard-refresh the browser (Cmd+Shift+R). Alternatively run in [development mode](#option-b--development-mode-live-reload-two-servers) at `http://localhost:5173`, which always shows the latest code.
 
 ### All samples have `root_note: null`, `key: null`, `type: FX`
 
