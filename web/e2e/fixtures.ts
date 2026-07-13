@@ -64,7 +64,8 @@ export async function mockApi(page: Page) {
   await page.route("**/api/samples**", (route) =>
     route.fulfill({ json: { total: 3, offset: 0, limit: 15000, returned: 3, samples } }),
   );
-  await page.route("**/api/sample**", (route) =>
+  // Regex with \? so this doesn't also swallow /api/samples requests.
+  await page.route(/\/api\/sample\?/, (route) =>
     route.fulfill({ json: { sample: samples[1] } }),
   );
   await page.route("**/api/browse-folders**", (route) =>
@@ -83,8 +84,8 @@ export async function mockApi(page: Page) {
       },
     }),
   );
-  await page.route("**/api/scan/delete", (route) =>
-    route.fulfill({ json: { ok: true } }),
+  await page.route("**/api/scan/delete-data", (route) =>
+    route.fulfill({ json: { deleted: [], errors: [] } }),
   );
   await page.route("**/api/reload", (route) =>
     route.fulfill({ json: { ok: true } }),

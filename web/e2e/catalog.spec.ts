@@ -28,8 +28,9 @@ test("selecting a library card highlights it", async ({ page }) => {
 
 test("shows type distribution stats", async ({ page }) => {
   await expect(page.getByText("Sample Types")).toBeVisible();
-  await expect(page.getByText("Kick")).toBeVisible();
-  await expect(page.getByText("Bass")).toBeVisible();
+  // exact matches — "Kick"/"Bass" also appear in the pie-chart legend ("Kick · 1")
+  await expect(page.getByText("Kick", { exact: true })).toBeVisible();
+  await expect(page.getByText("Bass", { exact: true })).toBeVisible();
 });
 
 test("hide/show charts toggle works", async ({ page }) => {
