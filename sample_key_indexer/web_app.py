@@ -5,6 +5,7 @@ import ipaddress
 import json
 import mimetypes
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -17,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
-from sample_key_indexer.sketch import analyze_sketch
+from sample_key_indexer.sketch import analyze_sketch, midi_bytes_for_sketch, validate_sketch_payload
 from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
 STATIC_ROOT_LEGACY = Path(__file__).with_name("web_static")
@@ -293,6 +294,9 @@ def build_app(
             if parsed.path == "/api/sketch/analyze":
                 self._handle_sketch_analyze()
                 return
+            if parsed.path == "/api/sketch/midi":
+                self._handle_sketch_midi()
+                return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
         def _send_json(self, payload: dict, *, status: HTTPStatus = HTTPStatus.OK) -> None:
@@ -352,6 +356,41 @@ def build_app(
                 self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
                 return
             self._send_json({"ok": True, **result})
+
+        def _handle_sketch_midi(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            sketch, errors = validate_sketch_payload(payload)
+            if sketch is None:
+                self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                body = midi_bytes_for_sketch(sketch)
+            except ValueError:
+                self._send_json(
+                    {"ok": False, "errors": ["note_events is required to generate MIDI"]},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            except RuntimeError as exc:
+                if str(exc).startswith("missing_backend:"):
+                    self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "MIDI backend not installed")
+                    return
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to generate MIDI")
+                return
+            safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", sketch["name"]).strip("_") or "sketch"
+            filename = f"{safe_name}.mid"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "audio/midi")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
 
         def _handle_review_mutation(self) -> None:
             payload = self._read_json_body()

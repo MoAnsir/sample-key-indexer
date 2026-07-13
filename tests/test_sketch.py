@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import unittest
 
+import io
+
 from sample_key_indexer.sketch import (
     analyze_sketch,
+    midi_bytes_for_sketch,
     note_token_to_midi,
     out_of_scale_notes,
     parse_note_name,
@@ -258,6 +261,80 @@ class AnalyzeSketchTests(unittest.TestCase):
     def test_out_of_scale_reported(self) -> None:
         result, _ = analyze_sketch(base_payload(notes=["Eb", "E"]))
         self.assertEqual(result["out_of_scale_notes"], ["E"])
+
+
+class MidiBytesForSketchTests(unittest.TestCase):
+    def _sketch(self, **overrides):
+        sketch, errors = validate_sketch_payload(base_payload(**overrides))
+        assert errors == [], errors
+        return sketch
+
+    def _events(self):
+        return [
+            {"note": "Eb2", "start": 0.0, "duration": 1.0, "velocity": 100},
+            {"note": "Gb2", "start": 1.0, "duration": 0.5, "velocity": 90},
+            {"note": "Bb2", "start": 2.0, "duration": 2.0, "velocity": 110},
+        ]
+
+    def test_raises_without_note_events(self) -> None:
+        with self.assertRaises(ValueError):
+            midi_bytes_for_sketch(self._sketch())
+
+    def test_produces_valid_midi_bytes(self) -> None:
+        body = midi_bytes_for_sketch(self._sketch(note_events=self._events()))
+        self.assertTrue(body.startswith(b"MThd"))  # standard MIDI header
+
+    def test_notes_round_trip(self) -> None:
+        import pretty_midi
+
+        body = midi_bytes_for_sketch(self._sketch(note_events=self._events()))
+        midi = pretty_midi.PrettyMIDI(io.BytesIO(body))
+        self.assertEqual(len(midi.instruments), 1)
+        notes = sorted(midi.instruments[0].notes, key=lambda n: n.start)
+        self.assertEqual(len(notes), 3)
+        # pitches: Eb2=39, Gb2=42, Bb2=46
+        self.assertEqual([n.pitch for n in notes], [39, 42, 46])
+        self.assertEqual([n.velocity for n in notes], [100, 90, 110])
+
+    def test_timing_uses_bpm(self) -> None:
+        import pretty_midi
+
+        # 140 bpm -> one beat = 60/140 ≈ 0.4286s
+        body = midi_bytes_for_sketch(self._sketch(note_events=self._events()))
+        midi = pretty_midi.PrettyMIDI(io.BytesIO(body))
+        notes = sorted(midi.instruments[0].notes, key=lambda n: n.start)
+        beat = 60.0 / 140.0
+        self.assertAlmostEqual(notes[0].start, 0.0, places=3)
+        self.assertAlmostEqual(notes[0].end, beat, places=3)
+        self.assertAlmostEqual(notes[1].start, beat, places=3)
+        self.assertAlmostEqual(notes[1].end, beat * 1.5, places=3)
+        self.assertAlmostEqual(notes[2].start, beat * 2, places=3)
+        self.assertAlmostEqual(notes[2].end, beat * 4, places=3)
+
+    def test_tempo_embedded(self) -> None:
+        import pretty_midi
+
+        body = midi_bytes_for_sketch(self._sketch(note_events=self._events()))
+        midi = pretty_midi.PrettyMIDI(io.BytesIO(body))
+        _, tempi = midi.get_tempo_changes()
+        self.assertAlmostEqual(tempi[0], 140.0, places=1)
+
+    def test_time_signature_embedded(self) -> None:
+        import pretty_midi
+
+        body = midi_bytes_for_sketch(
+            self._sketch(beats_per_bar=3, note_events=self._events())
+        )
+        midi = pretty_midi.PrettyMIDI(io.BytesIO(body))
+        self.assertEqual(midi.time_signature_changes[0].numerator, 3)
+        self.assertEqual(midi.time_signature_changes[0].denominator, 4)
+
+    def test_instrument_named_after_sketch(self) -> None:
+        import pretty_midi
+
+        body = midi_bytes_for_sketch(self._sketch(note_events=self._events()))
+        midi = pretty_midi.PrettyMIDI(io.BytesIO(body))
+        self.assertEqual(midi.instruments[0].name, "MPC bass idea")
 
 
 if __name__ == "__main__":
