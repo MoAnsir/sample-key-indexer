@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { applyFilters, sortSamples } from "./useAppStore";
 import { MOCK_SAMPLES } from "../test/mocks/handlers";
 import type { FilterState } from "./useAppStore";
