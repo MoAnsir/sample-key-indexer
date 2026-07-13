@@ -21,9 +21,9 @@ test("shows 2 libraries loaded header", async ({ page }) => {
 });
 
 test("selecting a library card highlights it", async ({ page }) => {
-  await page.getByText("Pack A").click();
-  // after selection the card gets ring-accent — verify URL or active state indicator
-  await expect(page.getByText("Pack A")).toBeVisible();
+  // target the card heading — after loading, table rows also contain "Pack A"
+  await page.getByRole("heading", { name: "Pack A" }).click();
+  await expect(page.getByRole("heading", { name: "Pack A" })).toBeVisible();
 });
 
 test("shows type distribution stats", async ({ page }) => {
