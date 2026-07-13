@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   addNote,
+  buildGridLines,
   buildRows,
   clampNote,
   duplicateNotes,
@@ -12,6 +13,7 @@ import {
   scalePitchClasses,
   setVelocity,
   snapBeat,
+  TC_DIVISIONS,
   toNoteEvents,
   transposeNotes,
 } from "./piano-roll";
@@ -185,6 +187,52 @@ describe("duplicateNotes", () => {
   it("returns unchanged when nothing selected", () => {
     const notes = addNote([], 39, 0, 0.5, "absolute", 32);
     expect(duplicateNotes(notes, new Set(), 32)).toBe(notes);
+  });
+});
+
+describe("TC_DIVISIONS", () => {
+  it("covers MPC step resolutions from 4 to 64 steps per bar", () => {
+    const steps = TC_DIVISIONS.map((d) => d.stepsPerBar);
+    expect(steps).toEqual([4, 8, 12, 16, 24, 32, 48, 64]);
+  });
+
+  it("beats and stepsPerBar are consistent in 4/4", () => {
+    for (const d of TC_DIVISIONS) {
+      expect(d.beats * d.stepsPerBar).toBeCloseTo(4);
+    }
+  });
+});
+
+describe("buildGridLines", () => {
+  it("marks bar and beat lines", () => {
+    const lines = buildGridLines(8, 4, 0.25, 48);
+    const bars = lines.filter((l) => l.kind === "bar").map((l) => l.beat);
+    expect(bars).toEqual([0, 4, 8]);
+    const beats = lines.filter((l) => l.kind === "beat").map((l) => l.beat);
+    expect(beats).toEqual([1, 2, 3, 5, 6, 7]);
+  });
+
+  it("adds step lines between beats at the division", () => {
+    const lines = buildGridLines(2, 4, 0.5, 48); // 1/8 steps
+    const steps = lines.filter((l) => l.kind === "step").map((l) => l.beat);
+    expect(steps).toEqual([0.5, 1.5]);
+  });
+
+  it("omits step lines when they would be too dense to see", () => {
+    // 1/64 at 48px/beat = 3px spacing < 6px minimum
+    const lines = buildGridLines(4, 4, 0.0625, 48);
+    expect(lines.filter((l) => l.kind === "step")).toHaveLength(0);
+  });
+
+  it("keeps 1/64 steps when zoomed wide enough", () => {
+    const lines = buildGridLines(1, 4, 0.0625, 120);
+    expect(lines.filter((l) => l.kind === "step").length).toBeGreaterThan(0);
+  });
+
+  it("does not duplicate lines on whole beats", () => {
+    const lines = buildGridLines(4, 4, 0.5, 48);
+    const positions = lines.map((l) => l.beat);
+    expect(new Set(positions).size).toBe(positions.length);
   });
 });
 

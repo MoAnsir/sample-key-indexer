@@ -117,7 +117,7 @@ describe("SketchWizard — results step", () => {
 
   it("Back returns to the details form", async () => {
     await analyzeToResults();
-    fireEvent.click(screen.getByRole("button", { name: /back/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByText("New Sketch")).toBeInTheDocument();
   });
 

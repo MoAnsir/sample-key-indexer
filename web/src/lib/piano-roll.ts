@@ -12,14 +12,46 @@ export interface RollNote {
 export type SnapMode = "absolute" | "relative" | "off";
 
 // Timing Correct divisions, in beats. "T" = triplet (2/3 of the straight value).
-export const TC_DIVISIONS: { label: string; beats: number }[] = [
-  { label: "1/4", beats: 1 },
-  { label: "1/8", beats: 0.5 },
-  { label: "1/8T", beats: 1 / 3 },
-  { label: "1/16", beats: 0.25 },
-  { label: "1/16T", beats: 1 / 6 },
-  { label: "1/32", beats: 0.125 },
+// stepsPerBar assumes 4/4 — shown in the UI so MPC users can think in steps.
+export const TC_DIVISIONS: { label: string; beats: number; stepsPerBar: number }[] = [
+  { label: "1/4", beats: 1, stepsPerBar: 4 },
+  { label: "1/8", beats: 0.5, stepsPerBar: 8 },
+  { label: "1/8T", beats: 1 / 3, stepsPerBar: 12 },
+  { label: "1/16", beats: 0.25, stepsPerBar: 16 },
+  { label: "1/16T", beats: 1 / 6, stepsPerBar: 24 },
+  { label: "1/32", beats: 0.125, stepsPerBar: 32 },
+  { label: "1/32T", beats: 1 / 12, stepsPerBar: 48 },
+  { label: "1/64", beats: 0.0625, stepsPerBar: 64 },
 ];
+
+export interface GridLine {
+  beat: number;
+  kind: "bar" | "beat" | "step";
+}
+
+/** Vertical gridlines for the roll: bar lines, beat lines, and step lines at the
+ *  current TC division. Step lines are omitted when they'd be denser than minStepPx. */
+export function buildGridLines(
+  totalBeats: number,
+  beatsPerBar: number,
+  division: number,
+  beatWidth: number,
+  minStepPx = 6,
+): GridLine[] {
+  const lines: GridLine[] = [];
+  for (let beat = 0; beat <= totalBeats; beat++) {
+    lines.push({ beat, kind: beat % beatsPerBar === 0 ? "bar" : "beat" });
+  }
+  if (division > 0 && division * beatWidth >= minStepPx) {
+    const epsilon = 1e-9;
+    for (let beat = division; beat < totalBeats - epsilon; beat += division) {
+      // skip positions that already have a bar/beat line
+      if (Math.abs(beat - Math.round(beat)) < epsilon) continue;
+      lines.push({ beat, kind: "step" });
+    }
+  }
+  return lines;
+}
 
 export const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 

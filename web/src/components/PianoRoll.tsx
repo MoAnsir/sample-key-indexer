@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   addNote,
+  buildGridLines,
   buildRows,
   eraseNote,
   moveNote,
@@ -22,6 +23,8 @@ interface PianoRollProps {
   beatsPerBar: number;
   notes: RollNote[];
   onChange: (notes: RollNote[]) => void;
+  /** Max height of the note grid in CSS px (or any CSS size). */
+  gridMaxHeight?: number | string;
 }
 
 const ROW_HEIGHT = 18;
@@ -36,6 +39,7 @@ export default function PianoRoll({
   beatsPerBar,
   notes,
   onChange,
+  gridMaxHeight = 340,
 }: PianoRollProps) {
   const [tool, setTool] = useState<Tool>("pencil");
   const [chromatic, setChromatic] = useState(false);
@@ -44,11 +48,20 @@ export default function PianoRoll({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [octaveLow, setOctaveLow] = useState(1); // C1
   const gridRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const velocityRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     id: number;
     kind: "move" | "resize";
     offsetBeats: number;
   } | null>(null);
+
+  // One scrollbar: the velocity lane mirrors the grid's horizontal position.
+  const handleGridScroll = useCallback(() => {
+    if (velocityRef.current && scrollRef.current) {
+      velocityRef.current.scrollLeft = scrollRef.current.scrollLeft;
+    }
+  }, []);
 
   const totalBeats = bars * beatsPerBar;
   const division = TC_DIVISIONS[divisionIndex].beats;
@@ -66,6 +79,10 @@ export default function PianoRoll({
 
   const gridWidth = totalBeats * BEAT_WIDTH;
   const gridHeight = rows.length * ROW_HEIGHT;
+  const gridLines = useMemo(
+    () => buildGridLines(totalBeats, beatsPerBar, division, BEAT_WIDTH),
+    [totalBeats, beatsPerBar, division],
+  );
 
   const beatFromX = useCallback((x: number) => Math.max(0, Math.min(totalBeats, x / BEAT_WIDTH)), [totalBeats]);
 
@@ -222,7 +239,7 @@ export default function PianoRoll({
           >
             {TC_DIVISIONS.map((d, i) => (
               <option key={d.label} value={i}>
-                {d.label}
+                {d.label} · {d.stepsPerBar} steps/bar
               </option>
             ))}
           </select>
@@ -302,8 +319,13 @@ export default function PianoRoll({
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="overflow-auto border border-line rounded-control bg-surface-2" style={{ maxHeight: 340 }}>
+      {/* Grid — the single scroll surface; velocity lane below syncs to it */}
+      <div
+        ref={scrollRef}
+        onScroll={handleGridScroll}
+        className="overflow-auto border border-line rounded-control bg-surface-2"
+        style={{ maxHeight: gridMaxHeight }}
+      >
         <div className="flex" style={{ width: KEY_WIDTH + gridWidth }}>
           {/* Key column */}
           <div className="flex-shrink-0 sticky left-0 z-10" style={{ width: KEY_WIDTH }}>
@@ -345,14 +367,19 @@ export default function PianoRoll({
                 style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
               />
             ))}
-            {/* Beat lines */}
-            {Array.from({ length: totalBeats + 1 }, (_, beat) => (
+            {/* Bar / beat / step gridlines (steps follow the current T.C. division) */}
+            {gridLines.map((line) => (
               <div
-                key={beat}
-                className={`absolute top-0 bottom-0 ${
-                  beat % beatsPerBar === 0 ? "border-l-2 border-line" : "border-l border-line/40"
+                key={`${line.kind}-${line.beat}`}
+                data-line={line.kind}
+                className={`absolute top-0 bottom-0 pointer-events-none ${
+                  line.kind === "bar"
+                    ? "border-l-2 border-ink/30"
+                    : line.kind === "beat"
+                      ? "border-l border-line"
+                      : "border-l border-line/40"
                 }`}
-                style={{ left: beat * BEAT_WIDTH }}
+                style={{ left: line.beat * BEAT_WIDTH }}
               />
             ))}
             {/* Bar numbers */}
@@ -403,8 +430,8 @@ export default function PianoRoll({
         </div>
       </div>
 
-      {/* Velocity lane */}
-      <div className="mt-1 border border-line rounded-control bg-surface-2 overflow-x-auto">
+      {/* Velocity lane — no scrollbar of its own; follows the grid's horizontal scroll */}
+      <div ref={velocityRef} className="mt-1 border border-line rounded-control bg-surface-2 overflow-x-hidden">
         <div className="flex items-end relative" style={{ width: KEY_WIDTH + gridWidth, height: VELOCITY_LANE_HEIGHT }}>
           <div
             className="flex-shrink-0 sticky left-0 z-10 flex items-center justify-end pr-1 text-[9px] text-faint font-mono bg-surface-2 h-full"

@@ -30,10 +30,11 @@ describe("PianoRoll — layout", () => {
     expect(screen.getByText("▭ Select")).toBeInTheDocument();
   });
 
-  it("renders TC divisions including triplets", () => {
+  it("renders TC divisions with steps-per-bar labels, up to 1/64", () => {
     renderRoll();
-    expect(screen.getByRole("option", { name: "1/8T" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "1/16" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "1/8T · 12 steps/bar" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "1/16 · 16 steps/bar" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "1/64 · 64 steps/bar" })).toBeInTheDocument();
   });
 
   it("renders snap modes Absolute/Relative/Off", () => {
@@ -118,6 +119,16 @@ describe("PianoRoll — editing", () => {
     const updated = onChange.mock.calls.at(-1)![0] as RollNote[];
     expect(updated).toHaveLength(2);
     expect(updated[1].start).toBeCloseTo(1);
+  });
+
+  it("velocity lane follows the grid's horizontal scroll (single scrollbar)", () => {
+    renderRoll([makeNote(39, 0, 1)]);
+    const scroller = screen.getByTestId("roll-grid").closest(".overflow-auto") as HTMLElement;
+    const velocityLane = document.querySelector(".overflow-x-hidden") as HTMLElement;
+    expect(velocityLane).not.toBeNull();
+    Object.defineProperty(scroller, "scrollLeft", { value: 240, writable: true });
+    fireEvent.scroll(scroller);
+    expect(velocityLane.scrollLeft).toBe(240);
   });
 
   it("velocity slider updates a note's velocity", () => {

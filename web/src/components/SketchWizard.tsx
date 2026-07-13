@@ -147,23 +147,26 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
   }, [buildPayload]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div
-        className={`bg-surface rounded-panel shadow-pop w-full mx-4 overflow-hidden ${
-          step === "notes" ? "max-w-5xl" : "max-w-2xl"
-        }`}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-line">
+    <div className="flex flex-col flex-1 min-h-0 bg-canvas animate-fade-in">
+      {/* Page header */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-line bg-surface flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onClose}
+            className="px-2.5 py-1.5 text-xs rounded-control border border-line text-muted hover:text-ink"
+            aria-label="Back to library"
+          >
+            ← Library
+          </button>
           <h2 className="text-lg font-display font-bold text-ink">
             {step === "results" ? "Sketch Analysis" : step === "notes" ? "Enter Notes" : "New Sketch"}
           </h2>
-          <button onClick={onClose} className="text-faint hover:text-ink text-xl" aria-label="Close">
-            ✕
-          </button>
         </div>
+        <StepIndicator step={step} />
+      </div>
 
-        <div className="p-6 max-h-[70vh] overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className={step === "notes" ? "p-6" : "p-6 max-w-3xl mx-auto"}>
           {error && (
             <div className="mb-4 rounded border border-red-300 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-700">
               {error}
@@ -321,6 +324,7 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
                 beatsPerBar={Number(beatsPerBar)}
                 notes={rollNotes}
                 onChange={setRollNotes}
+                gridMaxHeight="calc(100vh - 330px)"
               />
               <div className="flex justify-between items-center pt-2">
                 <p className="text-xs text-muted">
@@ -390,6 +394,28 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function StepIndicator({ step }: { step: Step }) {
+  const steps: { id: Step; label: string }[] = [
+    { id: "details", label: "1 · Details" },
+    { id: "notes", label: "2 · Notes" },
+    { id: "results", label: "3 · Analysis" },
+  ];
+  return (
+    <div className="flex gap-1 text-xs">
+      {steps.map((s) => (
+        <span
+          key={s.id}
+          className={`px-2 py-1 rounded-chip ${
+            s.id === step ? "bg-accent-soft text-accent font-medium" : "text-faint"
+          }`}
+        >
+          {s.label}
+        </span>
+      ))}
     </div>
   );
 }
