@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
+from sample_key_indexer.sketch import analyze_sketch
 from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
 STATIC_ROOT_LEGACY = Path(__file__).with_name("web_static")
@@ -289,6 +290,9 @@ def build_app(
             if parsed.path == "/api/scan/delete-data":
                 self._handle_delete_scan_data()
                 return
+            if parsed.path == "/api/sketch/analyze":
+                self._handle_sketch_analyze()
+                return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
         def _send_json(self, payload: dict, *, status: HTTPStatus = HTTPStatus.OK) -> None:
@@ -337,6 +341,17 @@ def build_app(
             except Exception:
                 return None
             return payload if isinstance(payload, dict) else None
+
+        def _handle_sketch_analyze(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            result, errors = analyze_sketch(payload)
+            if result is None:
+                self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, **result})
 
         def _handle_review_mutation(self) -> None:
             payload = self._read_json_body()
