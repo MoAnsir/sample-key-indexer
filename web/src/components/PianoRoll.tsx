@@ -48,11 +48,20 @@ export default function PianoRoll({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [octaveLow, setOctaveLow] = useState(1); // C1
   const gridRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const velocityRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     id: number;
     kind: "move" | "resize";
     offsetBeats: number;
   } | null>(null);
+
+  // One scrollbar: the velocity lane mirrors the grid's horizontal position.
+  const handleGridScroll = useCallback(() => {
+    if (velocityRef.current && scrollRef.current) {
+      velocityRef.current.scrollLeft = scrollRef.current.scrollLeft;
+    }
+  }, []);
 
   const totalBeats = bars * beatsPerBar;
   const division = TC_DIVISIONS[divisionIndex].beats;
@@ -310,8 +319,13 @@ export default function PianoRoll({
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="overflow-auto border border-line rounded-control bg-surface-2" style={{ maxHeight: gridMaxHeight }}>
+      {/* Grid — the single scroll surface; velocity lane below syncs to it */}
+      <div
+        ref={scrollRef}
+        onScroll={handleGridScroll}
+        className="overflow-auto border border-line rounded-control bg-surface-2"
+        style={{ maxHeight: gridMaxHeight }}
+      >
         <div className="flex" style={{ width: KEY_WIDTH + gridWidth }}>
           {/* Key column */}
           <div className="flex-shrink-0 sticky left-0 z-10" style={{ width: KEY_WIDTH }}>
@@ -360,10 +374,10 @@ export default function PianoRoll({
                 data-line={line.kind}
                 className={`absolute top-0 bottom-0 pointer-events-none ${
                   line.kind === "bar"
-                    ? "border-l-2 border-line"
+                    ? "border-l-2 border-ink/30"
                     : line.kind === "beat"
-                      ? "border-l border-line/60"
-                      : "border-l border-line/20"
+                      ? "border-l border-line"
+                      : "border-l border-line/40"
                 }`}
                 style={{ left: line.beat * BEAT_WIDTH }}
               />
@@ -416,8 +430,8 @@ export default function PianoRoll({
         </div>
       </div>
 
-      {/* Velocity lane */}
-      <div className="mt-1 border border-line rounded-control bg-surface-2 overflow-x-auto">
+      {/* Velocity lane — no scrollbar of its own; follows the grid's horizontal scroll */}
+      <div ref={velocityRef} className="mt-1 border border-line rounded-control bg-surface-2 overflow-x-hidden">
         <div className="flex items-end relative" style={{ width: KEY_WIDTH + gridWidth, height: VELOCITY_LANE_HEIGHT }}>
           <div
             className="flex-shrink-0 sticky left-0 z-10 flex items-center justify-end pr-1 text-[9px] text-faint font-mono bg-surface-2 h-full"

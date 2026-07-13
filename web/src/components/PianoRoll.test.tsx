@@ -121,6 +121,16 @@ describe("PianoRoll — editing", () => {
     expect(updated[1].start).toBeCloseTo(1);
   });
 
+  it("velocity lane follows the grid's horizontal scroll (single scrollbar)", () => {
+    renderRoll([makeNote(39, 0, 1)]);
+    const scroller = screen.getByTestId("roll-grid").closest(".overflow-auto") as HTMLElement;
+    const velocityLane = document.querySelector(".overflow-x-hidden") as HTMLElement;
+    expect(velocityLane).not.toBeNull();
+    Object.defineProperty(scroller, "scrollLeft", { value: 240, writable: true });
+    fireEvent.scroll(scroller);
+    expect(velocityLane.scrollLeft).toBe(240);
+  });
+
   it("velocity slider updates a note's velocity", () => {
     const note = makeNote(39, 0, 1);
     renderRoll([note]);
