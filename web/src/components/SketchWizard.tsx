@@ -1,11 +1,13 @@
 import { useCallback, useState } from "react";
 import {
   analyzeSketch,
+  downloadSketchMidi,
   saveSketch,
   type SketchAnalysis,
   type SketchPayload,
 } from "../api/client";
 import PianoRoll from "./PianoRoll";
+import SketchResults from "./SketchResults";
 import { toNoteEvents, type RollNote } from "../lib/piano-roll";
 
 interface SketchWizardProps {
@@ -120,6 +122,29 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
       setBusy(false);
     }
   }, [buildPayload, onSaved]);
+
+  const [midiBusy, setMidiBusy] = useState(false);
+
+  const handleDownloadMidi = useCallback(async () => {
+    setError(null);
+    setMidiBusy(true);
+    try {
+      const payload = buildPayload();
+      const blob = await downloadSketchMidi(payload);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${(payload.name || "sketch").replace(/[^A-Za-z0-9_-]+/g, "_")}.mid`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setMidiBusy(false);
+    }
+  }, [buildPayload]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
@@ -324,37 +349,12 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
 
           {step === "results" && analysis && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <SummaryChip label="Key" value={analysis.context.musical_record.key ?? "—"} />
-                <SummaryChip label="Mood" value={analysis.context.mood_profile.primary} />
-                <SummaryChip
-                  label="BPM"
-                  value={String(analysis.context.musical_record.bpm ?? "—")}
-                />
-                <SummaryChip
-                  label="Scale notes"
-                  value={analysis.context.musical_record.notes.join(" ")}
-                />
-              </div>
-
-              {analysis.out_of_scale_notes.length > 0 && (
-                <div className="rounded border border-warn/30 bg-warn/10 px-3 py-2 text-sm text-warn">
-                  Out-of-scale notes: {analysis.out_of_scale_notes.join(", ")}
-                </div>
-              )}
-
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted mb-1">
-                  Compatible keys
-                </p>
-                <ul className="text-sm text-ink space-y-0.5">
-                  {analysis.context.compatibility.keys.map((k) => (
-                    <li key={k.label}>
-                      <span className="text-muted">{k.label}:</span> {k.scale}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <SketchResults
+                analysis={analysis}
+                hasNotes={rollNotes.length > 0}
+                onDownloadMidi={handleDownloadMidi}
+                midiBusy={midiBusy}
+              />
 
               {saved ? (
                 <div className="rounded border border-green-300 bg-green-50 dark:bg-green-950/30 px-3 py-2 text-sm text-green-700">
@@ -364,7 +364,7 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
-                  onClick={() => setStep("details")}
+                  onClick={() => setStep(rollNotes.length > 0 ? "notes" : "details")}
                   className="px-4 py-2 text-sm rounded-control border border-line text-muted hover:text-ink"
                 >
                   Back
@@ -405,11 +405,3 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function SummaryChip({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-control border border-line bg-surface-2 px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">{label}</p>
-      <p className="text-sm font-medium text-ink">{value}</p>
-    </div>
-  );
-}
