@@ -249,6 +249,49 @@ def out_of_scale_notes(sketch: dict[str, Any]) -> list[str]:
     return played
 
 
+def midi_bytes_for_sketch(sketch: dict[str, Any]) -> bytes:
+    """Render a validated sketch's note events to a standard MIDI file.
+
+    Note event start/duration are in beats; converted to seconds via the
+    sketch BPM so the file plays back at the right tempo anywhere —
+    including loaded back onto an MPC as a pattern.
+    """
+    try:
+        import pretty_midi
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(f"missing_backend:{exc}") from exc
+
+    events = sketch.get("note_events") or []
+    if not events:
+        raise ValueError("no_note_events")
+
+    bpm = float(sketch.get("bpm") or 120.0)
+    seconds_per_beat = 60.0 / max(1.0, bpm)
+
+    midi = pretty_midi.PrettyMIDI(initial_tempo=bpm)
+    ts_numerator = int(sketch.get("beats_per_bar") or 4)
+    midi.time_signature_changes.append(pretty_midi.TimeSignature(ts_numerator, 4, 0.0))
+    instrument = pretty_midi.Instrument(program=0, name=str(sketch.get("name") or "Sketch"))
+    for event in events:
+        start = float(event["start"]) * seconds_per_beat
+        end = start + float(event["duration"]) * seconds_per_beat
+        instrument.notes.append(
+            pretty_midi.Note(
+                velocity=int(event.get("velocity") or 100),
+                pitch=int(event["midi"]),
+                start=start,
+                end=end,
+            )
+        )
+    midi.instruments.append(instrument)
+
+    import io
+
+    buffer = io.BytesIO()
+    midi.write(buffer)
+    return buffer.getvalue()
+
+
 def analyze_sketch(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
     """Validate a sketch payload and run full musical analysis.
 
