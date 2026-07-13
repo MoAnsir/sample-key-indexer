@@ -5,13 +5,15 @@ import {
   type SketchAnalysis,
   type SketchPayload,
 } from "../api/client";
+import PianoRoll from "./PianoRoll";
+import { toNoteEvents, type RollNote } from "../lib/piano-roll";
 
 interface SketchWizardProps {
   onClose: () => void;
   onSaved: () => void;
 }
 
-type Step = "details" | "results";
+type Step = "details" | "notes" | "results";
 
 // Display flats alongside sharps — MPC users think in "Eb minor".
 export const TONIC_OPTIONS = [
@@ -71,6 +73,7 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [rollNotes, setRollNotes] = useState<RollNote[]>([]);
 
   const buildPayload = useCallback((): SketchPayload => {
     return {
@@ -82,8 +85,9 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
       beats_per_bar: Number(beatsPerBar),
       type,
       frequency_register: frequencyRegister || null,
+      ...(rollNotes.length > 0 ? { note_events: toNoteEvents(rollNotes) } : {}),
     };
-  }, [name, tonic, mode, bpm, bars, beatsPerBar, type, frequencyRegister]);
+  }, [name, tonic, mode, bpm, bars, beatsPerBar, type, frequencyRegister, rollNotes]);
 
   const bpmValid = Number(bpm) >= 20 && Number(bpm) <= 400;
   const barsValid = Number(bars) >= 1 && Number(bars) <= 128;
@@ -119,11 +123,15 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div className="bg-surface rounded-panel shadow-pop w-full max-w-2xl mx-4 overflow-hidden">
+      <div
+        className={`bg-surface rounded-panel shadow-pop w-full mx-4 overflow-hidden ${
+          step === "notes" ? "max-w-5xl" : "max-w-2xl"
+        }`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-line">
           <h2 className="text-lg font-display font-bold text-ink">
-            {step === "results" ? "Sketch Analysis" : "New Sketch"}
+            {step === "results" ? "Sketch Analysis" : step === "notes" ? "Enter Notes" : "New Sketch"}
           </h2>
           <button onClick={onClose} className="text-faint hover:text-ink text-xl" aria-label="Close">
             ✕
@@ -257,12 +265,59 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
                   Cancel
                 </button>
                 <button
+                  onClick={() => setStep("notes")}
+                  disabled={!formValid}
+                  className="px-4 py-2 text-sm rounded-control border border-accent text-accent hover:bg-accent-soft disabled:opacity-50"
+                >
+                  Next: Notes
+                </button>
+                <button
                   onClick={handleAnalyze}
                   disabled={!formValid || busy}
                   className="px-4 py-2 text-sm font-medium rounded-control bg-accent text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {busy ? "Analyzing..." : "Analyze"}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {step === "notes" && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted">
+                Grid view for <span className="text-ink font-medium">{tonic} {mode}</span> at{" "}
+                <span className="text-ink font-medium">{bpm} BPM</span>, {bars} bars of {beatsPerBar}/4.
+                Rows are filtered to the scale — toggle Chromatic to see all notes.
+              </p>
+              <PianoRoll
+                tonic={tonic}
+                mode={mode}
+                bars={Number(bars)}
+                beatsPerBar={Number(beatsPerBar)}
+                notes={rollNotes}
+                onChange={setRollNotes}
+              />
+              <div className="flex justify-between items-center pt-2">
+                <p className="text-xs text-muted">
+                  {rollNotes.length === 0
+                    ? "No notes yet — you can also analyze without notes."
+                    : `${rollNotes.length} note${rollNotes.length === 1 ? "" : "s"} entered.`}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setStep("details")}
+                    className="px-4 py-2 text-sm rounded-control border border-line text-muted hover:text-ink"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={busy}
+                    className="px-4 py-2 text-sm font-medium rounded-control bg-accent text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {busy ? "Analyzing..." : "Analyze"}
+                  </button>
+                </div>
               </div>
             </div>
           )}
