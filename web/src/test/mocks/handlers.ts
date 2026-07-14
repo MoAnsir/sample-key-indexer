@@ -185,6 +185,27 @@ export const handlers = [
 
   http.get("/api/sketches", () => HttpResponse.json({ sketches: [] })),
 
+  http.post("/api/sketch/match", () =>
+    HttpResponse.json({
+      ok: true,
+      matches: [
+        {
+          id: 1,
+          name: "bass_loop_Cm_90.wav",
+          key: "C_minor",
+          bpm: 90,
+          type: "Bass",
+          library_name: "Pack A",
+          playback_status: "available",
+          score: 0.8,
+          match_reasons: ["same key", "fills lows"],
+          source_kind: "audio",
+        },
+      ],
+      total_searched: 3,
+    }),
+  ),
+
   http.post("/api/sketch/arrangement", () =>
     HttpResponse.json({
       ok: true,

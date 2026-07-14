@@ -386,3 +386,32 @@ export async function downloadArrangementMidi(req: ArrangementRequest): Promise<
   }
   return res.blob();
 }
+
+// ---- Cross-match ----
+
+export interface MatchFilters {
+  key_compat?: boolean;
+  freq_slot?: boolean;
+  mood?: boolean;
+  bpm?: boolean;
+}
+
+export interface MatchResult {
+  ok: boolean;
+  matches: (Sample & { score: number; match_reasons: string[] })[];
+  total_searched: number;
+}
+
+export async function matchSamples(body: {
+  sketch_id?: string;
+  sketch?: SketchPayload;
+  top_n?: number;
+  filters?: MatchFilters;
+}): Promise<MatchResult> {
+  const res = await postSketch("/api/sketch/match", body);
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error((data.errors ?? [`match: ${res.status}`]).join("; "));
+  }
+  return data;
+}
