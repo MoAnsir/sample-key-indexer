@@ -20,6 +20,7 @@ from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, l
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
 from sample_key_indexer.sketch import analyze_sketch, midi_bytes_for_sketch, sketch_from_midi_bytes, validate_sketch_payload
 from sample_key_indexer.arrangement import build_arrangement, midi_bytes_for_arrangement
+from sample_key_indexer.cross_match import cross_match
 from sample_key_indexer.sketch_store import default_sketches_path, delete_sketch, get_sketch, list_sketches, save_sketch
 from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
@@ -320,6 +321,9 @@ def build_app(
             if parsed.path == "/api/sketch/arrangement-midi":
                 self._handle_sketch_arrangement_midi()
                 return
+            if parsed.path == "/api/sketch/match":
+                self._handle_sketch_match()
+                return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
         def _send_json(self, payload: dict, *, status: HTTPStatus = HTTPStatus.OK) -> None:
@@ -575,6 +579,36 @@ def build_app(
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _handle_sketch_match(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            sketch_id = str(payload.get("sketch_id") or "").strip()
+            if sketch_id:
+                sketch = get_sketch(sketch_id)
+                if sketch is None:
+                    self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
+                    return
+            else:
+                sketch_raw = payload.get("payload") or payload.get("sketch") or payload
+                sketch, errors = validate_sketch_payload(sketch_raw)
+                if sketch is None:
+                    self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                    return
+            top_n = max(1, min(200, int(payload.get("top_n") or 50)))
+            filters = payload.get("filters") or {}
+            matches = cross_match(sketch, samples, top_n=top_n, filters=filters)
+            slim_matches = [
+                {**list_sample(m), "score": m["score"], "match_reasons": m["match_reasons"]}
+                for m in matches
+            ]
+            self._send_json({
+                "ok": True,
+                "matches": slim_matches,
+                "total_searched": sum(1 for s in samples if s.get("source_kind") != "sketch"),
+            })
 
         def _handle_review_mutation(self) -> None:
             payload = self._read_json_body()

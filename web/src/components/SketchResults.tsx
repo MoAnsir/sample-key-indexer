@@ -1,5 +1,6 @@
 import type { SketchAnalysis, SketchPayload } from "../api/client";
 import ArrangementPanel from "./ArrangementPanel";
+import MatchPanel from "./MatchPanel";
 
 interface SketchResultsProps {
   analysis: SketchAnalysis;
@@ -131,6 +132,13 @@ export default function SketchResults({
       {hasNotes && (sketchId || payload) && (
         <div className="border-t border-line pt-4">
           <ArrangementPanel sketchId={sketchId} payload={payload} sketchName={sketchName} />
+        </div>
+      )}
+
+      {/* Cross-match — always available after analysis */}
+      {(sketchId || payload) && (
+        <div className="border-t border-line pt-4">
+          <MatchPanel sketchId={sketchId} payload={payload} />
         </div>
       )}
     </div>
