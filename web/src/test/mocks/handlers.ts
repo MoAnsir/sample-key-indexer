@@ -185,6 +185,41 @@ export const handlers = [
 
   http.get("/api/sketches", () => HttpResponse.json({ sketches: [] })),
 
+  http.post("/api/sketch/arrangement", () =>
+    HttpResponse.json({
+      ok: true,
+      arrangement: {
+        sections: [
+          {
+            label: "A",
+            bar_start: 0,
+            bar_end: 8,
+            variation: "original",
+            note_events: [{ midi: 48, start: 0, duration: 1, velocity: 100 }],
+          },
+          {
+            label: "B",
+            bar_start: 8,
+            bar_end: 16,
+            variation: "transpose_4th",
+            note_events: [{ midi: 53, start: 32, duration: 1, velocity: 100 }],
+          },
+        ],
+        total_bars: 16,
+        bpm: 120,
+        beats_per_bar: 4,
+        tonic: "C",
+        mode: "minor",
+      },
+    }),
+  ),
+
+  http.post("/api/sketch/arrangement-midi", () =>
+    new HttpResponse(new Uint8Array([0x4d, 0x54, 0x68, 0x64]).buffer, {
+      headers: { "Content-Type": "audio/midi" },
+    }),
+  ),
+
   http.get("/api/sketch", () =>
     HttpResponse.json({
       sketch: {

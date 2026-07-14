@@ -280,7 +280,7 @@ export async function fetchSketch(sketchId: string): Promise<SketchRecord> {
   return data.sketch as SketchRecord;
 }
 
-async function postSketch(path: string, payload: SketchPayload | { sketch_id: string }): Promise<Response> {
+async function postSketch(path: string, payload: object): Promise<Response> {
   return fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -331,6 +331,57 @@ export async function downloadSketchMidi(payload: SketchPayload): Promise<Blob> 
     } catch {
       // non-JSON error body
     }
+    throw new Error(message);
+  }
+  return res.blob();
+}
+
+// ---- Arrangement ----
+
+export interface ArrangementSection {
+  label: string;
+  bar_start: number;
+  bar_end: number;
+  variation: string;
+  note_events: { midi: number; start: number; duration: number; velocity: number }[];
+}
+
+export interface ArrangementResult {
+  ok: boolean;
+  arrangement: {
+    sections: ArrangementSection[];
+    total_bars: number;
+    bpm: number;
+    beats_per_bar: number;
+    tonic: string;
+    mode: string;
+  };
+}
+
+export interface ArrangementRequest {
+  sketch_id?: string;
+  payload?: SketchPayload;
+  target_bars: number;
+  strategies: string[];
+}
+
+export async function generateArrangement(req: ArrangementRequest): Promise<ArrangementResult> {
+  const res = await postSketch("/api/sketch/arrangement", req);
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error((data.errors ?? [`arrangement: ${res.status}`]).join("; "));
+  }
+  return data;
+}
+
+export async function downloadArrangementMidi(req: ArrangementRequest): Promise<Blob> {
+  const res = await postSketch("/api/sketch/arrangement-midi", req);
+  if (!res.ok) {
+    let message = `arrangement-midi: ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data.errors) message = data.errors.join("; ");
+    } catch { /* non-JSON */ }
     throw new Error(message);
   }
   return res.blob();
