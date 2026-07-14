@@ -6,6 +6,7 @@ import {
   clampNote,
   duplicateNotes,
   eraseNote,
+  fromNoteEvents,
   makeNote,
   midiToName,
   moveNote,
@@ -243,5 +244,78 @@ describe("toNoteEvents", () => {
     const events = toNoteEvents(notes);
     expect(events[0]).toEqual({ note: 39, start: 0, duration: 1, velocity: 88 });
     expect(events[1].note).toBe(46);
+  });
+});
+
+describe("fromNoteEvents", () => {
+  it("converts MIDI integer notes", () => {
+    const notes = fromNoteEvents([{ note: 60, start: 0, duration: 1, velocity: 100 }]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].midi).toBe(60);
+    expect(notes[0].start).toBe(0);
+    expect(notes[0].duration).toBe(1);
+    expect(notes[0].velocity).toBe(100);
+  });
+
+  it("converts note-name strings with octave", () => {
+    const notes = fromNoteEvents([{ note: "C4", start: 0, duration: 0.5 }]);
+    expect(notes[0].midi).toBe(60);
+  });
+
+  it("converts flat note names to sharps", () => {
+    const notes = fromNoteEvents([{ note: "Eb3", start: 0, duration: 0.5 }]);
+    expect(notes[0].midi).toBe(51); // D#3
+  });
+
+  it("defaults velocity to 100 when omitted", () => {
+    const notes = fromNoteEvents([{ note: 60, start: 0, duration: 1 }]);
+    expect(notes[0].velocity).toBe(100);
+  });
+
+  it("clamps velocity to 1–127 range", () => {
+    const lo = fromNoteEvents([{ note: 60, start: 0, duration: 1, velocity: 0 }]);
+    const hi = fromNoteEvents([{ note: 60, start: 0, duration: 1, velocity: 200 }]);
+    expect(lo[0].velocity).toBe(1);
+    expect(hi[0].velocity).toBe(127);
+  });
+
+  it("clamps duration to minimum 1/32 beat", () => {
+    const notes = fromNoteEvents([{ note: 60, start: 0, duration: 0 }]);
+    expect(notes[0].duration).toBeCloseTo(1 / 32);
+  });
+
+  it("skips out-of-range MIDI values", () => {
+    const notes = fromNoteEvents([
+      { note: -1, start: 0, duration: 1 },
+      { note: 128, start: 0, duration: 1 },
+      { note: 60, start: 0, duration: 1 },
+    ]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].midi).toBe(60);
+  });
+
+  it("skips unrecognised note-name strings", () => {
+    const notes = fromNoteEvents([{ note: "Xq9", start: 0, duration: 1 }]);
+    expect(notes).toHaveLength(0);
+  });
+
+  it("assigns sequential IDs starting at startId", () => {
+    const notes = fromNoteEvents(
+      [{ note: 60, start: 0, duration: 1 }, { note: 62, start: 1, duration: 1 }],
+      50,
+    );
+    expect(notes[0].id).toBe(50);
+    expect(notes[1].id).toBe(51);
+  });
+
+  it("round-trips with toNoteEvents", () => {
+    const events = [
+      { note: 60, start: 0, duration: 1, velocity: 80 },
+      { note: 64, start: 1, duration: 0.5, velocity: 110 },
+    ];
+    const roll = fromNoteEvents(events);
+    const back = toNoteEvents(roll);
+    expect(back[0]).toEqual({ note: 60, start: 0, duration: 1, velocity: 80 });
+    expect(back[1]).toEqual({ note: 64, start: 1, duration: 0.5, velocity: 110 });
   });
 });

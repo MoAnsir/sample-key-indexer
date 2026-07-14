@@ -10,6 +10,7 @@ from sample_key_indexer.sketch import (
     note_token_to_midi,
     out_of_scale_notes,
     parse_note_name,
+    sketch_from_midi_bytes,
     sketch_to_sample,
     validate_sketch_payload,
 )
@@ -335,6 +336,90 @@ class MidiBytesForSketchTests(unittest.TestCase):
         body = midi_bytes_for_sketch(self._sketch(note_events=self._events()))
         midi = pretty_midi.PrettyMIDI(io.BytesIO(body))
         self.assertEqual(midi.instruments[0].name, "MPC bass idea")
+
+
+class SketchFromMidiBytesTests(unittest.TestCase):
+    """sketch_from_midi_bytes: MIDI file → partial sketch dict."""
+
+    def _make_midi_bytes(self, bpm: float = 120.0, beats_per_bar: int = 4, notes: list | None = None) -> bytes:
+        import pretty_midi
+
+        midi = pretty_midi.PrettyMIDI(initial_tempo=bpm)
+        midi.time_signature_changes.append(pretty_midi.TimeSignature(beats_per_bar, 4, 0.0))
+        instrument = pretty_midi.Instrument(program=0, name="Test")
+        seconds_per_beat = 60.0 / bpm
+        for pitch, start_beat, dur_beats in (notes or [(60, 0, 1), (62, 1, 1)]):
+            instrument.notes.append(
+                pretty_midi.Note(velocity=80, pitch=pitch, start=start_beat * seconds_per_beat, end=(start_beat + dur_beats) * seconds_per_beat)
+            )
+        midi.instruments.append(instrument)
+        buf = io.BytesIO()
+        midi.write(buf)
+        return buf.getvalue()
+
+    def test_basic_round_trip(self) -> None:
+        data = self._make_midi_bytes(bpm=95.0, beats_per_bar=4)
+        result = sketch_from_midi_bytes(data)
+        self.assertAlmostEqual(result["bpm"], 95.0, places=1)
+        self.assertEqual(result["beats_per_bar"], 4)
+        self.assertGreater(len(result["note_events"]), 0)
+
+    def test_events_in_beats(self) -> None:
+        data = self._make_midi_bytes(bpm=120.0, notes=[(60, 0, 1), (62, 2, 0.5)])
+        result = sketch_from_midi_bytes(data)
+        events = sorted(result["note_events"], key=lambda e: e["start"])
+        self.assertAlmostEqual(events[0]["start"], 0.0, places=4)
+        self.assertAlmostEqual(events[1]["start"], 2.0, places=4)
+
+    def test_bars_calculated_from_duration(self) -> None:
+        # 2 notes filling 4 beats at 4/4 = 1 bar
+        data = self._make_midi_bytes(bpm=120.0, beats_per_bar=4, notes=[(60, 0, 2), (62, 2, 2)])
+        result = sketch_from_midi_bytes(data)
+        self.assertGreaterEqual(result["bars"], 1)
+
+    def test_time_signature_propagated(self) -> None:
+        data = self._make_midi_bytes(bpm=120.0, beats_per_bar=3)
+        result = sketch_from_midi_bytes(data)
+        self.assertEqual(result["beats_per_bar"], 3)
+
+    def test_tonic_mode_type_left_blank(self) -> None:
+        data = self._make_midi_bytes()
+        result = sketch_from_midi_bytes(data)
+        self.assertIsNone(result["tonic"])
+        self.assertIsNone(result["mode"])
+        self.assertIsNone(result["type"])
+
+    def test_raises_on_empty_midi(self) -> None:
+        import pretty_midi
+
+        midi = pretty_midi.PrettyMIDI(initial_tempo=120.0)
+        buf = io.BytesIO()
+        midi.write(buf)
+        with self.assertRaises(ValueError):
+            sketch_from_midi_bytes(buf.getvalue())
+
+    def test_raises_on_garbage_bytes(self) -> None:
+        with self.assertRaises(ValueError):
+            sketch_from_midi_bytes(b"not a midi file")
+
+    def test_export_then_import_round_trip(self) -> None:
+        """midi_bytes_for_sketch → sketch_from_midi_bytes should recover same pitches."""
+        sketch = {
+            "name": "Round trip",
+            "bpm": 140.0,
+            "bars": 2,
+            "beats_per_bar": 4,
+            "note_events": [
+                {"midi": 60, "note": "C", "start": 0.0, "duration": 1.0, "velocity": 100},
+                {"midi": 64, "note": "E", "start": 1.0, "duration": 1.0, "velocity": 90},
+            ],
+        }
+        midi_data = midi_bytes_for_sketch(sketch)
+        recovered = sketch_from_midi_bytes(midi_data)
+        pitches_in = {e["midi"] for e in sketch["note_events"]}
+        pitches_out = {e["midi"] for e in recovered["note_events"]}
+        self.assertEqual(pitches_in, pitches_out)
+        self.assertAlmostEqual(recovered["bpm"], 140.0, places=1)
 
 
 if __name__ == "__main__":

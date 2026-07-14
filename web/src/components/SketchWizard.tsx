@@ -1,18 +1,22 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   analyzeSketch,
   downloadSketchMidi,
+  fetchSketch,
+  importMidi,
   saveSketch,
   type SketchAnalysis,
   type SketchPayload,
 } from "../api/client";
 import PianoRoll from "./PianoRoll";
 import SketchResults from "./SketchResults";
-import { toNoteEvents, type RollNote } from "../lib/piano-roll";
+import { fromNoteEvents, toNoteEvents, type RollNote } from "../lib/piano-roll";
 
 interface SketchWizardProps {
   onClose: () => void;
   onSaved: () => void;
+  /** When set, the wizard loads the existing sketch and opens on the notes step. */
+  initialSketchId?: string;
 }
 
 type Step = "details" | "notes" | "results";
@@ -61,8 +65,9 @@ export const FREQUENCY_REGISTER_OPTIONS = [
   { value: "high", label: "High (4 kHz+)" },
 ];
 
-export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
-  const [step, setStep] = useState<Step>("details");
+export default function SketchWizard({ onClose, onSaved, initialSketchId }: SketchWizardProps) {
+  const [step, setStep] = useState<Step>(initialSketchId ? "notes" : "details");
+  const [sketchId, setSketchId] = useState<string | undefined>(initialSketchId);
   const [name, setName] = useState("");
   const [tonic, setTonic] = useState("C");
   const [mode, setMode] = useState<"major" | "minor">("minor");
@@ -76,6 +81,60 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [rollNotes, setRollNotes] = useState<RollNote[]>([]);
+  const [midiImportBusy, setMidiImportBusy] = useState(false);
+  const [midiImportError, setMidiImportError] = useState<string | null>(null);
+  const midiFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load existing sketch when editing
+  useEffect(() => {
+    if (!initialSketchId) return;
+    setBusy(true);
+    fetchSketch(initialSketchId)
+      .then((record) => {
+        setName(String(record.name ?? ""));
+        // key is stored as "Tonic_mode" e.g. "C#_minor"
+        const key = String(record.key ?? "");
+        const sep = key.lastIndexOf("_");
+        if (sep > 0) {
+          setTonic(key.slice(0, sep));
+          const m = key.slice(sep + 1);
+          if (m === "major" || m === "minor") setMode(m);
+        }
+        if (record.bpm) setBpm(String(Math.round(record.bpm as number)));
+        if (record.bars) setBars(String(record.bars));
+        if ((record as Record<string, unknown>).beats_per_bar) setBeatsPerBar(String((record as Record<string, unknown>).beats_per_bar));
+        if (record.type) setType(String(record.type));
+        const fr = (record as Record<string, unknown>).frequency_register;
+        setFrequencyRegister(fr ? String(fr) : "");
+        const events = (record as Record<string, unknown>).note_events;
+        if (Array.isArray(events) && events.length > 0) {
+          setRollNotes(fromNoteEvents(events as Parameters<typeof fromNoteEvents>[0]));
+        }
+      })
+      .catch((err) => setError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setBusy(false));
+  }, [initialSketchId]);
+
+  const handleMidiImport = useCallback(async (file: File) => {
+    setMidiImportError(null);
+    setMidiImportBusy(true);
+    try {
+      const result = await importMidi(file);
+      if (!result.ok || !result.sketch) {
+        setMidiImportError((result.errors ?? ["Import failed"]).join("; "));
+        return;
+      }
+      const { bpm: importedBpm, bars: importedBars, beats_per_bar, note_events } = result.sketch;
+      setBpm(String(Math.round(importedBpm)));
+      setBars(String(importedBars));
+      setBeatsPerBar(String(beats_per_bar));
+      setRollNotes(fromNoteEvents(note_events));
+    } catch (err) {
+      setMidiImportError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setMidiImportBusy(false);
+    }
+  }, []);
 
   const buildPayload = useCallback((): SketchPayload => {
     return {
@@ -88,8 +147,9 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
       type,
       frequency_register: frequencyRegister || null,
       ...(rollNotes.length > 0 ? { note_events: toNoteEvents(rollNotes) } : {}),
+      ...(sketchId ? { sketch_id: sketchId } : {}),
     };
-  }, [name, tonic, mode, bpm, bars, beatsPerBar, type, frequencyRegister, rollNotes]);
+  }, [name, tonic, mode, bpm, bars, beatsPerBar, type, frequencyRegister, rollNotes, sketchId]);
 
   const bpmValid = Number(bpm) >= 20 && Number(bpm) <= 400;
   const barsValid = Number(bars) >= 1 && Number(bars) <= 128;
@@ -113,7 +173,8 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
     setError(null);
     setBusy(true);
     try {
-      await saveSketch(buildPayload());
+      const record = await saveSketch(buildPayload());
+      setSketchId(record.sketch_id);
       setSaved(true);
       onSaved();
     } catch (err) {
@@ -159,7 +220,11 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
             ← Library
           </button>
           <h2 className="text-lg font-display font-bold text-ink">
-            {step === "results" ? "Sketch Analysis" : step === "notes" ? "Enter Notes" : "New Sketch"}
+            {step === "results"
+              ? "Sketch Analysis"
+              : step === "notes"
+                ? initialSketchId ? "Edit Notes" : "Enter Notes"
+                : initialSketchId ? "Edit Sketch" : "New Sketch"}
           </h2>
         </div>
         <StepIndicator step={step} />
@@ -312,6 +377,45 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
 
           {step === "notes" && (
             <div className="space-y-3">
+              {/* MIDI import zone */}
+              <div
+                className="flex items-center gap-3 rounded-lg border border-dashed border-line bg-surface-2 px-4 py-3 text-xs text-muted"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const file = e.dataTransfer.files[0];
+                  if (file) handleMidiImport(file);
+                }}
+              >
+                <input
+                  ref={midiFileInputRef}
+                  type="file"
+                  accept=".mid,.midi"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleMidiImport(file);
+                    e.target.value = "";
+                  }}
+                />
+                <span className="text-base">🎹</span>
+                <span className="flex-1">
+                  {midiImportBusy
+                    ? "Importing…"
+                    : "Drop an MPC MIDI export here, or"}
+                </span>
+                <button
+                  onClick={() => midiFileInputRef.current?.click()}
+                  disabled={midiImportBusy}
+                  className="px-2.5 py-1 rounded-control border border-line text-muted hover:text-ink disabled:opacity-50 text-xs"
+                >
+                  Browse…
+                </button>
+              </div>
+              {midiImportError && (
+                <p className="text-xs text-warn">{midiImportError}</p>
+              )}
+
               <p className="text-xs text-muted">
                 Grid view for <span className="text-ink font-medium">{tonic} {mode}</span> at{" "}
                 <span className="text-ink font-medium">{bpm} BPM</span>, {bars} bars of {beatsPerBar}/4.
@@ -386,7 +490,7 @@ export default function SketchWizard({ onClose, onSaved }: SketchWizardProps) {
                     disabled={busy}
                     className="px-4 py-2 text-sm font-medium rounded-control bg-accent text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {busy ? "Saving..." : "Save Sketch"}
+                    {busy ? "Saving..." : sketchId ? "Update Sketch" : "Save Sketch"}
                   </button>
                 )}
               </div>

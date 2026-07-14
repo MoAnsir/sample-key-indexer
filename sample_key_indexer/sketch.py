@@ -292,6 +292,75 @@ def midi_bytes_for_sketch(sketch: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+def sketch_from_midi_bytes(data: bytes) -> dict[str, Any]:
+    """Parse a MIDI file and return a partial sketch dict with note events.
+
+    BPM, bars, beats_per_bar, and note_events are populated from the file;
+    tonic, mode, and type are left blank for the user to fill in the form.
+
+    Raises ValueError if the file has no note events or is unreadable.
+    """
+    try:
+        import pretty_midi
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(f"missing_backend:{exc}") from exc
+
+    try:
+        import io
+        midi = pretty_midi.PrettyMIDI(io.BytesIO(data))
+    except Exception as exc:
+        raise ValueError(f"Could not parse MIDI file: {exc}") from exc
+
+    # BPM from the first tempo event (pretty_midi gives a list of (time, tempo) pairs).
+    tempo_change_times, tempos = midi.get_tempo_changes()
+    bpm = round(float(tempos[0]) if len(tempos) > 0 else 120.0, 2)
+    bpm = max(20.0, min(400.0, bpm))
+    seconds_per_beat = 60.0 / bpm
+
+    # Time signature from the first event.
+    ts = midi.time_signature_changes[0] if midi.time_signature_changes else None
+    beats_per_bar = int(ts.numerator) if ts else 4
+    beats_per_bar = max(1, min(12, beats_per_bar))
+
+    # Collect all notes across all instruments, converting seconds → beats.
+    raw_events: list[dict[str, Any]] = []
+    for instrument in midi.instruments:
+        for note in instrument.notes:
+            start_beat = note.start / seconds_per_beat
+            duration_beat = max(1 / 32, (note.end - note.start) / seconds_per_beat)
+            raw_events.append(
+                {
+                    "midi": note.pitch,
+                    "note": NOTE_ORDER[note.pitch % 12],
+                    "start": round(start_beat, 6),
+                    "duration": round(duration_beat, 6),
+                    "velocity": max(1, min(127, note.velocity)),
+                }
+            )
+
+    if not raw_events:
+        raise ValueError("MIDI file contains no note events")
+
+    raw_events.sort(key=lambda e: (e["start"], e["midi"]))
+
+    # Infer total duration in bars from the last note end.
+    last_end_beat = max(e["start"] + e["duration"] for e in raw_events)
+    bars = max(1, min(128, int(-(-last_end_beat // beats_per_bar))))  # ceiling division
+
+    return {
+        "bpm": bpm,
+        "bars": bars,
+        "beats_per_bar": beats_per_bar,
+        "note_events": raw_events,
+        # User fills these in the form — left blank intentionally.
+        "tonic": None,
+        "mode": None,
+        "type": None,
+        "name": None,
+        "frequency_register": None,
+    }
+
+
 def analyze_sketch(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
     """Validate a sketch payload and run full musical analysis.
 
