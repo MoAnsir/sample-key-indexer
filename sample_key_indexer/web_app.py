@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
 from sample_key_indexer.sketch import analyze_sketch, midi_bytes_for_sketch, validate_sketch_payload
-from sample_key_indexer.sketch_store import default_sketches_path, delete_sketch, list_sketches, save_sketch
+from sample_key_indexer.sketch_store import default_sketches_path, delete_sketch, get_sketch, list_sketches, save_sketch
 from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
 STATIC_ROOT_LEGACY = Path(__file__).with_name("web_static")
@@ -268,6 +268,8 @@ def build_app(
                 self._send_json({"history": load_scan_history()})
             elif parsed.path == "/api/sketches":
                 self._send_json({"sketches": list_sketches()})
+            elif parsed.path == "/api/sketch/midi":
+                self._send_sketch_midi(parsed.query)
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -395,6 +397,38 @@ def build_app(
             self.send_header("Content-Type", "audio/midi")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
+
+        def _send_sketch_midi(self, query: str) -> None:
+            params = parse_qs(query)
+            sketch_id = (params.get("sketch_id") or [""])[0].strip()
+            if not sketch_id:
+                self.send_error(HTTPStatus.BAD_REQUEST, "sketch_id is required")
+                return
+            record = get_sketch(sketch_id)
+            if record is None:
+                self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
+                return
+            try:
+                body = midi_bytes_for_sketch(record)
+            except ValueError:
+                self.send_error(HTTPStatus.CONFLICT, "Sketch has no note events")
+                return
+            except RuntimeError as exc:
+                if str(exc).startswith("missing_backend:"):
+                    self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "MIDI backend not installed")
+                    return
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to generate MIDI")
+                return
+            safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(record.get("name") or "sketch")).strip("_") or "sketch"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "audio/midi")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition", f'attachment; filename="{safe_name}.mid"')
             self.end_headers()
             try:
                 self.wfile.write(body)
