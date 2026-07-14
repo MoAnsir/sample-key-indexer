@@ -234,6 +234,45 @@ export function duplicateNotes(
   return [...notes, ...copies];
 }
 
+/** Convert API note_events (from a saved sketch or MIDI import) → RollNote[].
+ *  Pitch may be a MIDI integer or a note-name string ("C#3", "Eb", 60).
+ *  IDs start at `startId` (default 1) to avoid stale-counter collisions when
+ *  loading pre-existing notes into an editor session. */
+export function fromNoteEvents(
+  events: { note: string | number; start: number; duration: number; velocity?: number }[],
+  startId = 1,
+): RollNote[] {
+  let id = startId;
+  const notes: RollNote[] = [];
+  for (const ev of events) {
+    let midi: number;
+    if (typeof ev.note === "number") {
+      midi = ev.note;
+    } else {
+      // Note name with optional octave, e.g. "C#3", "Eb", "d#2"
+      const clean = ev.note.trim().replace(/^([A-Ga-g][b#]?)(-?\d+)?$/, (_, pc: string, oct: string) => {
+        const flat: Record<string, string> = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
+        const name = (pc[0].toUpperCase() + pc.slice(1));
+        const sharp = flat[name] ?? name;
+        const octave = oct != null ? parseInt(oct, 10) : 2;
+        const idx = NOTE_NAMES.indexOf(sharp);
+        if (idx < 0) return "-1";
+        return String((octave + 1) * 12 + idx);
+      });
+      midi = parseInt(clean, 10);
+    }
+    if (isNaN(midi) || midi < 0 || midi > 127) continue;
+    notes.push({
+      id: id++,
+      midi,
+      start: ev.start,
+      duration: Math.max(1 / 32, ev.duration),
+      velocity: Math.min(127, Math.max(1, Math.round(ev.velocity ?? 100))),
+    });
+  }
+  return notes;
+}
+
 /** Convert editor notes to the API's note_events payload shape. */
 export function toNoteEvents(
   notes: RollNote[],

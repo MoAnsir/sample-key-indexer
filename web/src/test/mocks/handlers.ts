@@ -184,6 +184,45 @@ export const handlers = [
   http.post("/api/sketch/delete", () => HttpResponse.json({ ok: true })),
 
   http.get("/api/sketches", () => HttpResponse.json({ sketches: [] })),
+
+  http.get("/api/sketch", () =>
+    HttpResponse.json({
+      sketch: {
+        sketch_id: "sk_test123",
+        name: "Existing bass idea",
+        tonic: "C",
+        mode: "minor",
+        bpm: 95,
+        bars: 4,
+        beats_per_bar: 4,
+        type: "Bass",
+        frequency_register: "low",
+        note_events: [
+          { note: 48, start: 0, duration: 1, velocity: 100 },
+          { note: 51, start: 1, duration: 0.5, velocity: 90 },
+        ],
+        library_id: "sketches",
+        source_kind: "sketch",
+      },
+    }),
+  ),
+
+  http.post("/api/sketch/import-midi", () =>
+    HttpResponse.json({
+      ok: true,
+      sketch: {
+        bpm: 120,
+        bars: 2,
+        beats_per_bar: 4,
+        note_events: [{ note: 60, start: 0, duration: 1, velocity: 80 }],
+        tonic: null,
+        mode: null,
+        type: null,
+        name: null,
+        frequency_register: null,
+      },
+    }),
+  ),
 ];
 
 export const MOCK_SKETCH_ANALYSIS = {

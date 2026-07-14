@@ -43,6 +43,17 @@ export default function App() {
   const queryClient = useQueryClient();
   const [showScanWizard, setShowScanWizard] = useState(false);
   const [showSketchWizard, setShowSketchWizard] = useState(false);
+  const [editSketchId, setEditSketchId] = useState<string | undefined>();
+
+  const handleEditSketch = useCallback((sketchId: string) => {
+    setEditSketchId(sketchId);
+    setShowSketchWizard(true);
+  }, []);
+
+  const handleCloseSketchWizard = useCallback(() => {
+    setShowSketchWizard(false);
+    setEditSketchId(undefined);
+  }, []);
 
   const { data: catalog, isLoading, error } = useQuery<CatalogResponse>({
     queryKey: ["catalog"],
@@ -175,7 +186,7 @@ export default function App() {
 
             {/* New Sketch button */}
             <button
-              onClick={() => setShowSketchWizard(true)}
+              onClick={() => { setEditSketchId(undefined); setShowSketchWizard(true); }}
               className="px-3 py-1.5 text-xs font-medium rounded-control border border-accent text-accent hover:bg-accent-soft transition-colors"
             >
               ✏ New Sketch
@@ -216,8 +227,9 @@ export default function App() {
       {showSketchWizard ? (
         <ErrorBoundary>
           <SketchWizard
-            onClose={() => setShowSketchWizard(false)}
+            onClose={handleCloseSketchWizard}
             onSaved={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
+            initialSketchId={editSketchId}
           />
         </ErrorBoundary>
       ) : (
@@ -250,7 +262,7 @@ export default function App() {
                 {activeTab === "browse" ? (
                   <>
                     <FilterBar />
-                    <SampleTable />
+                    <SampleTable onEditSketch={handleEditSketch} />
                   </>
                 ) : (
                   <ReviewTab />
