@@ -21,11 +21,17 @@ PROGRESSION_TEMPLATES: dict[str, list[dict[str, Any]]] = {
         {"name": "Lift", "degrees": [0, 4, 5, 3], "mood": "uplifting", "notes_order": [0, 2, 4, 5, 4, 2, 0]},
         {"name": "Anthem", "degrees": [0, 3, 4, 5], "mood": "bright", "notes_order": [0, 4, 5, 4, 3, 2, 0]},
         {"name": "Drive", "degrees": [0, 5, 3, 4], "mood": "confident", "notes_order": [0, 1, 2, 4, 5, 4, 2]},
+        {"name": "ii–V–I", "degrees": [1, 4, 0, 5], "mood": "smooth", "notes_order": [1, 2, 4, 5, 4, 2, 0]},
+        {"name": "iii–vi–IV–I", "degrees": [2, 5, 3, 0], "mood": "hopeful", "notes_order": [2, 4, 5, 4, 3, 2, 0]},
+        {"name": "Modal Vamp", "degrees": [0, 1, 0, 2], "mood": "dreamy", "notes_order": [0, 1, 2, 1, 0, 2, 1]},
     ],
     "minor": [
         {"name": "Tension", "degrees": [0, 5, 3, 4], "mood": "dark", "notes_order": [0, 2, 3, 4, 6, 4, 3]},
         {"name": "Melancholy", "degrees": [0, 2, 5, 4], "mood": "melancholic", "notes_order": [0, 2, 3, 5, 6, 5, 3]},
         {"name": "Cinematic", "degrees": [0, 3, 5, 4], "mood": "cinematic", "notes_order": [0, 1, 3, 4, 6, 4, 1]},
+        {"name": "ii–V–i", "degrees": [1, 4, 0, 6], "mood": "tense", "notes_order": [1, 3, 4, 3, 2, 1, 0]},
+        {"name": "Blues Shuffle", "degrees": [0, 0, 3, 3, 4, 3, 0, 4], "mood": "gritty", "notes_order": [0, 2, 3, 2, 4, 3, 2, 0]},
+        {"name": "Brooding Vamp", "degrees": [0, 6, 3, 5], "mood": "brooding", "notes_order": [0, 1, 3, 5, 6, 5, 3]},
     ],
 }
 

@@ -1,10 +1,14 @@
-import type { SketchAnalysis } from "../api/client";
+import type { SketchAnalysis, SketchPayload } from "../api/client";
+import ArrangementPanel from "./ArrangementPanel";
 
 interface SketchResultsProps {
   analysis: SketchAnalysis;
   hasNotes: boolean;
   onDownloadMidi: () => void;
   midiBusy: boolean;
+  sketchId?: string;
+  payload?: SketchPayload;
+  sketchName?: string;
 }
 
 export default function SketchResults({
@@ -12,6 +16,9 @@ export default function SketchResults({
   hasNotes,
   onDownloadMidi,
   midiBusy,
+  sketchId,
+  payload,
+  sketchName,
 }: SketchResultsProps) {
   const record = analysis.context.musical_record;
   const mood = analysis.context.mood_profile;
@@ -119,6 +126,13 @@ export default function SketchResults({
           ))}
         </div>
       </section>
+
+      {/* Arrangement engine — only available when there are notes to expand */}
+      {hasNotes && (sketchId || payload) && (
+        <div className="border-t border-line pt-4">
+          <ArrangementPanel sketchId={sketchId} payload={payload} sketchName={sketchName} />
+        </div>
+      )}
     </div>
   );
 }

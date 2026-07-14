@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
 from sample_key_indexer.sketch import analyze_sketch, midi_bytes_for_sketch, sketch_from_midi_bytes, validate_sketch_payload
+from sample_key_indexer.arrangement import build_arrangement, midi_bytes_for_arrangement
 from sample_key_indexer.sketch_store import default_sketches_path, delete_sketch, get_sketch, list_sketches, save_sketch
 from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
@@ -313,6 +314,12 @@ def build_app(
             if parsed.path == "/api/sketch/delete":
                 self._handle_sketch_delete()
                 return
+            if parsed.path == "/api/sketch/arrangement":
+                self._handle_sketch_arrangement()
+                return
+            if parsed.path == "/api/sketch/arrangement-midi":
+                self._handle_sketch_arrangement_midi()
+                return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
         def _send_json(self, payload: dict, *, status: HTTPStatus = HTTPStatus.OK) -> None:
@@ -511,6 +518,63 @@ def build_app(
                 self._send_json({"ok": False, "errors": ["sketch not found"]}, status=HTTPStatus.NOT_FOUND)
                 return
             self._send_json({"ok": True})
+
+        def _handle_sketch_arrangement(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            # Accept either a saved sketch_id or an inline payload
+            sketch_id = str(payload.get("sketch_id") or "").strip()
+            if sketch_id:
+                sketch = get_sketch(sketch_id)
+                if sketch is None:
+                    self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
+                    return
+            else:
+                sketch_raw = payload.get("payload") or payload
+                sketch, errors = validate_sketch_payload(sketch_raw)
+                if sketch is None:
+                    self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                    return
+            target_bars = max(1, min(128, int(payload.get("target_bars") or 16)))
+            strategies = list(payload.get("strategies") or [])
+            arrangement = build_arrangement(sketch, target_bars=target_bars, strategies=strategies)
+            self._send_json({"ok": True, "arrangement": arrangement})
+
+        def _handle_sketch_arrangement_midi(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            sketch_id = str(payload.get("sketch_id") or "").strip()
+            if sketch_id:
+                sketch = get_sketch(sketch_id)
+                if sketch is None:
+                    self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
+                    return
+            else:
+                sketch_raw = payload.get("payload") or payload
+                sketch, errors = validate_sketch_payload(sketch_raw)
+                if sketch is None:
+                    self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                    return
+            target_bars = max(1, min(128, int(payload.get("target_bars") or 16)))
+            strategies = list(payload.get("strategies") or [])
+            arrangement = build_arrangement(sketch, target_bars=target_bars, strategies=strategies)
+            try:
+                body = midi_bytes_for_arrangement(arrangement, name=str(sketch.get("name") or "arrangement"))
+            except Exception as exc:
+                self._send_json({"ok": False, "errors": [str(exc)]}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            import re
+            safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(sketch.get("name") or "arrangement")).strip("_") or "arrangement"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "audio/midi")
+            self.send_header("Content-Disposition", f'attachment; filename="{safe_name}_arrangement.mid"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def _handle_review_mutation(self) -> None:
             payload = self._read_json_body()
