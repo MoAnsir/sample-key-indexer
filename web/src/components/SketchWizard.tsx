@@ -79,6 +79,7 @@ export default function SketchWizard({ onClose, onSaved, initialSketchId }: Sket
   const [analysis, setAnalysis] = useState<SketchAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [midiBusy, setMidiBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [rollNotes, setRollNotes] = useState<RollNote[]>([]);
   const [midiImportBusy, setMidiImportBusy] = useState(false);
@@ -102,11 +103,10 @@ export default function SketchWizard({ onClose, onSaved, initialSketchId }: Sket
         }
         if (record.bpm) setBpm(String(Math.round(record.bpm as number)));
         if (record.bars) setBars(String(record.bars));
-        if ((record as Record<string, unknown>).beats_per_bar) setBeatsPerBar(String((record as Record<string, unknown>).beats_per_bar));
+        if (record.beats_per_bar) setBeatsPerBar(String(record.beats_per_bar));
         if (record.type) setType(String(record.type));
-        const fr = (record as Record<string, unknown>).frequency_register;
-        setFrequencyRegister(fr ? String(fr) : "");
-        const events = (record as Record<string, unknown>).note_events;
+        setFrequencyRegister(record.frequency_register ? String(record.frequency_register) : "");
+        const events = record.note_events;
         if (Array.isArray(events) && events.length > 0) {
           setRollNotes(fromNoteEvents(events as Parameters<typeof fromNoteEvents>[0]));
         }
@@ -183,8 +183,6 @@ export default function SketchWizard({ onClose, onSaved, initialSketchId }: Sket
       setBusy(false);
     }
   }, [buildPayload, onSaved]);
-
-  const [midiBusy, setMidiBusy] = useState(false);
 
   const handleDownloadMidi = useCallback(async () => {
     setError(null);
