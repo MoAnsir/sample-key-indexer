@@ -93,4 +93,122 @@ export async function mockApi(page: Page) {
   await page.route("**/api/review", (route) =>
     route.fulfill({ json: { ok: true } }),
   );
+
+  // Sketch endpoints
+  const sketchContext = {
+    musical_record: {
+      tonic: "D#",
+      mode: "minor",
+      key: "D#_minor",
+      scale: "D# minor",
+      notes: ["D#", "F", "F#", "G#", "A#", "B", "C#"],
+      chords: ["D#m", "F", "F#"],
+      bpm: 140,
+      confidence: 1.0,
+    },
+    compatibility: {
+      keys: [
+        { label: "Same key", key: "D#_minor", scale: "D# minor", notes: [], chords: ["D#m", "Fdim"] },
+        { label: "Relative key", key: "F#_major", scale: "F# major", notes: [], chords: ["F#", "G#m"] },
+      ],
+      progressions: [
+        {
+          name: "Minor lift",
+          mood: "dark",
+          progression: ["D#m", "B", "F#"],
+          roman: ["i", "VI", "III"],
+          notes_to_play: ["D#", "B", "F#"],
+        },
+      ],
+    },
+    mood_profile: {
+      primary: "dark",
+      supporting: ["driving"],
+      transitions: ["driving", "cinematic"],
+      reasons: ["minor_mode"],
+    },
+    transition_suggestions: [
+      { label: "driving", why: "dark material usually moves well into driving textures." },
+    ],
+  };
+
+  await page.route("**/api/sketch/analyze", (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        sketch: { name: "MPC bass idea" },
+        sample: { key: "D#_minor", source_kind: "sketch" },
+        context: sketchContext,
+        out_of_scale_notes: [],
+      },
+    }),
+  );
+
+  await page.route("**/api/sketch/save", (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        sketch: {
+          sketch_id: "sk_e2e",
+          name: "MPC bass idea",
+          key: "D#_minor",
+          bpm: 140,
+          type: "Bass",
+          library_id: "sketches",
+          source_kind: "sketch",
+          created_at: "2026-07-14T00:00:00+00:00",
+        },
+      },
+    }),
+  );
+
+  await page.route("**/api/sketch/delete", (route) =>
+    route.fulfill({ json: { ok: true } }),
+  );
+
+  await page.route("**/api/sketches", (route) =>
+    route.fulfill({ json: { sketches: [] } }),
+  );
+}
+
+/** Catalog + samples where a saved sketch library exists (for card/table tests). */
+export async function mockApiWithSketches(page: Page) {
+  await mockApi(page);
+
+  const sketchSample = {
+    id: 10, name: "MPC bass idea", file_path: "sketch://sk_e2e",
+    key: "D#_minor", root_note: "D#", type: "Bass", category: "OneShots",
+    bpm: 140, confidence: 1.0, needs_review: false, reviewed: false,
+    review_reasons: [], library_id: "sketches", library_name: "Sketches",
+    playback_status: "sketch", source_kind: "sketch", sketch_id: "sk_e2e",
+    duration: 13.7,
+  };
+
+  // Later registrations take precedence in Playwright routing.
+  await page.route("**/api/catalog", (route) =>
+    route.fulfill({
+      json: {
+        total: 1,
+        index_paths: ["/home/user/.sample-key-indexer/sketches.sqlite"],
+        stats: [{ type: "Bass", count: 1, percentage: 100 }],
+        libraries: [
+          {
+            id: "sketches",
+            name: "Sketches",
+            total: 1,
+            available: 0,
+            missing: 1,
+            available_percentage: 0,
+            sources: [],
+            index_paths: ["/home/user/.sample-key-indexer/sketches.sqlite"],
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/samples**", (route) =>
+    route.fulfill({
+      json: { total: 1, offset: 0, limit: 15000, returned: 1, samples: [sketchSample] },
+    }),
+  );
 }
