@@ -54,35 +54,59 @@ export default function Dashboard({ catalog, activeLibraryId, onLibrarySelect, o
           {libraries.map((lib) => {
             const isActive = lib.id === activeLibraryId;
             const indexPath = lib.index_paths?.[0] ?? "";
+            const isSketchLibrary = lib.id === "sketches";
             return (
               <div
                 key={lib.id}
+                data-testid={`library-card-${lib.id}`}
                 className={`rounded-lg border p-3 text-left transition-all ${
                   isActive
                     ? "border-accent bg-accent-soft shadow-md ring-1 ring-accent"
-                    : "border-line bg-surface shadow-sm hover:border-accent hover:shadow-md"
+                    : isSketchLibrary
+                      ? "border-dashed border-accent/60 bg-surface shadow-sm hover:border-accent hover:shadow-md"
+                      : "border-line bg-surface shadow-sm hover:border-accent hover:shadow-md"
                 }`}
               >
                 <div
                   className="cursor-pointer"
                   onClick={() => onLibrarySelect(lib.id)}
                 >
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-ink">
-                    {lib.name}
-                  </h3>
-                  <p className="mt-0.5 text-base font-medium text-ink">
-                    {(lib.total ?? 0).toLocaleString()} samples
-                  </p>
-                  <div className="mt-1 flex gap-3 text-xs text-muted">
-                    <span>{(lib.available ?? 0).toLocaleString()} available</span>
-                    {(lib.missing ?? 0) > 0 && (
-                      <span className="text-warn">
-                        {lib.missing.toLocaleString()} missing
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-ink">
+                      {lib.name}
+                    </h3>
+                    {isSketchLibrary && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent-soft text-accent font-medium shrink-0">
+                        ✏ Sketch
                       </span>
                     )}
                   </div>
+                  <p className="mt-0.5 text-base font-medium text-ink">
+                    {(lib.total ?? 0).toLocaleString()}{" "}
+                    {isSketchLibrary
+                      ? lib.total === 1
+                        ? "sketch"
+                        : "sketches"
+                      : "samples"}
+                  </p>
+                  {isSketchLibrary ? (
+                    <div className="mt-1 text-xs text-muted">
+                      Your ideas — no audio files, MIDI only
+                    </div>
+                  ) : (
+                    <div className="mt-1 flex gap-3 text-xs text-muted">
+                      <span>{(lib.available ?? 0).toLocaleString()} available</span>
+                      {(lib.missing ?? 0) > 0 && (
+                        <span className="text-warn">
+                          {lib.missing.toLocaleString()} missing
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {indexPath && (
+                {/* Sketches are managed individually from the table — the scan-data
+                    delete flow would try to remove ~/.sample-key-indexer itself. */}
+                {indexPath && !isSketchLibrary && (
                   <div className="mt-2 pt-2 border-t border-line">
                     <button
                       onClick={(e) => {

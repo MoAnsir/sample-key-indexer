@@ -122,6 +122,32 @@ class SQLiteDeleteRecordTests(unittest.TestCase):
             index.close()
 
 
+class StoredSketchMidiTests(unittest.TestCase):
+    def test_stored_record_generates_midi(self) -> None:
+        from sample_key_indexer.sketch import midi_bytes_for_sketch
+
+        events = [
+            {"note": "Eb2", "start": 0.0, "duration": 1.0, "velocity": 100},
+            {"note": "Bb2", "start": 1.0, "duration": 0.5, "velocity": 90},
+        ]
+        with TemporaryDirectory() as tmp:
+            store = Path(tmp) / "sketches.sqlite"
+            saved = save_sketch(valid_sketch(note_events=events), path=store)
+            record = get_sketch(saved["sketch_id"], path=store)
+            body = midi_bytes_for_sketch(record)
+            self.assertTrue(body.startswith(b"MThd"))
+
+    def test_stored_record_without_events_raises(self) -> None:
+        from sample_key_indexer.sketch import midi_bytes_for_sketch
+
+        with TemporaryDirectory() as tmp:
+            store = Path(tmp) / "sketches.sqlite"
+            saved = save_sketch(valid_sketch(), path=store)
+            record = get_sketch(saved["sketch_id"], path=store)
+            with self.assertRaises(ValueError):
+                midi_bytes_for_sketch(record)
+
+
 class SketchWebIntegrationTests(unittest.TestCase):
     def test_playback_info_marks_sketches(self) -> None:
         record = sketch_record(valid_sketch())

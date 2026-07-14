@@ -11,8 +11,10 @@ export interface Sample {
   relative_path: string | null;
   destination: string | null;
   playable_path: string;
-  playback_status: "available" | "missing";
+  playback_status: "available" | "missing" | "sketch";
   playback_source: string;
+  source_kind?: string | null;
+  sketch_id?: string | null;
   format: string | null;
   duration: number | null;
   size: number | null;

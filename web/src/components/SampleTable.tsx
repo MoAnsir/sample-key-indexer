@@ -1,9 +1,11 @@
 import { useMemo, memo, useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAppStore, applyFilters, sortSamples } from "../store/useAppStore";
 import PaginationBar from "./PaginationBar";
 import { getSampleField } from "../utils/sample";
 import { keyColor, parseKey } from "../lib/key-color";
 import { checkFit, fitLabel, type FitLevel } from "../lib/key-compat";
+import { deleteSketch } from "../api/client";
 import type { Sample } from "../types/api";
 
 const COLUMNS: { key: string; label: string; className?: string }[] = [
@@ -34,6 +36,13 @@ function StatusBadge({ status }: { status: string }) {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-accent-soft text-accent">
         Playable
+      </span>
+    );
+  }
+  if (status === "sketch") {
+    return (
+      <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-accent-soft text-accent">
+        ✏ Sketch
       </span>
     );
   }
@@ -93,11 +102,60 @@ function FitBadge({ fit }: { fit: FitLevel }) {
   );
 }
 
+function SketchRowActions({ sample }: { sample: Sample }) {
+  const queryClient = useQueryClient();
+  const samples = useAppStore((s) => s.samples);
+  const setSamples = useAppStore((s) => s.setSamples);
+
+  const handleDelete = useCallback(
+    async (event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (!sample.sketch_id) return;
+      if (!confirm(`Delete sketch "${sample.name}"?`)) return;
+      try {
+        await deleteSketch(sample.sketch_id);
+        setSamples(samples.filter((s) => s.id !== sample.id));
+        queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      } catch {
+        // leave the row in place on failure
+      }
+    },
+    [sample, samples, setSamples, queryClient],
+  );
+
+  return (
+    <span className="inline-flex items-center gap-1.5 ml-1.5">
+      <a
+        href={`/api/sketch/midi?sketch_id=${sample.sketch_id}`}
+        download
+        onClick={(e) => e.stopPropagation()}
+        className="text-[10px] text-accent hover:underline"
+        title="Download this sketch as MIDI"
+      >
+        ⬇ MIDI
+      </a>
+      <button
+        onClick={handleDelete}
+        className="text-[10px] text-warn hover:underline"
+        title="Delete this sketch"
+      >
+        ✕
+      </button>
+    </span>
+  );
+}
+
 function CellValue({ sample, column }: { sample: Sample; column: string }) {
   const value = getSampleField(sample, column);
 
   if (column === "playback_status") {
-    return <StatusBadge status={String(value ?? "missing")} />;
+    const isSketch = sample.source_kind === "sketch" && sample.sketch_id;
+    return (
+      <>
+        <StatusBadge status={String(value ?? "missing")} />
+        {isSketch && <SketchRowActions sample={sample} />}
+      </>
+    );
   }
   if (column === "key") {
     return <KeyChip keyValue={value as string | null} />;
