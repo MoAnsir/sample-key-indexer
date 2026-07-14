@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (V5 — CI)
+
+- GitHub Actions CI workflow added (`.github/workflows/ci.yml`):
+  - Triggers on every pull request to `dev` or `main`, and on every push to `dev`.
+  - **Backend job**: `pytest tests/` on Python 3.11 and 3.12 (matrix). Excludes `test_audio_analysis.py` which requires native audio libs (librosa/essentia) not available on CI runners — those tests remain part of the local test suite.
+  - **Frontend unit job**: TypeScript type-check (`tsc`) + Vitest run (48 tests). Runs independently so type errors and test failures are reported separately.
+  - **E2E job**: Playwright/Chromium suite, gated on the unit job passing. Uploads `playwright-report/` as an artifact (7-day retention) on failure so screenshots are available in the Actions tab.
+  - All three jobs must pass before a PR can be merged.
+
 ## Unreleased (V5 — Tests)
 
 - Frontend test suite added:
