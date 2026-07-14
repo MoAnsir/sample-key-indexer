@@ -247,6 +247,39 @@ export interface SketchRecord extends Record<string, unknown> {
   created_at: string;
 }
 
+export interface MidiImportResult {
+  ok: boolean;
+  sketch?: {
+    bpm: number;
+    bars: number;
+    beats_per_bar: number;
+    note_events: SketchNoteEvent[];
+    tonic: null;
+    mode: null;
+    type: null;
+    name: null;
+    frequency_register: null;
+  };
+  errors?: string[];
+}
+
+export async function importMidi(file: File): Promise<MidiImportResult> {
+  const res = await fetch(`${BASE}/api/sketch/import-midi`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  const data = await res.json();
+  return data as MidiImportResult;
+}
+
+export async function fetchSketch(sketchId: string): Promise<SketchRecord> {
+  const res = await fetch(`${BASE}/api/sketch?sketch_id=${encodeURIComponent(sketchId)}`);
+  if (!res.ok) throw new Error(`sketch: ${res.status}`);
+  const data = await res.json();
+  return data.sketch as SketchRecord;
+}
+
 async function postSketch(path: string, payload: SketchPayload | { sketch_id: string }): Promise<Response> {
   return fetch(`${BASE}${path}`, {
     method: "POST",

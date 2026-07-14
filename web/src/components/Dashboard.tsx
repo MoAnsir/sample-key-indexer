@@ -10,6 +10,7 @@ interface DashboardProps {
   activeLibraryId: string;
   onLibrarySelect: (libraryId: string) => void;
   onRefresh: () => void;
+  onEditSketch?: (sketchId: string) => void;
 }
 
 export default function Dashboard({ catalog, activeLibraryId, onLibrarySelect, onRefresh }: DashboardProps) {

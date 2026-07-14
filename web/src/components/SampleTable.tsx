@@ -102,7 +102,7 @@ function FitBadge({ fit }: { fit: FitLevel }) {
   );
 }
 
-function SketchRowActions({ sample }: { sample: Sample }) {
+function SketchRowActions({ sample, onEdit }: { sample: Sample; onEdit?: (sketchId: string) => void }) {
   const queryClient = useQueryClient();
   const samples = useAppStore((s) => s.samples);
   const setSamples = useAppStore((s) => s.setSamples);
@@ -125,6 +125,15 @@ function SketchRowActions({ sample }: { sample: Sample }) {
 
   return (
     <span className="inline-flex items-center gap-1.5 ml-1.5">
+      {onEdit && sample.sketch_id && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit(sample.sketch_id!); }}
+          className="text-[10px] text-accent hover:underline"
+          title="Edit this sketch"
+        >
+          ✏ Edit
+        </button>
+      )}
       <a
         href={`/api/sketch/midi?sketch_id=${sample.sketch_id}`}
         download
@@ -145,7 +154,7 @@ function SketchRowActions({ sample }: { sample: Sample }) {
   );
 }
 
-function CellValue({ sample, column }: { sample: Sample; column: string }) {
+function CellValue({ sample, column, onEditSketch }: { sample: Sample; column: string; onEditSketch?: (id: string) => void }) {
   const value = getSampleField(sample, column);
 
   if (column === "playback_status") {
@@ -153,7 +162,7 @@ function CellValue({ sample, column }: { sample: Sample; column: string }) {
     return (
       <>
         <StatusBadge status={String(value ?? "missing")} />
-        {isSketch && <SketchRowActions sample={sample} />}
+        {isSketch && <SketchRowActions sample={sample} onEdit={onEditSketch} />}
       </>
     );
   }
@@ -178,12 +187,14 @@ const SampleRow = memo(function SampleRow({
   isSelected,
   isHighlighted,
   projectKey,
+  onEditSketch,
   onClick,
 }: {
   sample: Sample;
   isSelected: boolean;
   isHighlighted: boolean;
   projectKey: string | null;
+  onEditSketch?: (id: string) => void;
   onClick: () => void;
 }) {
   const fit = checkFit(sample.key, projectKey);
@@ -199,7 +210,7 @@ const SampleRow = memo(function SampleRow({
           key={col.key}
           className={`px-3 py-2 text-ink whitespace-nowrap ${col.className ?? ""}`}
         >
-          <CellValue sample={sample} column={col.key} />
+          <CellValue sample={sample} column={col.key} onEditSketch={onEditSketch} />
         </td>
       ))}
       {projectKey && (
@@ -211,7 +222,7 @@ const SampleRow = memo(function SampleRow({
   );
 });
 
-export default function SampleTable() {
+export default function SampleTable({ onEditSketch }: { onEditSketch?: (sketchId: string) => void } = {}) {
   const samples = useAppStore((s) => s.samples);
   const filters = useAppStore((s) => s.filters);
   const projectKey = useAppStore((s) => s.projectKey);
@@ -333,6 +344,7 @@ export default function SampleTable() {
                 isSelected={selectedSampleId === sample.id}
                 isHighlighted={highlightedIndex === i}
                 projectKey={projectKey}
+                onEditSketch={onEditSketch}
                 onClick={() => handleRowClick(sample.id)}
               />
             ))}

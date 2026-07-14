@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
-from sample_key_indexer.sketch import analyze_sketch, midi_bytes_for_sketch, validate_sketch_payload
+from sample_key_indexer.sketch import analyze_sketch, midi_bytes_for_sketch, sketch_from_midi_bytes, validate_sketch_payload
 from sample_key_indexer.sketch_store import default_sketches_path, delete_sketch, get_sketch, list_sketches, save_sketch
 from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
@@ -268,6 +268,8 @@ def build_app(
                 self._send_json({"history": load_scan_history()})
             elif parsed.path == "/api/sketches":
                 self._send_json({"sketches": list_sketches()})
+            elif parsed.path == "/api/sketch":
+                self._send_single_sketch(parsed.query)
             elif parsed.path == "/api/sketch/midi":
                 self._send_sketch_midi(parsed.query)
             else:
@@ -295,6 +297,9 @@ def build_app(
                 return
             if parsed.path == "/api/scan/delete-data":
                 self._handle_delete_scan_data()
+                return
+            if parsed.path == "/api/sketch/import-midi":
+                self._handle_sketch_import_midi()
                 return
             if parsed.path == "/api/sketch/analyze":
                 self._handle_sketch_analyze()
@@ -356,6 +361,45 @@ def build_app(
             except Exception:
                 return None
             return payload if isinstance(payload, dict) else None
+
+        def _send_single_sketch(self, query: str) -> None:
+            params = parse_qs(query)
+            sketch_id = (params.get("sketch_id") or [""])[0].strip()
+            if not sketch_id:
+                self.send_error(HTTPStatus.BAD_REQUEST, "sketch_id is required")
+                return
+            record = get_sketch(sketch_id)
+            if record is None:
+                self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
+                return
+            self._send_json({"sketch": record})
+
+        def _handle_sketch_import_midi(self) -> None:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length <= 0:
+                self._send_json({"ok": False, "errors": ["Empty body"]}, status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                data = self.rfile.read(length)
+            except Exception:
+                self._send_json({"ok": False, "errors": ["Failed to read request body"]}, status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                partial = sketch_from_midi_bytes(data)
+            except ValueError as exc:
+                self._send_json({"ok": False, "errors": [str(exc)]}, status=HTTPStatus.BAD_REQUEST)
+                return
+            except RuntimeError as exc:
+                message = str(exc)
+                if message.startswith("missing_backend:"):
+                    self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "MIDI backend not installed")
+                    return
+                self._send_json({"ok": False, "errors": [message]}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json({"ok": True, "sketch": partial})
 
         def _handle_sketch_analyze(self) -> None:
             payload = self._read_json_body()

@@ -145,3 +145,74 @@ describe("SketchWizard — results step", () => {
     expect(screen.getByText(/out-of-scale notes: e/i)).toBeInTheDocument();
   });
 });
+
+describe("SketchWizard — edit flow (initialSketchId)", () => {
+  beforeEach(() => {
+    onClose.mockReset();
+    onSaved.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function renderEditWizard() {
+    return render(
+      <SketchWizard onClose={onClose} onSaved={onSaved} initialSketchId="sk_test123" />,
+    );
+  }
+
+  it("skips to the notes step and shows Edit Notes title", async () => {
+    renderEditWizard();
+    // The wizard starts on the notes step when initialSketchId is set
+    await waitFor(() => expect(screen.getByText("Edit Notes")).toBeInTheDocument());
+  });
+
+  it("pre-fills BPM from the fetched sketch", async () => {
+    renderEditWizard();
+    await waitFor(() => screen.getByText("Edit Notes"));
+    // BPM is shown as a read-only summary on the notes step: "95 BPM, 4 bars of 4/4"
+    await waitFor(() => expect(screen.getByText(/95 bpm/i)).toBeInTheDocument());
+  });
+
+  it("labels Save button as Update Sketch after analysis", async () => {
+    renderEditWizard();
+    await waitFor(() => screen.getByText("Edit Notes"));
+    fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+    await waitFor(() => screen.getByText("Sketch Analysis"));
+    expect(screen.getByRole("button", { name: /update sketch/i })).toBeInTheDocument();
+  });
+});
+
+describe("SketchWizard — MIDI import", () => {
+  beforeEach(() => {
+    onClose.mockReset();
+    onSaved.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows the MIDI import zone on the notes step", async () => {
+    render(<SketchWizard onClose={onClose} onSaved={onSaved} />);
+    // Advance to notes step
+    fireEvent.click(screen.getByRole("button", { name: /next.*notes/i }));
+    await waitFor(() => expect(screen.getByText(/drop an mpc midi/i)).toBeInTheDocument());
+  });
+
+  it("pre-fills BPM after a successful MIDI import", async () => {
+    render(<SketchWizard onClose={onClose} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole("button", { name: /next.*notes/i }));
+    await waitFor(() => screen.getByText(/drop an mpc midi/i));
+
+    const file = new File([new Uint8Array([0x4d, 0x54, 0x68, 0x64])], "test.mid", {
+      type: "audio/midi",
+    });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    // BPM is shown as a read-only summary on the notes step: "120 BPM, ..."
+    await waitFor(() => expect(screen.getByText(/120 bpm/i)).toBeInTheDocument());
+  });
+});
