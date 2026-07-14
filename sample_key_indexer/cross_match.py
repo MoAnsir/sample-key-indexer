@@ -45,10 +45,6 @@ def score_key(sample: dict[str, Any], sketch: dict[str, Any], weight: float = 0.
     target_map = {t["key"]: t["label"] for t in targets}
     sample_key_str = f"{sample_key[0]}_{sample_key[1]}"
 
-    if sample_key_str == target_map.get(sample_key_str, ""):
-        # exact match
-        return weight * 1.0, ["same key"]
-
     label = target_map.get(sample_key_str, "")
     if label == "Same key":
         return weight * 1.0, ["same key"]

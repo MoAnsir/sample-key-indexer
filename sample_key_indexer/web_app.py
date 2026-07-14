@@ -523,27 +523,46 @@ def build_app(
                 return
             self._send_json({"ok": True})
 
-        def _handle_sketch_arrangement(self) -> None:
-            payload = self._read_json_body()
-            if payload is None:
-                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
-                return
-            # Accept either a saved sketch_id or an inline payload
+        def _resolve_sketch(self, payload: dict) -> tuple[dict | None, bool]:
+            """Resolve a sketch from a request payload (sketch_id or inline).
+
+            Returns (sketch, ok). On failure, sends the appropriate HTTP error
+            response and returns (None, False).
+            """
             sketch_id = str(payload.get("sketch_id") or "").strip()
             if sketch_id:
                 sketch = get_sketch(sketch_id)
                 if sketch is None:
                     self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
-                    return
-            else:
-                sketch_raw = payload.get("payload") or payload
-                sketch, errors = validate_sketch_payload(sketch_raw)
-                if sketch is None:
-                    self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
-                    return
-            target_bars = max(1, min(128, int(payload.get("target_bars") or 16)))
-            strategies = list(payload.get("strategies") or [])
-            arrangement = build_arrangement(sketch, target_bars=target_bars, strategies=strategies)
+                    return None, False
+                return sketch, True
+            # Accept inline payload under "payload" key (arrangement) or "sketch" key (match)
+            sketch_raw = payload.get("payload") or payload.get("sketch") or payload
+            sketch, errors = validate_sketch_payload(sketch_raw)
+            if sketch is None:
+                self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                return None, False
+            return sketch, True
+
+        def _parse_target_bars(self, payload: dict) -> int:
+            try:
+                return max(1, min(128, int(payload.get("target_bars") or 16)))
+            except (TypeError, ValueError):
+                return 16
+
+        def _handle_sketch_arrangement(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            sketch, ok = self._resolve_sketch(payload)
+            if not ok:
+                return
+            arrangement = build_arrangement(
+                sketch,
+                target_bars=self._parse_target_bars(payload),
+                strategies=list(payload.get("strategies") or []),
+            )
             self._send_json({"ok": True, "arrangement": arrangement})
 
         def _handle_sketch_arrangement_midi(self) -> None:
@@ -551,27 +570,19 @@ def build_app(
             if payload is None:
                 self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
                 return
-            sketch_id = str(payload.get("sketch_id") or "").strip()
-            if sketch_id:
-                sketch = get_sketch(sketch_id)
-                if sketch is None:
-                    self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
-                    return
-            else:
-                sketch_raw = payload.get("payload") or payload
-                sketch, errors = validate_sketch_payload(sketch_raw)
-                if sketch is None:
-                    self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
-                    return
-            target_bars = max(1, min(128, int(payload.get("target_bars") or 16)))
-            strategies = list(payload.get("strategies") or [])
-            arrangement = build_arrangement(sketch, target_bars=target_bars, strategies=strategies)
+            sketch, ok = self._resolve_sketch(payload)
+            if not ok:
+                return
+            arrangement = build_arrangement(
+                sketch,
+                target_bars=self._parse_target_bars(payload),
+                strategies=list(payload.get("strategies") or []),
+            )
             try:
                 body = midi_bytes_for_arrangement(arrangement, name=str(sketch.get("name") or "arrangement"))
             except Exception as exc:
                 self._send_json({"ok": False, "errors": [str(exc)]}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
-            import re
             safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(sketch.get("name") or "arrangement")).strip("_") or "arrangement"
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "audio/midi")
@@ -585,19 +596,13 @@ def build_app(
             if payload is None:
                 self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
                 return
-            sketch_id = str(payload.get("sketch_id") or "").strip()
-            if sketch_id:
-                sketch = get_sketch(sketch_id)
-                if sketch is None:
-                    self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
-                    return
-            else:
-                sketch_raw = payload.get("payload") or payload.get("sketch") or payload
-                sketch, errors = validate_sketch_payload(sketch_raw)
-                if sketch is None:
-                    self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
-                    return
-            top_n = max(1, min(200, int(payload.get("top_n") or 50)))
+            sketch, ok = self._resolve_sketch(payload)
+            if not ok:
+                return
+            try:
+                top_n = max(1, min(200, int(payload.get("top_n") or 50)))
+            except (TypeError, ValueError):
+                top_n = 50
             filters = payload.get("filters") or {}
             matches = cross_match(sketch, samples, top_n=top_n, filters=filters)
             slim_matches = [
@@ -1116,12 +1121,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         raise
     print(f"Sample browser running at http://{args.host}:{args.port}")
-    print(f"Metadata ({len(index_paths)} indexes):")
+    print(f"Loaded {len(index_paths)} index{'es' if len(index_paths) != 1 else ''}:")
     for p in index_paths:
         print(f"  {p}")
-    print("Metadata:")
-    for index_path in index_paths:
-        print(f"  {index_path}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

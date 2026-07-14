@@ -254,11 +254,11 @@ export interface MidiImportResult {
     bars: number;
     beats_per_bar: number;
     note_events: SketchNoteEvent[];
-    tonic: null;
-    mode: null;
-    type: null;
-    name: null;
-    frequency_register: null;
+    tonic: string | null;
+    mode: string | null;
+    type: string | null;
+    name: string | null;
+    frequency_register: string | null;
   };
   errors?: string[];
 }

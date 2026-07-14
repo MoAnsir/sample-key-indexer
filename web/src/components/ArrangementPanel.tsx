@@ -2,11 +2,11 @@ import { useState, useCallback } from "react";
 import {
   generateArrangement,
   downloadArrangementMidi,
+  type ArrangementRequest,
   type ArrangementResult,
   type ArrangementSection,
-  type ArrangementRequest,
+  type SketchPayload,
 } from "../api/client";
-import type { SketchPayload } from "../api/client";
 
 interface ArrangementPanelProps {
   sketchId?: string;
