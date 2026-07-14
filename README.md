@@ -39,6 +39,7 @@ You have thousands of audio samples — kicks, snares, bass hits, melody loops, 
 
 - [Install](#install)
 - [Quick Start](#quick-start)
+- [Starting the App Locally](#starting-the-app-locally)
 - [Commands](#commands)
   - [sample-key-indexer](#sample-key-indexer--core-indexer)
   - [sample-key-indexer-kitchen-sink](#sample-key-indexer-kitchen-sink--all-in-one)
@@ -50,6 +51,7 @@ You have thousands of audio samples — kicks, snares, bass hits, melody loops, 
 - [Web UI Guide](#web-ui-guide)
 - [Workflows](#workflows)
 - [Developing the Frontend](#developing-the-frontend)
+- [CI / GitHub Actions](#ci--github-actions)
 - [Troubleshooting](#troubleshooting)
 - [Version History](#version-history)
 
@@ -124,6 +126,8 @@ sample-key-indexer-web ~/Desktop/Samples_Organised/metadata_index.sqlite
 # Open http://127.0.0.1:8765 in your browser
 ```
 
+See [Starting the App Locally](#starting-the-app-locally) for the full startup guide — including the one gotcha that catches everyone (a stale frontend build).
+
 ### 5. Full pipeline in one command
 
 ```bash
@@ -131,6 +135,57 @@ sample-key-indexer-kitchen-sink ~/Music/MySamples ~/SampleIndexes/my_library \
   --keyfinder-convert-retry --keyfinder-workers 8 \
   --deep-analysis smart --deep-analysis-scope musical
 ```
+
+---
+
+## Starting the App Locally
+
+The app is two pieces: a **Python backend** (API + serves the UI) and a **React frontend**. There are two ways to run it — pick one.
+
+### Option A — Production mode (one server, one URL)
+
+The backend serves a pre-built copy of the frontend from `web/dist/`. Build it once, then start the backend:
+
+```bash
+# 1. Build the frontend (only needed after pulling new frontend code)
+cd web
+npm install          # first time only
+npm run build        # writes web/dist/
+cd ..
+
+# 2. Start the backend
+source .venv/bin/activate
+sample-key-indexer-web ~/Desktop/Samples_Organised/metadata_index.sqlite
+```
+
+**Open: <http://127.0.0.1:8765>** — that's the whole app.
+
+> ⚠️ **The stale-build gotcha:** the backend serves whatever is in `web/dist/` — it does NOT rebuild it for you. If you `git pull` new frontend features and don't rerun `npm run build`, you'll be looking at the old UI and wondering where the new feature went. When in doubt: `cd web && npm run build`, then hard-refresh the browser (Cmd+Shift+R).
+
+Notes:
+- Previously scanned libraries and saved sketches auto-load on startup — after the first scan you can start the server with any one index path (or a directory, which is searched for indexes).
+- Use `--port 9000` to change the port, `--library-root ID=/path` to point playback at the original source audio.
+
+### Option B — Development mode (live reload, two servers)
+
+For working on the frontend. Run the backend and the Vite dev server side by side:
+
+```bash
+# Terminal 1 — backend API on :8765
+source .venv/bin/activate
+sample-key-indexer-web ~/Desktop/Samples_Organised/metadata_index.sqlite
+
+# Terminal 2 — frontend dev server on :5173
+cd web
+npm run dev
+```
+
+**Open: <http://localhost:5173>** (not 8765). The dev server proxies all `/api/*` calls to the backend and hot-reloads the UI as you edit code. No build step needed — you always see the latest code.
+
+| | URL | Frontend freshness |
+|---|-----|--------------------|
+| **Production mode** | http://127.0.0.1:8765 | Whatever `npm run build` last produced |
+| **Development mode** | http://localhost:5173 | Always current, hot-reloads |
 
 ---
 
@@ -475,6 +530,20 @@ Click **Scan from...** in the header to run a new scan without leaving the brows
 
 Known scan locations are remembered (`~/.sample-key-indexer/scan_history.json`) and auto-loaded the next time you start `sample-key-indexer-web`, even if you only pass one index path on the command line.
 
+### Sketches — Analyze Ideas Without Audio
+
+Made a bass loop on your MPC and want the same key/mood/compatibility analysis your scanned samples get — without recording it? Click **✏ New Sketch** in the header. The sketch editor opens as a full page with three steps:
+
+1. **Details** — name, key (MPC-style flat/sharp labels like "D# / Eb"), minor/major, BPM, bars, beats/bar, type (Bass, Leads, Pads, …), and optional frequency register (sub/low/mid/high)
+2. **Notes** *(optional)* — a piano-roll grid modeled on the MPC's Grid View:
+   - **Pencil / Eraser / Select** tools with MPC interactions: click to add, drag to move, drag the right edge to resize, double-click to erase, shift-click to multi-select
+   - **Rows filtered to your scale** like Pad Perform, root notes highlighted red like root pads; a Chromatic toggle shows all 12 notes
+   - **T.C. divisions** labeled in step terms — `1/8 · 8 steps/bar` through `1/64 · 64 steps/bar` including triplets — with Absolute/Relative/Off snap. Step gridlines redraw to match the selected division
+   - **Velocity lane** with a slider per note; Transpose ±1, Duplicate, octave shift, Clear
+3. **Analysis** — the same engine that powers scanned samples: key confirmation, mood, out-of-scale note warnings, all five compatible keys with diatonic chords, progressions to try with roman numerals, transition suggestions — plus **⬇ Download your notes as MIDI**, ready to load straight back onto the MPC as a pattern
+
+**Save Sketch** stores it in `~/.sample-key-indexer/sketches.sqlite`, and it appears on the dashboard as a special **✏ Sketch** card (dashed border, no misleading "missing" warnings — sketches have no audio by design). Saved sketches auto-load on startup like any library. In the Browse table, sketch rows show a **✏ Sketch** status badge with inline **⬇ MIDI** download and **✕ delete** actions.
+
 ### Browse Tab
 
 After loading a library, the **Browse** tab shows all samples in a sortable, paginated table.
@@ -657,6 +726,31 @@ MSW intercepts every `fetch` call in jsdom so unit tests never hit a real server
 
 All API calls are intercepted via Playwright's `page.route()` in `e2e/fixtures.ts` — no Python backend required to run e2e tests.
 
+### CI / GitHub Actions
+
+The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs automatically on every pull request to `dev` or `main`, and on every push to `dev`. All three jobs must pass before a PR can be merged.
+
+| Job | Runs on | What it checks |
+|-----|---------|---------------|
+| **Backend** (Python 3.11 + 3.12) | Ubuntu | `pytest tests/` — pure-logic tests; excludes `test_audio_analysis.py` which needs native audio libs not available on CI runners |
+| **Frontend unit** | Ubuntu | TypeScript type-check (`tsc`) + Vitest unit tests |
+| **E2E** | Ubuntu | Playwright/Chromium suite — only starts after unit tests pass |
+
+If a Playwright run fails in CI, the full `playwright-report/` (including failure screenshots) is uploaded as a GitHub Actions artifact with a 7-day retention window — visible in the **Actions** tab of the PR.
+
+To run the exact same checks locally before pushing:
+
+```bash
+# Backend
+pytest tests/ --ignore=tests/test_audio_analysis.py
+
+# Frontend unit + type-check
+cd web && npm run type-check && npm test
+
+# E2E
+cd web && npm run test:e2e
+```
+
 ### Project Structure
 
 ```
@@ -752,6 +846,16 @@ web/
 
 ## Troubleshooting
 
+### I pulled new code but the new feature isn't in the UI
+
+You're almost certainly viewing a stale frontend build. The backend at `:8765` serves the last `npm run build` output from `web/dist/` — it never rebuilds automatically. Fix:
+
+```bash
+cd web && npm run build
+```
+
+Then restart `sample-key-indexer-web` and hard-refresh the browser (Cmd+Shift+R). Alternatively run in [development mode](#option-b--development-mode-live-reload-two-servers) at `http://localhost:5173`, which always shows the latest code.
+
 ### All samples have `root_note: null`, `key: null`, `type: FX`
 
 The audio backend didn't load. Common cause on macOS with pyenv: missing XZ/LZMA support.
@@ -799,6 +903,7 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 ## Version History
 
 ### V5 (Current) — React Frontend
+- **Sketches**: describe a musical idea (key, BPM, bars, type) and optionally enter the notes you played on an MPC-style piano-roll grid (Pad Perform scale filtering, T.C. divisions 1/4–1/64 with triplets, Absolute/Relative/Off snap, velocity lane, transpose/duplicate) — then get the full key/mood/compatible-keys/progressions/transitions analysis without any audio file, download your notes as MIDI, and save sketches as a persistent ✏ dashboard library with per-sketch MIDI download and delete
 - **Scan from Web UI**: in-browser scan wizard (server-side folder browser, catalog-only/organize mode, configurable workers, live progress), delete-library action on dashboard cards (removes index files, organized folders, and in-memory server state together), known scan locations auto-load on backend startup from scan history
 - **Crash-resilient batch analysis**: core indexer processes files in batches of 50 instead of one giant worker pool — a crashing file only loses its own batch (retried in isolated mode) instead of the entire run
 - **Phase 1**: Vite + React 19 + TypeScript scaffold with Tailwind CSS, TanStack Query, typed API client
@@ -811,6 +916,7 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 - **Phase B**: Project key selector with Fit column (Same key/Compatible/Out of key/No key), key compatibility logic (relative, dominant, subdominant, parallel), persistent preferences (theme, page size, project key) in localStorage
 - **Phase C**: Documentation update, QA across all themes
 - **Testing**: Vitest + React Testing Library unit tests (48 tests across hooks, API client, store, and components); Playwright e2e suite (catalog, filters, delete flow, scan wizard) with full API mocking via MSW and `page.route()` — no backend required to run either suite
+- **CI**: GitHub Actions workflow (`.github/workflows/ci.yml`) runs backend pytest (Python 3.11 + 3.12), frontend unit tests, and Playwright e2e on every PR to `dev` or `main` — PRs are blocked until all jobs pass
 
 ### V4
 - Routed deep-analysis backends (Essentia tonal/tuning, loop BPM/ticks, monophonic note events, Basic Pitch polyphonic transcription)

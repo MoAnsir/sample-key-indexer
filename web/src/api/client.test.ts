@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { server } from "../test/mocks/server";
 import { http, HttpResponse } from "msw";
 import {
@@ -10,7 +10,6 @@ import {
   getAudioUrl,
   getMidiUrl,
 } from "./client";
-import { MOCK_CATALOG } from "../test/mocks/handlers";
 
 describe("fetchCatalog", () => {
   it("returns catalog data", async () => {

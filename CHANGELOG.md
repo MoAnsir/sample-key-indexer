@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased (V5 — Sketches)
+
+Analyze musical ideas without an audio file — describe what you played on the MPC and get the same analysis scanned samples get.
+
+- **Sketch analysis API** (`POST /api/sketch/analyze`): converts a user-entered sketch (key, mode, BPM, bars, type, frequency register, notes or full note events) into the same sample shape the audio pipeline produces and runs it through `build_musical_context()` — key, mood, compatible keys, progressions, transitions, plus out-of-scale note detection. Flats normalize to sharps; note tokens accept names ("Eb", "d#2") and MIDI numbers.
+- **MIDI generation**: `POST /api/sketch/midi` renders entered note events (beats → seconds via BPM, embedded tempo + time signature) to a standard `.mid`; `GET /api/sketch/midi?sketch_id=…` does the same from a stored sketch.
+- **Persistence**: sketches save to `~/.sample-key-indexer/sketches.sqlite` (same index format as scanned libraries), auto-load on startup, and appear in the catalog as a `sketches` library. Save/delete reload in-memory state so the UI updates instantly.
+- **Sketch editor UI** (full page, not a popup — with a step indicator and ← Library back button):
+  - Details form with MPC-style flat/sharp key labels, minor/major toggle, BPM/bars/beats-per-bar, all 17 sample types, frequency register
+  - **Piano-roll grid modeled on the MPC Grid View**: Pencil/Eraser/Select tools (click add, drag move, edge resize, double-click erase, shift multi-select), Pad Perform-style scale row filtering with red root rows and Chromatic toggle, T.C. divisions `1/4 · 4 steps/bar` → `1/64 · 64 steps/bar` incl. triplets with Absolute/Relative/Off snap, live step gridlines, per-note velocity lane (single scrollbar synced with the grid), Transpose ±1 / Duplicate / octave shift / Clear
+  - Full results view: summary chips, played notes vs scale notes, compatible keys with diatonic chords, progressions with roman numerals and mood badges, transition reasoning, out-of-scale warnings, and MIDI download of exactly what you played
+- **Dashboard & table integration**: the Sketches library renders as a distinct ✏ card (dashed accent border, "N sketches", no misleading "missing" warning, no scan-data delete — sketches are removed individually); table rows show a ✏ Sketch status badge with inline ⬇ MIDI and ✕ delete actions.
+- Tests: 24 new backend tests (analysis, validation, MIDI round trips, persistence), 34 new frontend unit tests, and an 11-test Playwright e2e suite covering the whole flow (create → notes → analyze → save → card → table actions → delete).
+
+## Unreleased (V5 — CI)
+
+- GitHub Actions CI workflow added (`.github/workflows/ci.yml`):
+  - Triggers on every pull request to `dev` or `main`, and on every push to `dev`.
+  - **Backend job**: `pytest tests/` on Python 3.11 and 3.12 (matrix). Excludes `test_audio_analysis.py` which requires native audio libs (librosa/essentia) not available on CI runners — those tests remain part of the local test suite.
+  - **Frontend unit job**: TypeScript type-check (`tsc`) + Vitest run (48 tests). Runs independently so type errors and test failures are reported separately.
+  - **E2E job**: Playwright/Chromium suite, gated on the unit job passing. Uploads `playwright-report/` as an artifact (7-day retention) on failure so screenshots are available in the Actions tab.
+  - All three jobs must pass before a PR can be merged.
+
 ## Unreleased (V5 — Tests)
 
 - Frontend test suite added:

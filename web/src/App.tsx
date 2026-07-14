@@ -29,6 +29,7 @@ import SampleDetailPanel from "./components/SampleDetailPanel";
 import ReviewTab from "./components/ReviewTab";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import ScanWizard from "./components/ScanWizard";
+import SketchWizard from "./components/SketchWizard";
 import type { CatalogResponse } from "./types/api";
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -41,6 +42,7 @@ const THEMES: { value: Theme; label: string }[] = [
 export default function App() {
   const queryClient = useQueryClient();
   const [showScanWizard, setShowScanWizard] = useState(false);
+  const [showSketchWizard, setShowSketchWizard] = useState(false);
 
   const { data: catalog, isLoading, error } = useQuery<CatalogResponse>({
     queryKey: ["catalog"],
@@ -171,6 +173,14 @@ export default function App() {
               Scan from...
             </button>
 
+            {/* New Sketch button */}
+            <button
+              onClick={() => setShowSketchWizard(true)}
+              className="px-3 py-1.5 text-xs font-medium rounded-control border border-accent text-accent hover:bg-accent-soft transition-colors"
+            >
+              ✏ New Sketch
+            </button>
+
             {/* Theme switcher */}
             <div className="flex gap-0.5 bg-surface-2 border border-line rounded-control p-0.5">
               {THEMES.map((t) => (
@@ -202,41 +212,53 @@ export default function App() {
         </div>
       </header>
 
-      {/* Dashboard */}
-      <ErrorBoundary>
-        <Dashboard
-          catalog={catalog}
-          activeLibraryId={filters.libraryId}
-          onLibrarySelect={loadLibrary}
-          onRefresh={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
-        />
-      </ErrorBoundary>
-
-      {/* Scan wizard */}
-      {showScanWizard && (
-        <ScanWizard
-          onClose={() => setShowScanWizard(false)}
-          onComplete={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
-        />
-      )}
-
-      {/* Sample detail slide-over */}
-      <SampleDetailPanel />
-
-      {/* Browse / Review content */}
-      {hasLibrary && (
-        <div className="flex flex-col flex-1 min-h-0">
+      {/* Sketch page replaces the main content while open */}
+      {showSketchWizard ? (
+        <ErrorBoundary>
+          <SketchWizard
+            onClose={() => setShowSketchWizard(false)}
+            onSaved={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
+          />
+        </ErrorBoundary>
+      ) : (
+        <>
+          {/* Dashboard */}
           <ErrorBoundary>
-            {activeTab === "browse" ? (
-              <>
-                <FilterBar />
-                <SampleTable />
-              </>
-            ) : (
-              <ReviewTab />
-            )}
+            <Dashboard
+              catalog={catalog}
+              activeLibraryId={filters.libraryId}
+              onLibrarySelect={loadLibrary}
+              onRefresh={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
+            />
           </ErrorBoundary>
-        </div>
+
+          {/* Scan wizard */}
+          {showScanWizard && (
+            <ScanWizard
+              onClose={() => setShowScanWizard(false)}
+              onComplete={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
+            />
+          )}
+
+          {/* Sample detail slide-over */}
+          <SampleDetailPanel />
+
+          {/* Browse / Review content */}
+          {hasLibrary && (
+            <div className="flex flex-col flex-1 min-h-0">
+              <ErrorBoundary>
+                {activeTab === "browse" ? (
+                  <>
+                    <FilterBar />
+                    <SampleTable />
+                  </>
+                ) : (
+                  <ReviewTab />
+                )}
+              </ErrorBoundary>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

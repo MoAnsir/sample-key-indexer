@@ -66,7 +66,7 @@ describe("Dashboard", () => {
 
   it("calls deleteScanData and reloadIndex then onRefresh on confirmed delete", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    const deleteSpy = vi.spyOn(client, "deleteScanData").mockResolvedValue(undefined);
+    const deleteSpy = vi.spyOn(client, "deleteScanData").mockResolvedValue({ deleted: [], errors: [] });
     const reloadSpy = vi.spyOn(client, "reloadIndex").mockResolvedValue(undefined);
 
     renderDashboard();
@@ -80,13 +80,47 @@ describe("Dashboard", () => {
 
   it("does not delete if user cancels confirm", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
-    const deleteSpy = vi.spyOn(client, "deleteScanData").mockResolvedValue(undefined);
+    const deleteSpy = vi.spyOn(client, "deleteScanData").mockResolvedValue({ deleted: [], errors: [] });
 
     renderDashboard();
     fireEvent.click(screen.getAllByText("Remove library & delete scan data")[0]);
 
     expect(deleteSpy).not.toHaveBeenCalled();
     expect(onRefresh).not.toHaveBeenCalled();
+  });
+
+  it("renders the sketches library as a distinct sketch card", () => {
+    const catalogWithSketches = {
+      ...MOCK_CATALOG,
+      libraries: [
+        ...MOCK_CATALOG.libraries,
+        {
+          id: "sketches",
+          name: "Sketches",
+          total: 2,
+          available: 0,
+          missing: 2,
+          available_percentage: 0,
+          sources: [],
+          index_paths: ["/home/user/.sample-key-indexer/sketches.sqlite"],
+        },
+      ],
+    };
+    renderDashboard({ catalog: catalogWithSketches });
+    const card = screen.getByTestId("library-card-sketches");
+    expect(card).toHaveTextContent("✏ Sketch");
+    expect(card).toHaveTextContent("2 sketches");
+    // no misleading missing-files warning, no scan-data delete
+    expect(card).not.toHaveTextContent("missing");
+    expect(card).not.toHaveTextContent("Remove library & delete scan data");
+    expect(card).toHaveTextContent("no audio files, MIDI only");
+  });
+
+  it("regular library cards keep the delete action", () => {
+    renderDashboard();
+    const card = screen.getByTestId("library-card-lib_1");
+    expect(card).toHaveTextContent("Remove library & delete scan data");
+    expect(card).not.toHaveTextContent("✏ Sketch");
   });
 
   it("shows stats section by default and toggles it", () => {

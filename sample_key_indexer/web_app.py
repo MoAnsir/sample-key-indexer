@@ -5,6 +5,7 @@ import ipaddress
 import json
 import mimetypes
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -17,6 +18,8 @@ from urllib.parse import parse_qs, urlparse
 
 from sample_key_indexer.index_store import MetadataIndex, SQLiteMetadataIndex, load_records
 from sample_key_indexer.music_theory import build_musical_context, midi_bytes_for_progression
+from sample_key_indexer.sketch import analyze_sketch, midi_bytes_for_sketch, validate_sketch_payload
+from sample_key_indexer.sketch_store import default_sketches_path, delete_sketch, get_sketch, list_sketches, save_sketch
 from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
 STATIC_ROOT_LEGACY = Path(__file__).with_name("web_static")
@@ -263,6 +266,10 @@ def build_app(
                 self._send_json(job.to_dict() if job else {"status": "idle"})
             elif parsed.path == "/api/scan/history":
                 self._send_json({"history": load_scan_history()})
+            elif parsed.path == "/api/sketches":
+                self._send_json({"sketches": list_sketches()})
+            elif parsed.path == "/api/sketch/midi":
+                self._send_sketch_midi(parsed.query)
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -288,6 +295,18 @@ def build_app(
                 return
             if parsed.path == "/api/scan/delete-data":
                 self._handle_delete_scan_data()
+                return
+            if parsed.path == "/api/sketch/analyze":
+                self._handle_sketch_analyze()
+                return
+            if parsed.path == "/api/sketch/midi":
+                self._handle_sketch_midi()
+                return
+            if parsed.path == "/api/sketch/save":
+                self._handle_sketch_save()
+                return
+            if parsed.path == "/api/sketch/delete":
+                self._handle_sketch_delete()
                 return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -337,6 +356,117 @@ def build_app(
             except Exception:
                 return None
             return payload if isinstance(payload, dict) else None
+
+        def _handle_sketch_analyze(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            result, errors = analyze_sketch(payload)
+            if result is None:
+                self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, **result})
+
+        def _handle_sketch_midi(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            sketch, errors = validate_sketch_payload(payload)
+            if sketch is None:
+                self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                body = midi_bytes_for_sketch(sketch)
+            except ValueError:
+                self._send_json(
+                    {"ok": False, "errors": ["note_events is required to generate MIDI"]},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            except RuntimeError as exc:
+                if str(exc).startswith("missing_backend:"):
+                    self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "MIDI backend not installed")
+                    return
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to generate MIDI")
+                return
+            safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", sketch["name"]).strip("_") or "sketch"
+            filename = f"{safe_name}.mid"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "audio/midi")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
+
+        def _send_sketch_midi(self, query: str) -> None:
+            params = parse_qs(query)
+            sketch_id = (params.get("sketch_id") or [""])[0].strip()
+            if not sketch_id:
+                self.send_error(HTTPStatus.BAD_REQUEST, "sketch_id is required")
+                return
+            record = get_sketch(sketch_id)
+            if record is None:
+                self.send_error(HTTPStatus.NOT_FOUND, "Sketch not found")
+                return
+            try:
+                body = midi_bytes_for_sketch(record)
+            except ValueError:
+                self.send_error(HTTPStatus.CONFLICT, "Sketch has no note events")
+                return
+            except RuntimeError as exc:
+                if str(exc).startswith("missing_backend:"):
+                    self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "MIDI backend not installed")
+                    return
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to generate MIDI")
+                return
+            safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(record.get("name") or "sketch")).strip("_") or "sketch"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "audio/midi")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition", f'attachment; filename="{safe_name}.mid"')
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
+
+        def _handle_sketch_save(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            sketch, errors = validate_sketch_payload(payload)
+            if sketch is None:
+                self._send_json({"ok": False, "errors": errors}, status=HTTPStatus.BAD_REQUEST)
+                return
+            existing_id = str(payload.get("sketch_id") or "").strip() or None
+            with mutation_lock:
+                record = save_sketch(sketch, sketch_id=existing_id)
+                _reload_with_new_index(default_sketches_path())
+            self._send_json({"ok": True, "sketch": record})
+
+        def _handle_sketch_delete(self) -> None:
+            payload = self._read_json_body()
+            if payload is None:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+                return
+            sketch_id = str(payload.get("sketch_id") or "").strip()
+            if not sketch_id:
+                self._send_json({"ok": False, "errors": ["sketch_id is required"]}, status=HTTPStatus.BAD_REQUEST)
+                return
+            with mutation_lock:
+                deleted = delete_sketch(sketch_id)
+                if deleted:
+                    _reload_with_new_index(default_sketches_path())
+            if not deleted:
+                self._send_json({"ok": False, "errors": ["sketch not found"]}, status=HTTPStatus.NOT_FOUND)
+                return
+            self._send_json({"ok": True})
 
         def _handle_review_mutation(self) -> None:
             payload = self._read_json_body()
@@ -798,6 +928,12 @@ def main(argv: list[str] | None = None) -> int:
                 index_paths.append(p)
                 cli_path_set.add(hist_path)
 
+    # Auto-load saved sketches
+    sketches_path = default_sketches_path()
+    if sketches_path.exists() and str(sketches_path) not in cli_path_set:
+        index_paths.append(sketches_path)
+        cli_path_set.add(str(sketches_path))
+
     for index_path in index_paths:
         if not index_path.exists():
             print(f"Metadata index does not exist: {index_path}")
@@ -905,6 +1041,8 @@ def _playback_info(
     library_roots: dict[str, Path] | None = None,
     destination_roots: dict[str, Path] | None = None,
 ) -> dict:
+    if sample.get("source_kind") == "sketch":
+        return {"path": "", "status": "sketch", "source": "sketch"}
     destination = sample.get("destination")
     if destination and Path(destination).exists():
         return {"path": destination, "status": "available", "source": "organized_stored_path"}
@@ -1113,6 +1251,8 @@ def list_sample(sample: dict) -> dict:
         "reviewed",
         "reviewed_at",
         "error",
+        "source_kind",
+        "sketch_id",
     }
     out = {key: sample.get(key) for key in keep}
     # Ensure name is always present for sorting/display.

@@ -1,7 +1,10 @@
 import { http, HttpResponse } from "msw";
 import type { CatalogResponse, Sample, SampleDetail } from "../../types/api";
 
-export const MOCK_SAMPLES: Sample[] = [
+// Test fixtures are intentionally partial — casts below keep them honest
+// where it matters (fields the components actually read) without repeating
+// every field of the full Sample/SampleDetail shapes.
+export const MOCK_SAMPLES = [
   {
     id: 1,
     name: "kick_Am_120.wav",
@@ -56,7 +59,7 @@ export const MOCK_SAMPLES: Sample[] = [
     playback_status: "missing",
     duration: 8.0,
   },
-];
+] as unknown as Sample[];
 
 export const MOCK_CATALOG: CatalogResponse = {
   total: 3,
@@ -73,6 +76,7 @@ export const MOCK_CATALOG: CatalogResponse = {
       total: 2,
       available: 2,
       missing: 0,
+      available_percentage: 100,
       sources: [],
       index_paths: ["/data/lib_1.sqlite"],
     },
@@ -82,13 +86,14 @@ export const MOCK_CATALOG: CatalogResponse = {
       total: 1,
       available: 0,
       missing: 1,
+      available_percentage: 0,
       sources: [],
       index_paths: ["/data/lib_2.sqlite"],
     },
   ],
 };
 
-export const MOCK_DETAIL: SampleDetail = {
+export const MOCK_DETAIL = {
   ...MOCK_SAMPLES[1],
   key: "C_minor",
   root_note: "C",
@@ -98,8 +103,17 @@ export const MOCK_DETAIL: SampleDetail = {
   deep_root: "D",
   deep_key_confidence: 0.51,
   deep_route_family: "librosa_yin",
-  musical_record: { key: "C_minor", tonic: "C", confidence: 0.48, bpm: 90 },
-};
+  musical_record: {
+    key: "C_minor",
+    tonic: "C",
+    mode: "minor",
+    scale: "C minor",
+    bpm: 90,
+    tuning: 440,
+    confidence: 0.48,
+    notes: ["C", "D", "D#", "F", "G", "G#", "A#"],
+  },
+} as unknown as SampleDetail;
 
 export const handlers = [
   http.get("/api/catalog", () => HttpResponse.json(MOCK_CATALOG)),
@@ -114,10 +128,7 @@ export const handlers = [
     }),
   ),
 
-  http.get("/api/sample", ({ request }) => {
-    const id = Number(new URL(request.url).searchParams.get("id"));
-    return HttpResponse.json({ sample: MOCK_DETAIL });
-  }),
+  http.get("/api/sample", () => HttpResponse.json({ sample: MOCK_DETAIL })),
 
   http.post("/api/review", () => HttpResponse.json({ ok: true })),
 
@@ -151,4 +162,69 @@ export const handlers = [
   http.post("/api/scan/delete", () => HttpResponse.json({ ok: true })),
 
   http.post("/api/reload", () => HttpResponse.json({ ok: true })),
+
+  http.post("/api/sketch/analyze", () => HttpResponse.json(MOCK_SKETCH_ANALYSIS)),
+
+  http.post("/api/sketch/save", () =>
+    HttpResponse.json({
+      ok: true,
+      sketch: {
+        sketch_id: "sk_test123",
+        name: "MPC bass idea",
+        key: "D#_minor",
+        bpm: 140,
+        type: "Bass",
+        library_id: "sketches",
+        source_kind: "sketch",
+        created_at: "2026-07-13T00:00:00+00:00",
+      },
+    }),
+  ),
+
+  http.post("/api/sketch/delete", () => HttpResponse.json({ ok: true })),
+
+  http.get("/api/sketches", () => HttpResponse.json({ sketches: [] })),
 ];
+
+export const MOCK_SKETCH_ANALYSIS = {
+  ok: true,
+  sketch: { name: "MPC bass idea", tonic: "D#", mode: "minor" },
+  sample: { key: "D#_minor", source_kind: "sketch" },
+  context: {
+    musical_record: {
+      tonic: "D#",
+      mode: "minor",
+      key: "D#_minor",
+      scale: "D# minor",
+      notes: ["D#", "F", "F#", "G#", "A#", "B", "C#"],
+      chords: ["D#m", "F", "F#"],
+      bpm: 140,
+      confidence: 1.0,
+    },
+    compatibility: {
+      keys: [
+        { label: "Same key", key: "D#_minor", scale: "D# minor", notes: [], chords: [] },
+        { label: "Relative key", key: "F#_major", scale: "F# major", notes: [], chords: [] },
+      ],
+      progressions: [
+        {
+          name: "Minor lift",
+          mood: "dark",
+          progression: ["D#m", "B", "F#"],
+          roman: ["i", "VI", "III"],
+          notes_to_play: ["D#", "B", "F#"],
+        },
+      ],
+    },
+    mood_profile: {
+      primary: "dark",
+      supporting: ["driving"],
+      transitions: ["driving", "cinematic"],
+      reasons: ["minor_mode"],
+    },
+    transition_suggestions: [
+      { label: "driving", why: "dark material usually moves well into driving textures." },
+    ],
+  },
+  out_of_scale_notes: [],
+};
