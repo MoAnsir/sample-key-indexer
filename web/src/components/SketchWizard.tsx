@@ -462,6 +462,9 @@ export default function SketchWizard({ onClose, onSaved, initialSketchId }: Sket
                 hasNotes={rollNotes.length > 0}
                 onDownloadMidi={handleDownloadMidi}
                 midiBusy={midiBusy}
+                sketchId={sketchId}
+                payload={buildPayload()}
+                sketchName={name}
               />
 
               {saved ? (
