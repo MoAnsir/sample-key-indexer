@@ -1,9 +1,17 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchCatalog, fetchSamples } from "./api/client";
 import { getCachedSamples, setCachedSamples } from "./lib/sample-cache";
 import { useAppStore, type Theme } from "./store/useAppStore";
-import type { Sample } from "./types/api";
+import type { CatalogResponse, Sample } from "./types/api";
+import Dashboard from "./components/Dashboard";
+import FilterBar from "./components/FilterBar";
+import SampleTable from "./components/SampleTable";
+import SampleDetailPanel from "./components/SampleDetailPanel";
+import ReviewTab from "./components/ReviewTab";
+import ErrorBoundary from "./components/ui/ErrorBoundary";
+import ScanWizard from "./components/ScanWizard";
+import SketchWizard from "./components/SketchWizard";
 
 async function fetchAllSamples(
   libraryId: string,
@@ -22,15 +30,6 @@ async function fetchAllSamples(
   }
   return allSamples;
 }
-import Dashboard from "./components/Dashboard";
-import FilterBar from "./components/FilterBar";
-import SampleTable from "./components/SampleTable";
-import SampleDetailPanel from "./components/SampleDetailPanel";
-import ReviewTab from "./components/ReviewTab";
-import ErrorBoundary from "./components/ui/ErrorBoundary";
-import ScanWizard from "./components/ScanWizard";
-import SketchWizard from "./components/SketchWizard";
-import type { CatalogResponse } from "./types/api";
 
 const THEMES: { value: Theme; label: string }[] = [
   { value: "studio", label: "Studio" },
@@ -73,9 +72,9 @@ export default function App() {
   const theme = useAppStore((s) => s.theme);
   const setTheme = useAppStore((s) => s.setTheme);
 
-  if (catalog && !useAppStore.getState().catalog) {
-    setCatalog(catalog);
-  }
+  useEffect(() => {
+    if (catalog) setCatalog(catalog);
+  }, [catalog, setCatalog]);
 
   const loadLibrary = useCallback(
     async (libraryId: string) => {
