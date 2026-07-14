@@ -530,6 +530,20 @@ Click **Scan from...** in the header to run a new scan without leaving the brows
 
 Known scan locations are remembered (`~/.sample-key-indexer/scan_history.json`) and auto-loaded the next time you start `sample-key-indexer-web`, even if you only pass one index path on the command line.
 
+### Sketches — Analyze Ideas Without Audio
+
+Made a bass loop on your MPC and want the same key/mood/compatibility analysis your scanned samples get — without recording it? Click **✏ New Sketch** in the header. The sketch editor opens as a full page with three steps:
+
+1. **Details** — name, key (MPC-style flat/sharp labels like "D# / Eb"), minor/major, BPM, bars, beats/bar, type (Bass, Leads, Pads, …), and optional frequency register (sub/low/mid/high)
+2. **Notes** *(optional)* — a piano-roll grid modeled on the MPC's Grid View:
+   - **Pencil / Eraser / Select** tools with MPC interactions: click to add, drag to move, drag the right edge to resize, double-click to erase, shift-click to multi-select
+   - **Rows filtered to your scale** like Pad Perform, root notes highlighted red like root pads; a Chromatic toggle shows all 12 notes
+   - **T.C. divisions** labeled in step terms — `1/8 · 8 steps/bar` through `1/64 · 64 steps/bar` including triplets — with Absolute/Relative/Off snap. Step gridlines redraw to match the selected division
+   - **Velocity lane** with a slider per note; Transpose ±1, Duplicate, octave shift, Clear
+3. **Analysis** — the same engine that powers scanned samples: key confirmation, mood, out-of-scale note warnings, all five compatible keys with diatonic chords, progressions to try with roman numerals, transition suggestions — plus **⬇ Download your notes as MIDI**, ready to load straight back onto the MPC as a pattern
+
+**Save Sketch** stores it in `~/.sample-key-indexer/sketches.sqlite`, and it appears on the dashboard as a special **✏ Sketch** card (dashed border, no misleading "missing" warnings — sketches have no audio by design). Saved sketches auto-load on startup like any library. In the Browse table, sketch rows show a **✏ Sketch** status badge with inline **⬇ MIDI** download and **✕ delete** actions.
+
 ### Browse Tab
 
 After loading a library, the **Browse** tab shows all samples in a sortable, paginated table.
@@ -889,6 +903,7 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 ## Version History
 
 ### V5 (Current) — React Frontend
+- **Sketches**: describe a musical idea (key, BPM, bars, type) and optionally enter the notes you played on an MPC-style piano-roll grid (Pad Perform scale filtering, T.C. divisions 1/4–1/64 with triplets, Absolute/Relative/Off snap, velocity lane, transpose/duplicate) — then get the full key/mood/compatible-keys/progressions/transitions analysis without any audio file, download your notes as MIDI, and save sketches as a persistent ✏ dashboard library with per-sketch MIDI download and delete
 - **Scan from Web UI**: in-browser scan wizard (server-side folder browser, catalog-only/organize mode, configurable workers, live progress), delete-library action on dashboard cards (removes index files, organized folders, and in-memory server state together), known scan locations auto-load on backend startup from scan history
 - **Crash-resilient batch analysis**: core indexer processes files in batches of 50 instead of one giant worker pool — a crashing file only loses its own batch (retried in isolated mode) instead of the entire run
 - **Phase 1**: Vite + React 19 + TypeScript scaffold with Tailwind CSS, TanStack Query, typed API client
