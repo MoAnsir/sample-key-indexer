@@ -951,4 +951,4 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 
 For detailed per-version notes, see [CHANGELOG.md](CHANGELOG.md).
 
-For the full command reference, see [docs/COMMAND_CHEATSHEET.md](docs/COMMAND_CHEATSHEET.md). For project context and architecture, see [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md).
+For the full command reference, see [docs/COMMAND_CHEATSHEET.md](docs/COMMAND_CHEATSHEET.md). For project context and architecture, see [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md). For a step-by-step user walkthrough (scanning, sketches, synth, arrangement, cross-match), see [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md).
