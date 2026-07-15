@@ -1,6 +1,7 @@
 import type { SketchAnalysis, SketchPayload } from "../api/client";
 import ArrangementPanel from "./ArrangementPanel";
 import MatchPanel from "./MatchPanel";
+import SketchSynth from "./SketchSynth";
 
 interface SketchResultsProps {
   analysis: SketchAnalysis;
@@ -127,6 +128,21 @@ export default function SketchResults({
           ))}
         </div>
       </section>
+
+      {/* Synth Preview */}
+      {hasNotes && payload?.note_events && payload.note_events.length > 0 && (
+        <div className="border-t border-line pt-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-3">
+            Synth Preview
+          </h3>
+          <SketchSynth
+            noteEvents={payload.note_events}
+            bpm={payload.bpm ?? 120}
+            bars={payload.bars ?? 4}
+            beatsPerBar={payload.beats_per_bar ?? 4}
+          />
+        </div>
+      )}
 
       {/* Arrangement engine — only available when there are notes to expand */}
       {hasNotes && (sketchId || payload) && (
