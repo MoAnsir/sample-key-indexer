@@ -25,7 +25,11 @@ from sample_key_indexer.sketch_store import default_sketches_path, delete_sketch
 from sample_key_indexer.scan_manager import start_scan, get_current_job, load_scan_history, add_to_history, remove_from_history, delete_scan_data
 
 STATIC_ROOT_LEGACY = Path(__file__).with_name("web_static")
-REACT_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+# web_dist/ is bundled inside the package by setup.py for regular installs.
+_BUNDLED_DIST = Path(__file__).with_name("web_dist")
+# web/dist/ at the repo root works for editable installs and dev runs.
+_REPO_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+REACT_DIST = _BUNDLED_DIST if (_BUNDLED_DIST / "index.html").exists() else _REPO_DIST
 STATIC_ROOT = REACT_DIST if (REACT_DIST / "index.html").exists() else STATIC_ROOT_LEGACY
 BROWSER_TRANSCODE_EXTENSIONS = {".aif", ".aiff"}
 
