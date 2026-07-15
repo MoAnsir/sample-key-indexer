@@ -30,7 +30,7 @@ include = ["sample_key_indexer*"]
 exclude = ["web*", "tests*", "docs*"]
 
 [tool.setuptools.package-data]
-sample_key_indexer = ["web_static/*"]
+sample_key_indexer = ["web_static/*", "web_dist/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
