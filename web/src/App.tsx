@@ -12,6 +12,7 @@ import ReviewTab from "./components/ReviewTab";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import ScanWizard from "./components/ScanWizard";
 import SketchWizard from "./components/SketchWizard";
+import SketchFilterBar from "./components/SketchFilterBar";
 
 async function fetchAllSamples(
   libraryId: string,
@@ -261,6 +262,7 @@ export default function App() {
                 {activeTab === "browse" ? (
                   <>
                     <FilterBar />
+                    <SketchFilterBar />
                     <SampleTable onEditSketch={handleEditSketch} />
                   </>
                 ) : (
