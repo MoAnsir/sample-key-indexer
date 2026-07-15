@@ -2,7 +2,7 @@
 
 ## What it does
 
-A local audio sample library tool that scans audio files, detects musical key/BPM/timbre, classifies samples by type, and presents them through a React web UI. Users can browse/filter their sample catalog, play audio, download MIDI chord progressions, review low-confidence analyses, and create "sketches" — manually described musical ideas (key, BPM, notes entered in an MPC-style piano roll) that receive the same key/mood/progression analysis as scanned samples. Sketches support MIDI import from hardware (MPC etc.), editing, arrangement expansion to 8–32 bars with variation strategies, and cross-matching against the scanned library to find complementary samples.
+A local audio sample library tool that scans audio files, detects musical key/BPM/timbre, classifies samples by type, and presents them through a React web UI. Users can browse/filter their sample catalog, play audio, download MIDI chord progressions, review low-confidence analyses, and create "sketches" — manually described musical ideas (key, BPM, notes entered in an MPC-style piano roll) that receive the same key/mood/progression analysis as scanned samples. Sketches support MIDI import from hardware (MPC etc.), editing, in-browser synth preview (Web Audio API), arrangement expansion to 8–32 bars with variation strategies, and cross-matching against the scanned library to find complementary samples. The sketch library is searchable/filterable by name, key, and type. The frontend is bundled into the Python package on `pip install .` so no separate Vite build step is needed in production.
 
 ## Architecture
 
@@ -17,7 +17,8 @@ Two independently runnable layers:
 **React frontend** (`web/`)
 - Vite + React + TypeScript. State managed by Zustand (`web/src/store/useAppStore.ts`).
 - Data fetching via TanStack Query. API client at `web/src/api/client.ts`.
-- Dev: `web/dist/` is served by the Python server when built; falls back to `sample_key_indexer/web_static/` (legacy).
+- Production: `pip install .` runs `npm ci && npm run build` via `setup.py` and copies `web/dist/` → `sample_key_indexer/web_dist/`. `web_app.py` serves `web_dist/` first (regular install), then `web/dist/` (editable install), then `web_static/` (legacy).
+- Dev: run `npm run dev` in `web/` alongside the Python server. No build step needed.
 - Unit tests: Vitest + React Testing Library + MSW (`web/src/test/mocks/`).
 - E2E tests: Playwright/Chromium (`web/e2e/`); all API calls mocked via `page.route()` — no Python backend needed.
 
@@ -46,7 +47,9 @@ Two independently runnable layers:
 | `web/src/components/SketchWizard.tsx` | Full-page sketch editor: details form + piano-roll grid + results; supports edit mode via `initialSketchId` |
 | `web/src/components/PianoRoll.tsx` | MPC Grid View–style piano roll: Pencil/Eraser/Select tools, scale row filtering, T.C. divisions, velocity lane |
 | `web/src/lib/piano-roll.ts` | Piano-roll state logic: note CRUD, snap, quantization, `fromNoteEvents` / `toNoteEvents` (pure, tested) |
-| `web/src/components/SketchResults.tsx` | Sketch analysis results: keys, progressions, mood, MIDI download, ArrangementPanel, MatchPanel |
+| `web/src/components/SketchResults.tsx` | Sketch analysis results: keys, progressions, mood, MIDI download, SketchSynth, ArrangementPanel, MatchPanel |
+| `web/src/components/SketchSynth.tsx` | Web Audio API synthesizer: OSC (4 waveforms) → BiquadFilter → ADSR GainNode → master volume; loop mode; velocity-sensitive |
+| `web/src/components/SketchFilterBar.tsx` | Sketch library filter row: name search + key/type dropdowns; wired to Zustand filters; shows match count |
 | `web/src/components/ArrangementPanel.tsx` | Arrangement engine UI: length picker, strategy toggles, section map chips, MIDI download |
 | `web/src/components/MatchPanel.tsx` | Cross-match UI: dimension toggles, results table with score badges and reason chips |
 | `sample_key_indexer/routing.py` | Decides destination path for organized-copy mode |
@@ -95,12 +98,18 @@ Two independently runnable layers:
 - **Cross-match scoring**: `cross_match.py` scores samples on four dimensions — key compat (0.4), frequency slot complementarity (0.25), mood/brightness (0.2), BPM proximity inc. halftime/doubletime (0.15). All dimensions are individually toggleable via `filters`. Runs against the server's in-memory sample list — no extra I/O.
 - **Scan-from-web**: the scan wizard (`ScanWizard.tsx`) uses `/api/browse-folders` for folder selection (the browser's native file picker can't return absolute paths). Scans run as background threads; the wizard polls `/api/scan/status` for progress. On completion the new library appears on the dashboard without a server restart. Known scan locations persist to `~/.sample-key-indexer/scan_history.json`.
 - **Dashboard sketch cards**: the Sketches library renders as a distinct ✏ card (dashed border, no "missing" warning, no delete-scan-data action). Table rows for sketches show a ✏ badge with inline Edit, MIDI download, and delete actions.
+- **Sketch filter bar**: `SketchFilterBar` renders between `FilterBar` and `SampleTable` only when the loaded library contains sketches (`source_kind === "sketch"`). It reuses the existing Zustand `filters.search / .key / .type` fields and `applyFilters()` — no new store state. Key/type dropdowns are populated from unique values in the loaded sketch samples.
+- **Synth preview**: `SketchSynth` is a pure-browser Web Audio API synthesizer shown in `SketchResults` when notes are present. Signal chain per note: `OscillatorNode → per-note GainNode (ADSR, velocity-scaled peak) → shared BiquadFilterNode → shared master GainNode → AudioContext.destination`. AudioContext is created on Play and closed on Stop. Loop scheduling uses `setTimeout` gated on a `loopEnabledRef` to avoid stale-closure issues.
+- **Production packaging**: `setup.py` defines a custom `build_py` that runs `npm ci && npm run build` in `web/` and copies `web/dist/` → `sample_key_indexer/web_dist/` during `pip install .`. `web_app.py` checks `web_dist/` (bundled, regular install) before `web/dist/` (editable install) before `web_static/` (legacy). Editable installs still use `npm run dev` or `npm run build` manually.
 - **Tests**: Python tests in `tests/` use pytest and write real temp files (no mocking of the index). `test_audio_analysis.py` requires native audio libs and is excluded from CI. Frontend unit tests use Vitest + MSW. E2E tests mock all API responses via `page.route()` and auto-start the Vite dev server via Playwright's `webServer` config.
 
 ## Running
 
 ```bash
-# Install (editable)
+# Install — production (auto-builds frontend, bundles into package)
+pip install .
+
+# Install — editable/dev (frontend NOT auto-built; use npm run dev or npm run build separately)
 pip install -e .
 
 # Scan a directory and write an index
