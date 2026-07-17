@@ -9,13 +9,26 @@ description = "Local audio sample library key indexing and organisation tool."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "basic-pitch>=0.4.0",
-  "essentia>=2.1b6.dev1389",
   "librosa>=0.10.0",
-  "numpy>=1.23",
+  # numpy<2.0 required: librosa uses numba internally, and numba does not support numpy 2.x —
+  # upgrading causes segfaults or freezes on first analysis call (JIT compilation crashes).
+  "numpy>=1.23,<2.0",
   "pretty_midi>=0.2.10",
   "soundfile>=0.12",
   "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+# pip install "sample-key-indexer[essentia]"
+# Improves key detection quality (balanced/deep profiles). Not available on all platforms.
+essentia = ["essentia>=2.1b6.dev1110"]
+# pip install "sample-key-indexer[basic-pitch]"
+# Required for deep polyphonic note transcription (--deep-analysis routes only).
+basic-pitch = ["basic-pitch>=0.4.0"]
+# pip install "sample-key-indexer[full]"  — everything
+full = [
+  "sample-key-indexer[essentia]",
+  "sample-key-indexer[basic-pitch]",
 ]
 
 [project.scripts]

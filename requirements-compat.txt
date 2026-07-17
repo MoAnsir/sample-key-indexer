@@ -1,0 +1,41 @@
+# Compatibility pin set for Python 3.11 on older Intel Mac hardware (2015–2019 models).
+# Tested on macOS Ventura / Python 3.11.9.
+#
+# Install with:
+#   pip install -r requirements-compat.txt
+#   pip install -e .
+#
+# These pins resolve the most common issues on older machines:
+#   - numpy 2.x breaks numba (librosa JIT), causing analysis freezes or segfaults
+#   - newer numba/llvmlite require LLVM toolchain not present on older Xcode versions
+#   - essentia dev builds newer than ~1110 can fail to import on Intel macOS
+#
+# If you only need basic scanning (no essentia, no deep analysis):
+#   pip install -r requirements-compat.txt
+#   pip install -e .           # installs librosa, pretty_midi, soundfile, tqdm, numpy
+#
+# To also get essentia (better key detection):
+#   pip install -r requirements-compat.txt
+#   pip install -e ".[essentia]"
+#
+# To get everything including deep analysis (requires TensorFlow):
+#   pip install -r requirements-compat.txt
+#   pip install -e ".[full]"
+
+# --- Core numeric stack (order matters: numpy first, then numba/llvmlite) ---
+numpy==1.26.4
+numba==0.60.0
+llvmlite==0.43.0
+
+# --- Audio ---
+# librosa pulls numba; soundfile needs libsndfile (brew install libsndfile on macOS)
+librosa==0.10.2
+soundfile==0.12.1
+
+# --- Essentia (optional; omit this if essentia install fails) ---
+# Uncomment only if "pip install -e '.[essentia]'" didn't work cleanly.
+# essentia==2.1b6.dev1110
+
+# --- Everything else ---
+pretty_midi==0.2.10
+tqdm==4.66.5

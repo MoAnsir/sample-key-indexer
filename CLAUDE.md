@@ -107,10 +107,16 @@ Two independently runnable layers:
 
 ```bash
 # Install — production (auto-builds frontend, bundles into package)
-pip install .
+pip install .            # minimal (librosa + soundfile + pretty_midi + tqdm)
+pip install ".[essentia]"       # + essentia for better key detection
+pip install ".[full]"           # + essentia + basic-pitch for deep analysis
 
 # Install — editable/dev (frontend NOT auto-built; use npm run dev or npm run build separately)
 pip install -e .
+pip install -e ".[essentia]"    # same extras available with -e
+
+# Older Intel Mac (2015–2019)? Pin the numeric stack first to avoid numpy 2.x / numba crashes:
+pip install -r requirements-compat.txt && pip install -e .
 
 # Scan a directory and write an index
 sample-key-indexer /path/to/Samples --output /path/to/index/
