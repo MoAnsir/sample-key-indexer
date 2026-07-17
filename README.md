@@ -66,6 +66,16 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+This installs the minimal set (librosa, soundfile, pretty_midi, tqdm). Optional extras:
+
+```bash
+pip install -e ".[essentia]"      # add essentia for better key detection
+pip install -e ".[basic-pitch]"   # add basic-pitch for deep polyphonic note transcription
+pip install -e ".[full]"          # both of the above
+```
+
+> **Older Mac (Intel, 2015–2019)?** See the [Troubleshooting](#troubleshooting) section first — numpy 2.x causes analysis freezes on these machines. Install `requirements-compat.txt` before `pip install -e .`.
+
 ### External Dependencies
 
 These are not installable via pip and must be set up separately:
@@ -870,6 +880,40 @@ sample-key-indexer /any/path /any/output --doctor
 
 After fixing, delete the bad index or rerun with `--force`.
 
+### Older Mac (2015–2019 Intel) — install fails, analysis freezes, or segfaults
+
+The most common failure mode on older Intel hardware is a **numpy 2.x + numba incompatibility**. `pip install .` without a version pin can pull in numpy 2.x, which breaks numba (librosa's JIT layer). The symptom is analysis hanging for 30–60 seconds on the first file then crashing, or a silent segfault.
+
+The root cause is a **numpy/numba version mismatch**. numba versions before 0.61 do not support numpy 2.x — if pip installs an old numba alongside a new numpy (or vice versa), the first analysis call will hang for 30–60 seconds then segfault silently.
+
+On a newer machine (`pip install -e .`) this resolves automatically — pip picks numba ≥0.61 which handles any numpy. On an older Intel Mac, numba 0.61 may not have a pre-built wheel, so install fails. Use the compat pin set instead:
+
+```bash
+pip install -r requirements-compat.txt
+pip install -e .
+```
+
+If you also want essentia (better key detection):
+
+```bash
+pip install -e ".[essentia]"
+```
+
+Deep analysis (basic-pitch / TensorFlow) is heavy. Omit it on older hardware. If you already have a broken install, clean the numeric stack first:
+
+```bash
+pip uninstall numpy numba llvmlite -y
+pip install -r requirements-compat.txt
+```
+
+Then re-run `--doctor` to confirm the stack is clean.
+
+For scanning, use `--analysis-profile fast` (librosa only, no essentia) to reduce memory and CPU load on slower machines. The difference in key detection quality is minor for clearly tonal samples.
+
+```bash
+sample-key-indexer /path/to/Samples /path/to/Output --analysis-profile fast
+```
+
 ### Worker crashes / segfault on every file (`Worker crashes: N files`)
 
 If analysis crashes on nearly every file (visible as repeated `Warning: worker crashed while analyzing ...` lines), this is usually a `numba`/`numpy` version mismatch causing a native segfault inside `librosa.yin()`, not a code bug. Pin known-compatible versions:
@@ -951,4 +995,4 @@ python -m sample_key_indexer.review_report /path/to/metadata_index.sqlite
 
 For detailed per-version notes, see [CHANGELOG.md](CHANGELOG.md).
 
-For the full command reference, see [docs/COMMAND_CHEATSHEET.md](docs/COMMAND_CHEATSHEET.md). For project context and architecture, see [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md).
+For the full command reference, see [docs/COMMAND_CHEATSHEET.md](docs/COMMAND_CHEATSHEET.md). For project context and architecture, see [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md). For a step-by-step user walkthrough (scanning, sketches, synth, arrangement, cross-match), see [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md).

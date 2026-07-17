@@ -47,6 +47,24 @@ def validate_audio_backend(engines: tuple[str, ...] | None = None) -> list[str]:
 
     _ = (lzma, librosa, numpy, soundfile)
     warnings: list[str] = []
+
+    # Check for numpy/numba version mismatch. numba <0.61 does not support numpy 2.x and
+    # will segfault or freeze for 30-60s on first analysis call. numba 0.61+ supports both.
+    numpy_major = int(numpy.__version__.split(".")[0])
+    if numpy_major >= 2:
+        try:
+            import numba
+            numba_ver = tuple(int(x) for x in numba.__version__.split(".")[:2])
+            if numba_ver < (0, 61):
+                warnings.append(
+                    f"numpy {numpy.__version__} + numba {numba.__version__} mismatch: "
+                    "numba <0.61 does not support numpy 2.x and will cause analysis freezes "
+                    "or segfaults. Fix: pip install 'numba>=0.61.0' or use requirements-compat.txt "
+                    "to pin to a tested older stack."
+                )
+        except ImportError:
+            pass
+
     for engine in engines or ("librosa",):
         if engine == "essentia" and not _essentia_available():
             warnings.append("Essentia is not installed; V2 will keep using librosa-only decisions for now.")

@@ -223,6 +223,14 @@ export default function App() {
         </div>
       </header>
 
+      {/* Scan wizard — rendered outside sketch conditional so it works from any view */}
+      {showScanWizard && (
+        <ScanWizard
+          onClose={() => setShowScanWizard(false)}
+          onComplete={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
+        />
+      )}
+
       {/* Sketch page replaces the main content while open */}
       {showSketchWizard ? (
         <ErrorBoundary>
@@ -243,14 +251,6 @@ export default function App() {
               onRefresh={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
             />
           </ErrorBoundary>
-
-          {/* Scan wizard */}
-          {showScanWizard && (
-            <ScanWizard
-              onClose={() => setShowScanWizard(false)}
-              onComplete={() => queryClient.invalidateQueries({ queryKey: ["catalog"] })}
-            />
-          )}
 
           {/* Sample detail slide-over */}
           <SampleDetailPanel />
