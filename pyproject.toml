@@ -10,9 +10,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "librosa>=0.10.0",
-  # numpy<2.0 required: librosa uses numba internally, and numba does not support numpy 2.x —
-  # upgrading causes segfaults or freezes on first analysis call (JIT compilation crashes).
-  "numpy>=1.23,<2.0",
+  "numpy>=1.23",
+  # numba 0.61+ is the first release that supports numpy 2.x — pinning this floor ensures
+  # pip always installs a numba/numpy pairing that works. Older machines that can't install
+  # numba 0.61 (no llvmlite wheel) should use requirements-compat.txt instead.
+  "numba>=0.61.0",
   "pretty_midi>=0.2.10",
   "soundfile>=0.12",
   "tqdm>=4.66",

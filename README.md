@@ -884,24 +884,26 @@ After fixing, delete the bad index or rerun with `--force`.
 
 The most common failure mode on older Intel hardware is a **numpy 2.x + numba incompatibility**. `pip install .` without a version pin can pull in numpy 2.x, which breaks numba (librosa's JIT layer). The symptom is analysis hanging for 30–60 seconds on the first file then crashing, or a silent segfault.
 
-Fix with a known-good pin set:
+The root cause is a **numpy/numba version mismatch**. numba versions before 0.61 do not support numpy 2.x — if pip installs an old numba alongside a new numpy (or vice versa), the first analysis call will hang for 30–60 seconds then segfault silently.
+
+On a newer machine (`pip install -e .`) this resolves automatically — pip picks numba ≥0.61 which handles any numpy. On an older Intel Mac, numba 0.61 may not have a pre-built wheel, so install fails. Use the compat pin set instead:
 
 ```bash
 pip install -r requirements-compat.txt
 pip install -e .
 ```
 
-If you also want essentia (better key detection) and the install above worked cleanly:
+If you also want essentia (better key detection):
 
 ```bash
 pip install -e ".[essentia]"
 ```
 
-Deep analysis (basic-pitch / TensorFlow) is heavy and optional. Omit it on older hardware. If you previously had a broken install:
+Deep analysis (basic-pitch / TensorFlow) is heavy. Omit it on older hardware. If you already have a broken install, clean the numeric stack first:
 
 ```bash
 pip uninstall numpy numba llvmlite -y
-pip install 'numpy==1.26.4' 'numba==0.60.0' 'llvmlite==0.43.0'
+pip install -r requirements-compat.txt
 ```
 
 Then re-run `--doctor` to confirm the stack is clean.
